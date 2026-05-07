@@ -11,6 +11,14 @@ from sam.text import extract_keywords, stable_id
 
 
 DATASET_REFERENCES = {
+    "hotpotqa_real": {
+        "name": "HotpotQA dev distractor",
+        "homepage": "https://hotpotqa.github.io/",
+        "download_url": "http://curtis.ml.cmu.edu/datasets/hotpot/hotpot_dev_distractor_v1.json",
+        "paper": "https://arxiv.org/abs/1809.09600",
+        "license": "CC BY-SA 4.0",
+        "note": "公开多跳问答数据集，提供 paragraph context 和 sentence-level supporting facts。",
+    },
     "multihop_rag": {
         "name": "MultiHop-RAG",
         "homepage": "https://github.com/yixuantt/MultiHop-RAG",
@@ -27,6 +35,128 @@ DATASET_REFERENCES = {
         "note": "通过单跳问题组合构造的多跳问答数据集。",
     },
 }
+
+
+def download_hotpotqa_dev(raw_path: str | Path) -> Path:
+    """从 HotpotQA 官方地址下载 dev distractor 数据。
+
+    数据文件较大，默认保存到 data/raw；该目录被 gitignore 排除。
+    """
+
+    target = Path(raw_path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    if target.exists() and target.stat().st_size > 1_000_000:
+        return target
+    url = DATASET_REFERENCES["hotpotqa_real"]["download_url"]
+    with urllib.request.urlopen(url, timeout=120) as response:
+        target.write_bytes(response.read())
+    return target
+
+
+def load_hotpotqa_real_sample(
+    raw_path: str | Path,
+    sample_size: int = 8,
+    max_scan: int = 800,
+) -> tuple[list[DatasetDocument], list[EvaluationQuery], dict[str, Any]]:
+    """从真实 HotpotQA dev distractor 中抽取一小批桥接型样本。
+
+    抽样原则写入 manifest：优先选择 supporting paragraph 之间存在标题提及的样本。
+    这类样本最适合检验“先命中一跳证据，再沿语义边补回另一跳证据”。
+    """
+
+    raw_data = json.loads(Path(raw_path).read_text(encoding="utf-8"))
+    documents: list[DatasetDocument] = []
+    queries: list[EvaluationQuery] = []
+    selected: list[dict[str, Any]] = []
+
+    for index, item in enumerate(raw_data[:max_scan]):
+        support_titles = list(dict.fromkeys(title for title, _ in item["supporting_facts"]))
+        if len(support_titles) < 2:
+            continue
+        title_to_sentences = {title: sentences for title, sentences in item["context"]}
+        if any(title not in title_to_sentences for title in support_titles):
+            continue
+
+        support_text = {
+            title: " ".join(title_to_sentences[title])
+            for title in support_titles
+        }
+        has_bridge_mention = any(
+            other_title.lower() in text.lower()
+            for title, text in support_text.items()
+            for other_title in support_titles
+            if other_title != title
+        )
+        if not has_bridge_mention:
+            continue
+
+        query_id = f"hotpotqa_{item['_id']}"
+        candidate_doc_ids: list[str] = []
+        supporting_doc_ids: list[str] = []
+        for paragraph_index, (title, sentences) in enumerate(item["context"]):
+            doc_id = f"{query_id}_doc_{paragraph_index}"
+            candidate_doc_ids.append(doc_id)
+            if title in support_titles:
+                supporting_doc_ids.append(doc_id)
+            text = " ".join(sentences)
+            entities = _extract_title_entities(title, text, [context_title for context_title, _ in item["context"]])
+            documents.append(
+                DatasetDocument(
+                    id=doc_id,
+                    dataset="hotpotqa_real",
+                    title=title,
+                    text=text,
+                    source="HotpotQA dev distractor",
+                    tags=["hotpotqa_real", item.get("type", "unknown"), item.get("level", "unknown")],
+                    keywords=extract_keywords(f"{title} {text}", limit=10),
+                    metadata={
+                        "query_id": query_id,
+                        "title": title,
+                        "entities": entities,
+                        "hotpotqa_id": item["_id"],
+                        "paragraph_index": paragraph_index,
+                        "dataset_reference": DATASET_REFERENCES["hotpotqa_real"],
+                        "is_supporting": title in support_titles,
+                    },
+                )
+            )
+        queries.append(
+            EvaluationQuery(
+                id=query_id,
+                dataset="hotpotqa_real",
+                question=item["question"],
+                answer=item["answer"],
+                supporting_doc_ids=supporting_doc_ids,
+                candidate_doc_ids=candidate_doc_ids,
+            )
+        )
+        selected.append(
+            {
+                "index": index,
+                "hotpotqa_id": item["_id"],
+                "question": item["question"],
+                "answer": item["answer"],
+                "type": item.get("type"),
+                "level": item.get("level"),
+                "support_titles": support_titles,
+                "candidate_count": len(candidate_doc_ids),
+                "selection_reason": "supporting paragraphs mention each other's titles, suitable for bridge-style graph expansion",
+            }
+        )
+        if len(queries) >= sample_size:
+            break
+
+    if not queries:
+        raise ValueError("未能从 HotpotQA 中抽取到符合条件的样本，请增大 max_scan")
+
+    manifest = {
+        "dataset": DATASET_REFERENCES["hotpotqa_real"],
+        "raw_path": str(raw_path),
+        "sample_size": len(queries),
+        "max_scan": max_scan,
+        "selected_examples": selected,
+    }
+    return documents, queries, manifest
 
 
 def load_builtin_benchmark_sample() -> tuple[list[DatasetDocument], list[EvaluationQuery]]:
@@ -238,3 +368,12 @@ def write_dataset_manifest(path: str | Path) -> None:
     target = Path(path)
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(json.dumps(DATASET_REFERENCES, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def _extract_title_entities(title: str, text: str, all_titles: list[str]) -> list[str]:
+    entities = {title}
+    lowered = text.lower()
+    for candidate in all_titles:
+        if candidate != title and candidate.lower() in lowered:
+            entities.add(candidate)
+    return sorted(entities)

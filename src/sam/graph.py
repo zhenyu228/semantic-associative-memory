@@ -7,6 +7,31 @@ from sam.store import MemoryStore
 from sam.text import cosine_similarity
 
 
+GENERIC_EDGE_KEYWORDS = {
+    "film",
+    "american",
+    "british",
+    "directed",
+    "drama",
+    "comedy",
+    "series",
+    "book",
+    "books",
+    "novel",
+    "music",
+    "album",
+    "football",
+    "team",
+    "home",
+    "they",
+    "their",
+    "known",
+    "based",
+    "people",
+    "city",
+}
+
+
 class GraphBuilder:
     """按需构建语义边，避免在写入阶段进行全量建图。"""
 
@@ -14,7 +39,7 @@ class GraphBuilder:
         self,
         store: MemoryStore,
         similarity_threshold: float = 0.18,
-        keyword_overlap_threshold: int = 1,
+        keyword_overlap_threshold: int = 2,
     ) -> None:
         self.store = store
         self.similarity_threshold = similarity_threshold
@@ -85,7 +110,9 @@ class GraphBuilder:
         return created
 
     def _maybe_create_edge(self, seed: MemoryNode, other: MemoryNode) -> MemoryEdge | None:
-        keyword_overlap = sorted(set(seed.keywords) & set(other.keywords))
+        keyword_overlap = sorted(
+            (set(seed.keywords) & set(other.keywords)) - GENERIC_EDGE_KEYWORDS
+        )
         shared_entities = sorted(
             set(seed.metadata.get("entities", [])) & set(other.metadata.get("entities", []))
         )

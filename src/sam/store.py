@@ -177,6 +177,10 @@ class MemoryStore:
         ).fetchall()
         return [self._row_to_edge(row) for row in rows]
 
+    def get_edges(self) -> list[MemoryEdge]:
+        rows = self.connection.execute("SELECT * FROM memory_edges").fetchall()
+        return [self._row_to_edge(row) for row in rows]
+
     def log_retrieval(
         self,
         query: str,
@@ -225,4 +229,3 @@ class MemoryStore:
             updated_at=row["updated_at"],
             metadata=json.loads(row["metadata"]),
         )
-

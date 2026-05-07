@@ -1,77 +1,133 @@
 {
-  "dataset_count": 3,
-  "query_count": 3,
-  "vector_recall": 0.6666666666666666,
-  "associative_recall": 1.0,
-  "vector_support_hits": 4,
-  "associative_support_hits": 6,
+  "dataset_count": 1,
+  "query_count": 8,
+  "document_count": 80,
+  "total_supporting_evidence": 16,
+  "vector_recall": 0.5,
+  "associative_recall": 0.625,
+  "vector_support_hits": 8,
+  "associative_support_hits": 10,
   "associative_gain": 2,
-  "average_path_length": 1.5,
+  "average_path_length": 1.75,
   "cases": [
     {
-      "query_id": "mh_local_001",
-      "dataset": "multihop_rag",
-      "question": "Which city hosts the university where the researcher who introduced Graphiti-style temporal memory studied?",
-      "answer": "Shanghai",
+      "query_id": "hotpotqa_5a8c7595554299585d9e36b6",
+      "dataset": "hotpotqa_real",
+      "question": "What government position was held by the woman who portrayed Corliss Archer in the film Kiss and Tell?",
+      "answer": "Chief of Protocol",
       "supporting_doc_ids": [
-        "mh_local_001_doc_a",
-        "mh_local_001_doc_b"
+        "hotpotqa_5a8c7595554299585d9e36b6_doc_1",
+        "hotpotqa_5a8c7595554299585d9e36b6_doc_6"
       ],
       "vector": [
         {
-          "node_id": "mem_aba740843626fd60",
-          "original_doc_id": "mh_local_001_doc_a",
-          "title": "Temporal memory researcher profile",
-          "is_supporting": true,
-          "score": 0.555,
-          "similarity_score": 0.5206,
+          "node_id": "mem_9f7764d494133890",
+          "original_doc_id": "hotpotqa_5a8c7595554299585d9e36b6_doc_5",
+          "title": "A Kiss for Corliss",
+          "is_supporting": false,
+          "score": 0.446,
+          "similarity_score": 0.4116,
           "graph_score": 0.0,
           "path": [
-            "mem_aba740843626fd60"
+            "mem_9f7764d494133890"
           ],
-          "reason": "向量相似度=0.521"
+          "reason": "向量相似度=0.412"
         },
         {
-          "node_id": "mem_d48b9fb112886778",
-          "original_doc_id": "mh_local_001_doc_c",
-          "title": "Temporal databases overview",
-          "is_supporting": false,
-          "score": 0.2526,
-          "similarity_score": 0.2182,
+          "node_id": "mem_adb30998bce56b07",
+          "original_doc_id": "hotpotqa_5a8c7595554299585d9e36b6_doc_6",
+          "title": "Kiss and Tell (1945 film)",
+          "is_supporting": true,
+          "score": 0.3787,
+          "similarity_score": 0.3443,
           "graph_score": 0.0,
           "path": [
-            "mem_d48b9fb112886778"
+            "mem_adb30998bce56b07"
           ],
-          "reason": "向量相似度=0.218"
+          "reason": "向量相似度=0.344"
+        },
+        {
+          "node_id": "mem_c81341af11a17181",
+          "original_doc_id": "hotpotqa_5a8c7595554299585d9e36b6_doc_4",
+          "title": "Lord High Treasurer",
+          "is_supporting": false,
+          "score": 0.208,
+          "similarity_score": 0.1736,
+          "graph_score": 0.0,
+          "path": [
+            "mem_c81341af11a17181"
+          ],
+          "reason": "向量相似度=0.174"
+        },
+        {
+          "node_id": "mem_7697eee384354e3c",
+          "original_doc_id": "hotpotqa_5a8c7595554299585d9e36b6_doc_0",
+          "title": "Meet Corliss Archer",
+          "is_supporting": false,
+          "score": 0.1977,
+          "similarity_score": 0.1633,
+          "graph_score": 0.0,
+          "path": [
+            "mem_7697eee384354e3c"
+          ],
+          "reason": "向量相似度=0.163"
         }
       ],
       "associative": [
         {
-          "node_id": "mem_aba740843626fd60",
-          "original_doc_id": "mh_local_001_doc_a",
-          "title": "Temporal memory researcher profile",
-          "is_supporting": true,
-          "score": 0.3772,
-          "similarity_score": 0.5206,
+          "node_id": "mem_9f7764d494133890",
+          "original_doc_id": "hotpotqa_5a8c7595554299585d9e36b6_doc_5",
+          "title": "A Kiss for Corliss",
+          "is_supporting": false,
+          "score": 0.3343,
+          "similarity_score": 0.4116,
           "graph_score": 0.0,
           "path": [
-            "mem_aba740843626fd60"
+            "mem_9f7764d494133890"
           ],
           "reason": "向量种子节点"
         },
         {
-          "node_id": "mem_6047c3838453ab12",
-          "original_doc_id": "mh_local_001_doc_b",
-          "title": "Fudan University location",
+          "node_id": "mem_adb30998bce56b07",
+          "original_doc_id": "hotpotqa_5a8c7595554299585d9e36b6_doc_6",
+          "title": "Kiss and Tell (1945 film)",
           "is_supporting": true,
-          "score": 0.3536,
-          "similarity_score": 0.169,
+          "score": 0.4493,
+          "similarity_score": 0.3443,
           "graph_score": 0.67,
           "path": [
-            "mem_aba740843626fd60",
-            "mem_6047c3838453ab12"
+            "mem_9f7764d494133890",
+            "mem_adb30998bce56b07"
           ],
-          "reason": "向量种子节点 -> shared_entity(共享实体：Fudan University)"
+          "reason": "向量种子节点 -> shared_entity(共享实体：Shirley Temple)"
+        },
+        {
+          "node_id": "mem_370b7d4347cb0f81",
+          "original_doc_id": "hotpotqa_5a8c7595554299585d9e36b6_doc_1",
+          "title": "Shirley Temple",
+          "is_supporting": true,
+          "score": 0.2269,
+          "similarity_score": 0.0466,
+          "graph_score": 0.67,
+          "path": [
+            "mem_9f7764d494133890",
+            "mem_370b7d4347cb0f81"
+          ],
+          "reason": "向量种子节点 -> shared_entity(共享实体：Shirley Temple)"
+        },
+        {
+          "node_id": "mem_b63c9f3723ed1280",
+          "original_doc_id": "hotpotqa_5a8c7595554299585d9e36b6_doc_9",
+          "title": "Charles Craft",
+          "is_supporting": false,
+          "score": 0.1995,
+          "similarity_score": 0.1513,
+          "graph_score": 0.2594,
+          "path": [
+            "mem_9f7764d494133890",
+            "mem_b63c9f3723ed1280"
+          ],
+          "reason": "向量种子节点 -> embedding_similarity(语义相似度达到阈值：0.259)"
         }
       ],
       "vector_support_hits": 1,
@@ -79,69 +135,495 @@
       "gain": 1
     },
     {
-      "query_id": "mh_local_002",
-      "dataset": "musique",
-      "question": "What ability is evaluated by the benchmark associated with the dataset composed from single-hop questions?",
-      "answer": "multi-hop reasoning",
+      "query_id": "hotpotqa_5a85ea095542994775f606a8",
+      "dataset": "hotpotqa_real",
+      "question": "What science fantasy young adult series, told in first person, has a set of companion books narrating the stories of enslaved worlds and alien species?",
+      "answer": "Animorphs",
       "supporting_doc_ids": [
-        "mh_local_002_doc_a",
-        "mh_local_002_doc_b"
+        "hotpotqa_5a85ea095542994775f606a8_doc_2",
+        "hotpotqa_5a85ea095542994775f606a8_doc_8"
       ],
       "vector": [
         {
-          "node_id": "mem_b420db98c20a7e2b",
-          "original_doc_id": "mh_local_002_doc_a",
-          "title": "MuSiQue construction",
+          "node_id": "mem_72009a704fd2cc0a",
+          "original_doc_id": "hotpotqa_5a85ea095542994775f606a8_doc_8",
+          "title": "Animorphs",
           "is_supporting": true,
-          "score": 0.3017,
-          "similarity_score": 0.2673,
+          "score": 0.4476,
+          "similarity_score": 0.4132,
           "graph_score": 0.0,
           "path": [
-            "mem_b420db98c20a7e2b"
+            "mem_72009a704fd2cc0a"
           ],
-          "reason": "向量相似度=0.267"
+          "reason": "向量相似度=0.413"
         },
         {
-          "node_id": "mem_dd692f6ef91b1aa6",
-          "original_doc_id": "mh_local_002_doc_b",
-          "title": "Multi-hop reasoning benchmark",
-          "is_supporting": true,
-          "score": 0.1977,
-          "similarity_score": 0.1633,
+          "node_id": "mem_e19df01c6024a4d1",
+          "original_doc_id": "hotpotqa_5a85ea095542994775f606a8_doc_1",
+          "title": "Victoria Hanley",
+          "is_supporting": false,
+          "score": 0.3449,
+          "similarity_score": 0.3105,
           "graph_score": 0.0,
           "path": [
-            "mem_dd692f6ef91b1aa6"
+            "mem_e19df01c6024a4d1"
           ],
-          "reason": "向量相似度=0.163"
+          "reason": "向量相似度=0.310"
+        },
+        {
+          "node_id": "mem_cc891bfccc0690a5",
+          "original_doc_id": "hotpotqa_5a85ea095542994775f606a8_doc_9",
+          "title": "Etiquette &amp; Espionage",
+          "is_supporting": false,
+          "score": 0.3289,
+          "similarity_score": 0.2945,
+          "graph_score": 0.0,
+          "path": [
+            "mem_cc891bfccc0690a5"
+          ],
+          "reason": "向量相似度=0.294"
+        },
+        {
+          "node_id": "mem_162119eecfdf2adf",
+          "original_doc_id": "hotpotqa_5a85ea095542994775f606a8_doc_4",
+          "title": "Left Behind: The Kids",
+          "is_supporting": false,
+          "score": 0.313,
+          "similarity_score": 0.2786,
+          "graph_score": 0.0,
+          "path": [
+            "mem_162119eecfdf2adf"
+          ],
+          "reason": "向量相似度=0.279"
         }
       ],
       "associative": [
         {
-          "node_id": "mem_dd692f6ef91b1aa6",
-          "original_doc_id": "mh_local_002_doc_b",
-          "title": "Multi-hop reasoning benchmark",
+          "node_id": "mem_72009a704fd2cc0a",
+          "original_doc_id": "hotpotqa_5a85ea095542994775f606a8_doc_8",
+          "title": "Animorphs",
           "is_supporting": true,
-          "score": 0.37,
-          "similarity_score": 0.1633,
-          "graph_score": 0.67,
-          "path": [
-            "mem_b420db98c20a7e2b",
-            "mem_dd692f6ef91b1aa6"
-          ],
-          "reason": "向量种子节点 -> shared_entity(共享实体：multi-hop reasoning)"
-        },
-        {
-          "node_id": "mem_b420db98c20a7e2b",
-          "original_doc_id": "mh_local_002_doc_a",
-          "title": "MuSiQue construction",
-          "is_supporting": true,
-          "score": 0.2201,
-          "similarity_score": 0.2673,
+          "score": 0.3354,
+          "similarity_score": 0.4132,
           "graph_score": 0.0,
           "path": [
-            "mem_b420db98c20a7e2b"
+            "mem_72009a704fd2cc0a"
           ],
           "reason": "向量种子节点"
+        },
+        {
+          "node_id": "mem_e19df01c6024a4d1",
+          "original_doc_id": "hotpotqa_5a85ea095542994775f606a8_doc_1",
+          "title": "Victoria Hanley",
+          "is_supporting": false,
+          "score": 0.3879,
+          "similarity_score": 0.3105,
+          "graph_score": 0.51,
+          "path": [
+            "mem_72009a704fd2cc0a",
+            "mem_e19df01c6024a4d1"
+          ],
+          "reason": "向量种子节点 -> keyword_overlap(关键词重叠：adult, young)"
+        },
+        {
+          "node_id": "mem_6d22c4d45f4f056d",
+          "original_doc_id": "hotpotqa_5a85ea095542994775f606a8_doc_0",
+          "title": "Andre Norton Award",
+          "is_supporting": false,
+          "score": 0.3773,
+          "similarity_score": 0.2678,
+          "graph_score": 0.67,
+          "path": [
+            "mem_72009a704fd2cc0a",
+            "mem_6d22c4d45f4f056d"
+          ],
+          "reason": "向量种子节点 -> keyword_overlap(关键词重叠：adult, fantasy, science, young)"
+        },
+        {
+          "node_id": "mem_cc891bfccc0690a5",
+          "original_doc_id": "hotpotqa_5a85ea095542994775f606a8_doc_9",
+          "title": "Etiquette &amp; Espionage",
+          "is_supporting": false,
+          "score": 0.377,
+          "similarity_score": 0.2945,
+          "graph_score": 0.51,
+          "path": [
+            "mem_72009a704fd2cc0a",
+            "mem_cc891bfccc0690a5"
+          ],
+          "reason": "向量种子节点 -> keyword_overlap(关键词重叠：adult, young)"
+        }
+      ],
+      "vector_support_hits": 1,
+      "associative_support_hits": 1,
+      "gain": 0
+    },
+    {
+      "query_id": "hotpotqa_5a8e3ea95542995a26add48d",
+      "dataset": "hotpotqa_real",
+      "question": "The director of the romantic comedy \"Big Stone Gap\" is based in what New York city?",
+      "answer": "Greenwich Village, New York City",
+      "supporting_doc_ids": [
+        "hotpotqa_5a8e3ea95542995a26add48d_doc_3",
+        "hotpotqa_5a8e3ea95542995a26add48d_doc_9"
+      ],
+      "vector": [
+        {
+          "node_id": "mem_3ede339a42fdd773",
+          "original_doc_id": "hotpotqa_5a8e3ea95542995a26add48d_doc_9",
+          "title": "Big Stone Gap (film)",
+          "is_supporting": true,
+          "score": 0.4697,
+          "similarity_score": 0.4353,
+          "graph_score": 0.0,
+          "path": [
+            "mem_3ede339a42fdd773"
+          ],
+          "reason": "向量相似度=0.435"
+        },
+        {
+          "node_id": "mem_02223dfe801f5e84",
+          "original_doc_id": "hotpotqa_5a8e3ea95542995a26add48d_doc_0",
+          "title": "Just Another Romantic Wrestling Comedy",
+          "is_supporting": false,
+          "score": 0.4537,
+          "similarity_score": 0.4193,
+          "graph_score": 0.0,
+          "path": [
+            "mem_02223dfe801f5e84"
+          ],
+          "reason": "向量相似度=0.419"
+        },
+        {
+          "node_id": "mem_28b5e8e4b3772366",
+          "original_doc_id": "hotpotqa_5a8e3ea95542995a26add48d_doc_2",
+          "title": "Nola (film)",
+          "is_supporting": false,
+          "score": 0.4034,
+          "similarity_score": 0.369,
+          "graph_score": 0.0,
+          "path": [
+            "mem_28b5e8e4b3772366"
+          ],
+          "reason": "向量相似度=0.369"
+        },
+        {
+          "node_id": "mem_b83f975c32430a1e",
+          "original_doc_id": "hotpotqa_5a8e3ea95542995a26add48d_doc_6",
+          "title": "Clinton, Minnesota",
+          "is_supporting": false,
+          "score": 0.3647,
+          "similarity_score": 0.3303,
+          "graph_score": 0.0,
+          "path": [
+            "mem_b83f975c32430a1e"
+          ],
+          "reason": "向量相似度=0.330"
+        }
+      ],
+      "associative": [
+        {
+          "node_id": "mem_3ede339a42fdd773",
+          "original_doc_id": "hotpotqa_5a8e3ea95542995a26add48d_doc_9",
+          "title": "Big Stone Gap (film)",
+          "is_supporting": true,
+          "score": 0.3504,
+          "similarity_score": 0.4353,
+          "graph_score": 0.0,
+          "path": [
+            "mem_3ede339a42fdd773"
+          ],
+          "reason": "向量种子节点"
+        },
+        {
+          "node_id": "mem_02223dfe801f5e84",
+          "original_doc_id": "hotpotqa_5a8e3ea95542995a26add48d_doc_0",
+          "title": "Just Another Romantic Wrestling Comedy",
+          "is_supporting": false,
+          "score": 0.4028,
+          "similarity_score": 0.4193,
+          "graph_score": 0.2636,
+          "path": [
+            "mem_3ede339a42fdd773",
+            "mem_02223dfe801f5e84"
+          ],
+          "reason": "向量种子节点 -> embedding_similarity(语义相似度达到阈值：0.264)"
+        },
+        {
+          "node_id": "mem_b83f975c32430a1e",
+          "original_doc_id": "hotpotqa_5a8e3ea95542995a26add48d_doc_6",
+          "title": "Clinton, Minnesota",
+          "is_supporting": false,
+          "score": 0.4014,
+          "similarity_score": 0.3303,
+          "graph_score": 0.51,
+          "path": [
+            "mem_3ede339a42fdd773",
+            "mem_b83f975c32430a1e"
+          ],
+          "reason": "向量种子节点 -> keyword_overlap(关键词重叠：big, stone)"
+        },
+        {
+          "node_id": "mem_36dabff8cb904650",
+          "original_doc_id": "hotpotqa_5a8e3ea95542995a26add48d_doc_3",
+          "title": "Adriana Trigiani",
+          "is_supporting": true,
+          "score": 0.3744,
+          "similarity_score": 0.2635,
+          "graph_score": 0.67,
+          "path": [
+            "mem_3ede339a42fdd773",
+            "mem_36dabff8cb904650"
+          ],
+          "reason": "向量种子节点 -> shared_entity(共享实体：Adriana Trigiani)"
+        }
+      ],
+      "vector_support_hits": 1,
+      "associative_support_hits": 2,
+      "gain": 1
+    },
+    {
+      "query_id": "hotpotqa_5a87ab905542996e4f3088c1",
+      "dataset": "hotpotqa_real",
+      "question": "The arena where the Lewiston Maineiacs played their home games can seat how many people?",
+      "answer": "3,677 seated",
+      "supporting_doc_ids": [
+        "hotpotqa_5a87ab905542996e4f3088c1_doc_5",
+        "hotpotqa_5a87ab905542996e4f3088c1_doc_7"
+      ],
+      "vector": [
+        {
+          "node_id": "mem_4ceae82d95b7f531",
+          "original_doc_id": "hotpotqa_5a87ab905542996e4f3088c1_doc_0",
+          "title": "Billings Bulls",
+          "is_supporting": false,
+          "score": 0.4101,
+          "similarity_score": 0.3757,
+          "graph_score": 0.0,
+          "path": [
+            "mem_4ceae82d95b7f531"
+          ],
+          "reason": "向量相似度=0.376"
+        },
+        {
+          "node_id": "mem_a9e78f51bbf34d88",
+          "original_doc_id": "hotpotqa_5a87ab905542996e4f3088c1_doc_8",
+          "title": "Dwyer Arena",
+          "is_supporting": false,
+          "score": 0.3948,
+          "similarity_score": 0.3604,
+          "graph_score": 0.0,
+          "path": [
+            "mem_a9e78f51bbf34d88"
+          ],
+          "reason": "向量相似度=0.360"
+        },
+        {
+          "node_id": "mem_6b885c37ddbd517b",
+          "original_doc_id": "hotpotqa_5a87ab905542996e4f3088c1_doc_7",
+          "title": "Lewiston Maineiacs",
+          "is_supporting": true,
+          "score": 0.3444,
+          "similarity_score": 0.31,
+          "graph_score": 0.0,
+          "path": [
+            "mem_6b885c37ddbd517b"
+          ],
+          "reason": "向量相似度=0.310"
+        },
+        {
+          "node_id": "mem_f74767a19e693588",
+          "original_doc_id": "hotpotqa_5a87ab905542996e4f3088c1_doc_4",
+          "title": "Case Gym",
+          "is_supporting": false,
+          "score": 0.2908,
+          "similarity_score": 0.2564,
+          "graph_score": 0.0,
+          "path": [
+            "mem_f74767a19e693588"
+          ],
+          "reason": "向量相似度=0.256"
+        }
+      ],
+      "associative": [
+        {
+          "node_id": "mem_4ceae82d95b7f531",
+          "original_doc_id": "hotpotqa_5a87ab905542996e4f3088c1_doc_0",
+          "title": "Billings Bulls",
+          "is_supporting": false,
+          "score": 0.3099,
+          "similarity_score": 0.3757,
+          "graph_score": 0.0,
+          "path": [
+            "mem_4ceae82d95b7f531"
+          ],
+          "reason": "向量种子节点"
+        },
+        {
+          "node_id": "mem_a9e78f51bbf34d88",
+          "original_doc_id": "hotpotqa_5a87ab905542996e4f3088c1_doc_8",
+          "title": "Dwyer Arena",
+          "is_supporting": false,
+          "score": 0.4411,
+          "similarity_score": 0.3604,
+          "graph_score": 0.59,
+          "path": [
+            "mem_4ceae82d95b7f531",
+            "mem_a9e78f51bbf34d88"
+          ],
+          "reason": "向量种子节点 -> keyword_overlap(关键词重叠：arena, hockey, ice)"
+        },
+        {
+          "node_id": "mem_6b885c37ddbd517b",
+          "original_doc_id": "hotpotqa_5a87ab905542996e4f3088c1_doc_7",
+          "title": "Lewiston Maineiacs",
+          "is_supporting": true,
+          "score": 0.4068,
+          "similarity_score": 0.31,
+          "graph_score": 0.59,
+          "path": [
+            "mem_4ceae82d95b7f531",
+            "mem_6b885c37ddbd517b"
+          ],
+          "reason": "向量种子节点 -> keyword_overlap(关键词重叠：hockey, ice, junior)"
+        },
+        {
+          "node_id": "mem_f74767a19e693588",
+          "original_doc_id": "hotpotqa_5a87ab905542996e4f3088c1_doc_4",
+          "title": "Case Gym",
+          "is_supporting": false,
+          "score": 0.3704,
+          "similarity_score": 0.2564,
+          "graph_score": 0.59,
+          "path": [
+            "mem_4ceae82d95b7f531",
+            "mem_f74767a19e693588"
+          ],
+          "reason": "向量种子节点 -> keyword_overlap(关键词重叠：arena, games, played)"
+        }
+      ],
+      "vector_support_hits": 1,
+      "associative_support_hits": 1,
+      "gain": 0
+    },
+    {
+      "query_id": "hotpotqa_5a7bbb64554299042af8f7cc",
+      "dataset": "hotpotqa_real",
+      "question": "Who is older, Annie Morton or Terry Richardson?",
+      "answer": "Terry Richardson",
+      "supporting_doc_ids": [
+        "hotpotqa_5a7bbb64554299042af8f7cc_doc_0",
+        "hotpotqa_5a7bbb64554299042af8f7cc_doc_2"
+      ],
+      "vector": [
+        {
+          "node_id": "mem_7f496efdb1d7f3b5",
+          "original_doc_id": "hotpotqa_5a7bbb64554299042af8f7cc_doc_0",
+          "title": "Annie Morton",
+          "is_supporting": true,
+          "score": 0.4222,
+          "similarity_score": 0.3878,
+          "graph_score": 0.0,
+          "path": [
+            "mem_7f496efdb1d7f3b5"
+          ],
+          "reason": "向量相似度=0.388"
+        },
+        {
+          "node_id": "mem_93518e8c9d6185ca",
+          "original_doc_id": "hotpotqa_5a7bbb64554299042af8f7cc_doc_3",
+          "title": "Lady Gaga x Terry Richardson",
+          "is_supporting": false,
+          "score": 0.3835,
+          "similarity_score": 0.3491,
+          "graph_score": 0.0,
+          "path": [
+            "mem_93518e8c9d6185ca"
+          ],
+          "reason": "向量相似度=0.349"
+        },
+        {
+          "node_id": "mem_35a69d78ac155552",
+          "original_doc_id": "hotpotqa_5a7bbb64554299042af8f7cc_doc_2",
+          "title": "Terry Richardson",
+          "is_supporting": true,
+          "score": 0.3255,
+          "similarity_score": 0.2911,
+          "graph_score": 0.0,
+          "path": [
+            "mem_35a69d78ac155552"
+          ],
+          "reason": "向量相似度=0.291"
+        },
+        {
+          "node_id": "mem_6d02e64f0e07d876",
+          "original_doc_id": "hotpotqa_5a7bbb64554299042af8f7cc_doc_4",
+          "title": "Gumbo (PJ Morton album)",
+          "is_supporting": false,
+          "score": 0.3144,
+          "similarity_score": 0.28,
+          "graph_score": 0.0,
+          "path": [
+            "mem_6d02e64f0e07d876"
+          ],
+          "reason": "向量相似度=0.280"
+        }
+      ],
+      "associative": [
+        {
+          "node_id": "mem_7f496efdb1d7f3b5",
+          "original_doc_id": "hotpotqa_5a7bbb64554299042af8f7cc_doc_0",
+          "title": "Annie Morton",
+          "is_supporting": true,
+          "score": 0.3181,
+          "similarity_score": 0.3878,
+          "graph_score": 0.0,
+          "path": [
+            "mem_7f496efdb1d7f3b5"
+          ],
+          "reason": "向量种子节点"
+        },
+        {
+          "node_id": "mem_93518e8c9d6185ca",
+          "original_doc_id": "hotpotqa_5a7bbb64554299042af8f7cc_doc_3",
+          "title": "Lady Gaga x Terry Richardson",
+          "is_supporting": false,
+          "score": 0.4526,
+          "similarity_score": 0.3491,
+          "graph_score": 0.67,
+          "path": [
+            "mem_7f496efdb1d7f3b5",
+            "mem_93518e8c9d6185ca"
+          ],
+          "reason": "向量种子节点 -> shared_entity(共享实体：Terry Richardson)"
+        },
+        {
+          "node_id": "mem_35a69d78ac155552",
+          "original_doc_id": "hotpotqa_5a7bbb64554299042af8f7cc_doc_2",
+          "title": "Terry Richardson",
+          "is_supporting": true,
+          "score": 0.4132,
+          "similarity_score": 0.2911,
+          "graph_score": 0.67,
+          "path": [
+            "mem_7f496efdb1d7f3b5",
+            "mem_35a69d78ac155552"
+          ],
+          "reason": "向量种子节点 -> shared_entity(共享实体：Terry Richardson)"
+        },
+        {
+          "node_id": "mem_506385d5a587512d",
+          "original_doc_id": "hotpotqa_5a7bbb64554299042af8f7cc_doc_9",
+          "title": "Kenton Richardson",
+          "is_supporting": false,
+          "score": 0.3854,
+          "similarity_score": 0.2798,
+          "graph_score": 0.67,
+          "path": [
+            "mem_7f496efdb1d7f3b5",
+            "mem_506385d5a587512d"
+          ],
+          "reason": "向量种子节点 -> shared_entity(共享实体：Terry Richardson)"
         }
       ],
       "vector_support_hits": 2,
@@ -149,74 +631,376 @@
       "gain": 0
     },
     {
-      "query_id": "mh_local_003",
-      "dataset": "hotpotqa",
-      "question": "What evidence-chain problem is addressed by the architecture inspired by the brain structure used in long-term memory?",
-      "answer": "multi-hop retrieval",
+      "query_id": "hotpotqa_5a7166395542994082a3e814",
+      "dataset": "hotpotqa_real",
+      "question": "What is the name of the fight song of the university whose main campus is in Lawrence, Kansas and whose branch campuses are in the Kansas City metropolitan area?",
+      "answer": "Kansas Song",
       "supporting_doc_ids": [
-        "mh_local_003_doc_a",
-        "mh_local_003_doc_b"
+        "hotpotqa_5a7166395542994082a3e814_doc_4",
+        "hotpotqa_5a7166395542994082a3e814_doc_9"
       ],
       "vector": [
         {
-          "node_id": "mem_66a43a641a57d401",
-          "original_doc_id": "mh_local_003_doc_a",
-          "title": "HippoRAG inspiration",
+          "node_id": "mem_a1b72eb596ed5980",
+          "original_doc_id": "hotpotqa_5a7166395542994082a3e814_doc_9",
+          "title": "University of Kansas",
           "is_supporting": true,
-          "score": 0.1835,
-          "similarity_score": 0.1491,
+          "score": 0.7305,
+          "similarity_score": 0.6961,
           "graph_score": 0.0,
           "path": [
-            "mem_66a43a641a57d401"
+            "mem_a1b72eb596ed5980"
           ],
-          "reason": "向量相似度=0.149"
+          "reason": "向量相似度=0.696"
         },
         {
-          "node_id": "mem_ee4e16e1c78ec5af",
-          "original_doc_id": "mh_local_003_doc_c",
-          "title": "Long context window",
-          "is_supporting": false,
-          "score": 0.0344,
-          "similarity_score": 0.0,
+          "node_id": "mem_eab44424e87bdaff",
+          "original_doc_id": "hotpotqa_5a7166395542994082a3e814_doc_4",
+          "title": "Kansas Song",
+          "is_supporting": true,
+          "score": 0.6379,
+          "similarity_score": 0.6035,
           "graph_score": 0.0,
           "path": [
-            "mem_ee4e16e1c78ec5af"
+            "mem_eab44424e87bdaff"
           ],
-          "reason": "向量相似度=0.000"
+          "reason": "向量相似度=0.604"
+        },
+        {
+          "node_id": "mem_1fcc9458ae962c86",
+          "original_doc_id": "hotpotqa_5a7166395542994082a3e814_doc_6",
+          "title": "Kansas City metropolitan area",
+          "is_supporting": false,
+          "score": 0.6215,
+          "similarity_score": 0.5871,
+          "graph_score": 0.0,
+          "path": [
+            "mem_1fcc9458ae962c86"
+          ],
+          "reason": "向量相似度=0.587"
+        },
+        {
+          "node_id": "mem_66cd87315fc13282",
+          "original_doc_id": "hotpotqa_5a7166395542994082a3e814_doc_2",
+          "title": "Kansas City jazz",
+          "is_supporting": false,
+          "score": 0.5784,
+          "similarity_score": 0.544,
+          "graph_score": 0.0,
+          "path": [
+            "mem_66cd87315fc13282"
+          ],
+          "reason": "向量相似度=0.544"
         }
       ],
       "associative": [
         {
-          "node_id": "mem_cb521638c5613657",
-          "original_doc_id": "mh_local_003_doc_b",
-          "title": "Multi-hop retrieval challenge",
+          "node_id": "mem_a1b72eb596ed5980",
+          "original_doc_id": "hotpotqa_5a7166395542994082a3e814_doc_9",
+          "title": "University of Kansas",
           "is_supporting": true,
-          "score": 0.2136,
-          "similarity_score": -0.0568,
-          "graph_score": 0.67,
-          "path": [
-            "mem_66a43a641a57d401",
-            "mem_cb521638c5613657"
-          ],
-          "reason": "向量种子节点 -> shared_entity(共享实体：multi-hop retrieval)"
-        },
-        {
-          "node_id": "mem_66a43a641a57d401",
-          "original_doc_id": "mh_local_003_doc_a",
-          "title": "HippoRAG inspiration",
-          "is_supporting": true,
-          "score": 0.1468,
-          "similarity_score": 0.1491,
+          "score": 0.5278,
+          "similarity_score": 0.6961,
           "graph_score": 0.0,
           "path": [
-            "mem_66a43a641a57d401"
+            "mem_a1b72eb596ed5980"
           ],
           "reason": "向量种子节点"
+        },
+        {
+          "node_id": "mem_eab44424e87bdaff",
+          "original_doc_id": "hotpotqa_5a7166395542994082a3e814_doc_4",
+          "title": "Kansas Song",
+          "is_supporting": true,
+          "score": 0.6256,
+          "similarity_score": 0.6035,
+          "graph_score": 0.67,
+          "path": [
+            "mem_a1b72eb596ed5980",
+            "mem_eab44424e87bdaff"
+          ],
+          "reason": "向量种子节点 -> shared_entity(共享实体：University of Kansas)"
+        },
+        {
+          "node_id": "mem_1fcc9458ae962c86",
+          "original_doc_id": "hotpotqa_5a7166395542994082a3e814_doc_6",
+          "title": "Kansas City metropolitan area",
+          "is_supporting": false,
+          "score": 0.6144,
+          "similarity_score": 0.5871,
+          "graph_score": 0.67,
+          "path": [
+            "mem_a1b72eb596ed5980",
+            "mem_1fcc9458ae962c86"
+          ],
+          "reason": "向量种子节点 -> shared_entity(共享实体：Kansas City metropolitan area)"
+        },
+        {
+          "node_id": "mem_66cd87315fc13282",
+          "original_doc_id": "hotpotqa_5a7166395542994082a3e814_doc_2",
+          "title": "Kansas City jazz",
+          "is_supporting": false,
+          "score": 0.5851,
+          "similarity_score": 0.544,
+          "graph_score": 0.67,
+          "path": [
+            "mem_a1b72eb596ed5980",
+            "mem_66cd87315fc13282"
+          ],
+          "reason": "向量种子节点 -> shared_entity(共享实体：Kansas City metropolitan area)"
         }
       ],
-      "vector_support_hits": 1,
+      "vector_support_hits": 2,
       "associative_support_hits": 2,
-      "gain": 1
+      "gain": 0
+    },
+    {
+      "query_id": "hotpotqa_5a877e5d5542993e715abf7d",
+      "dataset": "hotpotqa_real",
+      "question": "What screenwriter with credits for \"Evolution\" co-wrote a film starring Nicolas Cage and Téa Leoni?",
+      "answer": "David Weissman",
+      "supporting_doc_ids": [
+        "hotpotqa_5a877e5d5542993e715abf7d_doc_3",
+        "hotpotqa_5a877e5d5542993e715abf7d_doc_9"
+      ],
+      "vector": [
+        {
+          "node_id": "mem_3205f471d2bf81cb",
+          "original_doc_id": "hotpotqa_5a877e5d5542993e715abf7d_doc_4",
+          "title": "Deadfall (1993 film)",
+          "is_supporting": false,
+          "score": 0.3904,
+          "similarity_score": 0.356,
+          "graph_score": 0.0,
+          "path": [
+            "mem_3205f471d2bf81cb"
+          ],
+          "reason": "向量相似度=0.356"
+        },
+        {
+          "node_id": "mem_904b0758d46c0f41",
+          "original_doc_id": "hotpotqa_5a877e5d5542993e715abf7d_doc_2",
+          "title": "Time to Kill (1989 film)",
+          "is_supporting": false,
+          "score": 0.3602,
+          "similarity_score": 0.3258,
+          "graph_score": 0.0,
+          "path": [
+            "mem_904b0758d46c0f41"
+          ],
+          "reason": "向量相似度=0.326"
+        },
+        {
+          "node_id": "mem_c8b77d88da839a54",
+          "original_doc_id": "hotpotqa_5a877e5d5542993e715abf7d_doc_7",
+          "title": "It Could Happen to You (1994 film)",
+          "is_supporting": false,
+          "score": 0.349,
+          "similarity_score": 0.3146,
+          "graph_score": 0.0,
+          "path": [
+            "mem_c8b77d88da839a54"
+          ],
+          "reason": "向量相似度=0.315"
+        },
+        {
+          "node_id": "mem_b2d0baffaf5aaba2",
+          "original_doc_id": "hotpotqa_5a877e5d5542993e715abf7d_doc_5",
+          "title": "Gone in 60 Seconds (2000 film)",
+          "is_supporting": false,
+          "score": 0.3383,
+          "similarity_score": 0.3039,
+          "graph_score": 0.0,
+          "path": [
+            "mem_b2d0baffaf5aaba2"
+          ],
+          "reason": "向量相似度=0.304"
+        }
+      ],
+      "associative": [
+        {
+          "node_id": "mem_3205f471d2bf81cb",
+          "original_doc_id": "hotpotqa_5a877e5d5542993e715abf7d_doc_4",
+          "title": "Deadfall (1993 film)",
+          "is_supporting": false,
+          "score": 0.2965,
+          "similarity_score": 0.356,
+          "graph_score": 0.0,
+          "path": [
+            "mem_3205f471d2bf81cb"
+          ],
+          "reason": "向量种子节点"
+        },
+        {
+          "node_id": "mem_c8b77d88da839a54",
+          "original_doc_id": "hotpotqa_5a877e5d5542993e715abf7d_doc_7",
+          "title": "It Could Happen to You (1994 film)",
+          "is_supporting": false,
+          "score": 0.349,
+          "similarity_score": 0.3146,
+          "graph_score": 0.3361,
+          "path": [
+            "mem_3205f471d2bf81cb",
+            "mem_c8b77d88da839a54"
+          ],
+          "reason": "向量种子节点 -> embedding_similarity(语义相似度达到阈值：0.336)"
+        },
+        {
+          "node_id": "mem_b2d0baffaf5aaba2",
+          "original_doc_id": "hotpotqa_5a877e5d5542993e715abf7d_doc_5",
+          "title": "Gone in 60 Seconds (2000 film)",
+          "is_supporting": false,
+          "score": 0.3357,
+          "similarity_score": 0.3039,
+          "graph_score": 0.3111,
+          "path": [
+            "mem_3205f471d2bf81cb",
+            "mem_b2d0baffaf5aaba2"
+          ],
+          "reason": "向量种子节点 -> embedding_similarity(语义相似度达到阈值：0.311)"
+        },
+        {
+          "node_id": "mem_904b0758d46c0f41",
+          "original_doc_id": "hotpotqa_5a877e5d5542993e715abf7d_doc_2",
+          "title": "Time to Kill (1989 film)",
+          "is_supporting": false,
+          "score": 0.3351,
+          "similarity_score": 0.3258,
+          "graph_score": 0.2465,
+          "path": [
+            "mem_3205f471d2bf81cb",
+            "mem_904b0758d46c0f41"
+          ],
+          "reason": "向量种子节点 -> embedding_similarity(语义相似度达到阈值：0.246)"
+        }
+      ],
+      "vector_support_hits": 0,
+      "associative_support_hits": 0,
+      "gain": 0
+    },
+    {
+      "query_id": "hotpotqa_5ab6d09255429954757d337d",
+      "dataset": "hotpotqa_real",
+      "question": "The football manager who recruited David Beckham managed Manchester United during what timeframe?",
+      "answer": "from 1986 to 2013",
+      "supporting_doc_ids": [
+        "hotpotqa_5ab6d09255429954757d337d_doc_5",
+        "hotpotqa_5ab6d09255429954757d337d_doc_9"
+      ],
+      "vector": [
+        {
+          "node_id": "mem_304ea0fca865a016",
+          "original_doc_id": "hotpotqa_5ab6d09255429954757d337d_doc_7",
+          "title": "David Beckham's Soccer USA",
+          "is_supporting": false,
+          "score": 0.3909,
+          "similarity_score": 0.3565,
+          "graph_score": 0.0,
+          "path": [
+            "mem_304ea0fca865a016"
+          ],
+          "reason": "向量相似度=0.356"
+        },
+        {
+          "node_id": "mem_3190e94565b6750e",
+          "original_doc_id": "hotpotqa_5ab6d09255429954757d337d_doc_4",
+          "title": "David Beckham Academy",
+          "is_supporting": false,
+          "score": 0.3539,
+          "similarity_score": 0.3195,
+          "graph_score": 0.0,
+          "path": [
+            "mem_3190e94565b6750e"
+          ],
+          "reason": "向量相似度=0.320"
+        },
+        {
+          "node_id": "mem_86af338e81fe6f91",
+          "original_doc_id": "hotpotqa_5ab6d09255429954757d337d_doc_3",
+          "title": "Ernest Mangnall",
+          "is_supporting": false,
+          "score": 0.3055,
+          "similarity_score": 0.2711,
+          "graph_score": 0.0,
+          "path": [
+            "mem_86af338e81fe6f91"
+          ],
+          "reason": "向量相似度=0.271"
+        },
+        {
+          "node_id": "mem_eda02b77d7ecea3b",
+          "original_doc_id": "hotpotqa_5ab6d09255429954757d337d_doc_6",
+          "title": "The Class of '92",
+          "is_supporting": false,
+          "score": 0.3001,
+          "similarity_score": 0.2657,
+          "graph_score": 0.0,
+          "path": [
+            "mem_eda02b77d7ecea3b"
+          ],
+          "reason": "向量相似度=0.266"
+        }
+      ],
+      "associative": [
+        {
+          "node_id": "mem_304ea0fca865a016",
+          "original_doc_id": "hotpotqa_5ab6d09255429954757d337d_doc_7",
+          "title": "David Beckham's Soccer USA",
+          "is_supporting": false,
+          "score": 0.2968,
+          "similarity_score": 0.3565,
+          "graph_score": 0.0,
+          "path": [
+            "mem_304ea0fca865a016"
+          ],
+          "reason": "向量种子节点"
+        },
+        {
+          "node_id": "mem_3190e94565b6750e",
+          "original_doc_id": "hotpotqa_5ab6d09255429954757d337d_doc_4",
+          "title": "David Beckham Academy",
+          "is_supporting": false,
+          "score": 0.3941,
+          "similarity_score": 0.3195,
+          "graph_score": 0.51,
+          "path": [
+            "mem_304ea0fca865a016",
+            "mem_3190e94565b6750e"
+          ],
+          "reason": "向量种子节点 -> keyword_overlap(关键词重叠：beckham, david)"
+        },
+        {
+          "node_id": "mem_eda02b77d7ecea3b",
+          "original_doc_id": "hotpotqa_5ab6d09255429954757d337d_doc_6",
+          "title": "The Class of '92",
+          "is_supporting": false,
+          "score": 0.2817,
+          "similarity_score": 0.2657,
+          "graph_score": 0.1943,
+          "path": [
+            "mem_304ea0fca865a016",
+            "mem_eda02b77d7ecea3b"
+          ],
+          "reason": "向量种子节点 -> embedding_similarity(语义相似度达到阈值：0.194)"
+        },
+        {
+          "node_id": "mem_86af338e81fe6f91",
+          "original_doc_id": "hotpotqa_5ab6d09255429954757d337d_doc_3",
+          "title": "Ernest Mangnall",
+          "is_supporting": false,
+          "score": 0.2579,
+          "similarity_score": 0.2711,
+          "graph_score": 0.08,
+          "path": [
+            "mem_304ea0fca865a016",
+            "mem_86af338e81fe6f91"
+          ],
+          "reason": "向量种子节点 -> context_cooccurrence(同一公开多跳问答样本中的候选上下文，保留跨文档推理的候选关系)"
+        }
+      ],
+      "vector_support_hits": 0,
+      "associative_support_hits": 0,
+      "gain": 0
     }
   ]
 }

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from pathlib import Path
 
@@ -10,6 +11,8 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from sam.datasets import (  # noqa: E402
+    download_hotpotqa_dev,
+    load_hotpotqa_real_sample,
     load_builtin_benchmark_sample,
     load_multihop_rag_from_huggingface,
     write_dataset_manifest,
@@ -18,14 +21,18 @@ from sam.embedding import create_embedding_provider  # noqa: E402
 from sam.evaluator import Evaluator  # noqa: E402
 from sam.graph import GraphBuilder  # noqa: E402
 from sam.store import MemoryStore  # noqa: E402
+from sam.visualization import export_graph_artifacts  # noqa: E402
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="运行 SAM 两阶段检索 demo")
     parser.add_argument("--db", default="data/sam_demo.sqlite", help="SQLite 数据库路径")
     parser.add_argument("--report-dir", default="reports", help="实验报告输出目录")
+    parser.add_argument("--dataset", default="hotpotqa", choices=["hotpotqa", "builtin"], help="实验数据来源")
+    parser.add_argument("--sample-size", type=int, default=8, help="真实数据集抽样数量")
+    parser.add_argument("--max-scan", type=int, default=800, help="真实数据集最大扫描样本数")
     parser.add_argument("--embedding-provider", default=None, help="local 或 openai")
-    parser.add_argument("--top-k", type=int, default=2, help="最终返回文档数")
+    parser.add_argument("--top-k", type=int, default=4, help="最终返回文档数")
     parser.add_argument("--seed-k", type=int, default=1, help="联想检索种子节点数")
     parser.add_argument("--hops", type=int, default=2, help="图扩展跳数")
     parser.add_argument("--reset", action="store_true", help="运行前清空本地记忆库")
@@ -56,8 +63,23 @@ def main() -> None:
     graph_builder = GraphBuilder(store)
     evaluator = Evaluator(store, embedding_provider, graph_builder)
 
-    documents, queries = load_builtin_benchmark_sample()
-    evaluator.ingest(documents)
+    if args.dataset == "hotpotqa":
+        raw_path = download_hotpotqa_dev(ROOT / "data/raw/hotpot_dev_distractor_v1.json")
+        documents, queries, manifest = load_hotpotqa_real_sample(
+            raw_path=raw_path,
+            sample_size=args.sample_size,
+            max_scan=args.max_scan,
+        )
+        (report_dir / "hotpotqa_sample_manifest.json").write_text(
+            json.dumps(manifest, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+        print(f"使用真实 HotpotQA dev distractor 样本：{len(queries)} 条")
+    else:
+        documents, queries = load_builtin_benchmark_sample()
+        print(f"使用内置兜底样本：{len(queries)} 条")
+
+    nodes = evaluator.ingest(documents)
     result = evaluator.evaluate(
         queries=queries,
         top_k=args.top_k,
@@ -65,6 +87,13 @@ def main() -> None:
         hops=args.hops,
     )
     json_path, markdown_path = evaluator.write_reports(result, report_dir)
+    graph_paths = export_graph_artifacts(
+        nodes=nodes,
+        edges=store.get_edges(),
+        queries=queries,
+        output_dir=report_dir,
+        retrieval_cases=result.cases,
+    )
 
     print("SAM demo 已完成")
     print(f"查询数量：{result.query_count}")
@@ -73,8 +102,9 @@ def main() -> None:
     print(f"联想检索新增有效证据数：{result.associative_gain}")
     print(f"JSON 结果：{json_path}")
     print(f"Markdown 报告：{markdown_path}")
+    print(f"图谱 HTML：{graph_paths['html']}")
+    print(f"图谱 JSON：{graph_paths['json']}")
 
 
 if __name__ == "__main__":
     main()
-

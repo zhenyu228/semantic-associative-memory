@@ -47,6 +47,7 @@ class Retriever:
         hits = self._associative_hits(
             query_embedding=query_embedding,
             candidates=candidates,
+            vector_hits=vector_hits[:top_k],
             seed_hits=vector_hits[:seed_k],
             top_k=top_k,
             hops=hops,
@@ -116,6 +117,7 @@ class Retriever:
         self,
         query_embedding: list[float],
         candidates: list[MemoryNode],
+        vector_hits: list[RetrievalHit],
         seed_hits: list[RetrievalHit],
         top_k: int,
         hops: int,
@@ -124,6 +126,9 @@ class Retriever:
         nodes_by_id = {node.id: node for node in candidates}
         best_paths: dict[str, tuple[list[str], float, str]] = {}
         queue: deque[tuple[str, list[str], float, int, str]] = deque()
+        for vector_hit in vector_hits:
+            best_paths[vector_hit.node.id] = ([vector_hit.node.id], 0.0, "向量候选节点")
+
         for seed_hit in seed_hits:
             queue.append((seed_hit.node.id, [seed_hit.node.id], 0.0, 0, "向量种子节点"))
             best_paths[seed_hit.node.id] = ([seed_hit.node.id], 0.0, "向量种子节点")
@@ -154,7 +159,7 @@ class Retriever:
             usage_score = min(0.14, node.usage_count * 0.02)
             confidence_score = node.confidence * 0.04
             # 联想节点允许相似度较低，但必须由图路径补足。
-            score = 0.62 * similarity + 0.32 * graph_score + usage_score + confidence_score
+            score = 0.68 * similarity + 0.24 * graph_score + usage_score + confidence_score
             hits.append(
                 RetrievalHit(
                     node=node,
@@ -168,4 +173,9 @@ class Retriever:
                 )
             )
         hits.sort(key=lambda hit: hit.score, reverse=True)
-        return hits[:top_k]
+        seed_ids = {hit.node.id for hit in seed_hits}
+        seed_results = [hit for hit in hits if hit.node.id in seed_ids]
+        other_results = [hit for hit in hits if hit.node.id not in seed_ids]
+        # 联想检索以向量种子作为“当前被激活记忆”，不能在扩展后把种子挤掉。
+        # 否则图扩展会变成替代检索，而不是开题报告中的“种子激活 + 语义扩散”。
+        return [*seed_results, *other_results][:top_k]

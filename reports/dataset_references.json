@@ -1,4 +1,12 @@
 {
+  "hotpotqa_real": {
+    "name": "HotpotQA dev distractor",
+    "homepage": "https://hotpotqa.github.io/",
+    "download_url": "http://curtis.ml.cmu.edu/datasets/hotpot/hotpot_dev_distractor_v1.json",
+    "paper": "https://arxiv.org/abs/1809.09600",
+    "license": "CC BY-SA 4.0",
+    "note": "公开多跳问答数据集，提供 paragraph context 和 sentence-level supporting facts。"
+  },
   "multihop_rag": {
     "name": "MultiHop-RAG",
     "homepage": "https://github.com/yixuantt/MultiHop-RAG",

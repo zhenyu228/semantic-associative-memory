@@ -1,0 +1,127 @@
+{
+  "dataset": {
+    "name": "HotpotQA dev distractor",
+    "homepage": "https://hotpotqa.github.io/",
+    "download_url": "http://curtis.ml.cmu.edu/datasets/hotpot/hotpot_dev_distractor_v1.json",
+    "paper": "https://arxiv.org/abs/1809.09600",
+    "license": "CC BY-SA 4.0",
+    "note": "公开多跳问答数据集，提供 paragraph context 和 sentence-level supporting facts。"
+  },
+  "raw_path": "/Users/bytedance/Desktop/masterThesis/SAM/data/raw/hotpot_dev_distractor_v1.json",
+  "sample_size": 8,
+  "max_scan": 1000,
+  "selected_examples": [
+    {
+      "index": 1,
+      "hotpotqa_id": "5a8c7595554299585d9e36b6",
+      "question": "What government position was held by the woman who portrayed Corliss Archer in the film Kiss and Tell?",
+      "answer": "Chief of Protocol",
+      "type": "bridge",
+      "level": "hard",
+      "support_titles": [
+        "Kiss and Tell (1945 film)",
+        "Shirley Temple"
+      ],
+      "candidate_count": 10,
+      "selection_reason": "supporting paragraphs mention each other's titles, suitable for bridge-style graph expansion"
+    },
+    {
+      "index": 2,
+      "hotpotqa_id": "5a85ea095542994775f606a8",
+      "question": "What science fantasy young adult series, told in first person, has a set of companion books narrating the stories of enslaved worlds and alien species?",
+      "answer": "Animorphs",
+      "type": "bridge",
+      "level": "hard",
+      "support_titles": [
+        "The Hork-Bajir Chronicles",
+        "Animorphs"
+      ],
+      "candidate_count": 10,
+      "selection_reason": "supporting paragraphs mention each other's titles, suitable for bridge-style graph expansion"
+    },
+    {
+      "index": 4,
+      "hotpotqa_id": "5a8e3ea95542995a26add48d",
+      "question": "The director of the romantic comedy \"Big Stone Gap\" is based in what New York city?",
+      "answer": "Greenwich Village, New York City",
+      "type": "bridge",
+      "level": "hard",
+      "support_titles": [
+        "Big Stone Gap (film)",
+        "Adriana Trigiani"
+      ],
+      "candidate_count": 10,
+      "selection_reason": "supporting paragraphs mention each other's titles, suitable for bridge-style graph expansion"
+    },
+    {
+      "index": 7,
+      "hotpotqa_id": "5a87ab905542996e4f3088c1",
+      "question": "The arena where the Lewiston Maineiacs played their home games can seat how many people?",
+      "answer": "3,677 seated",
+      "type": "bridge",
+      "level": "hard",
+      "support_titles": [
+        "Lewiston Maineiacs",
+        "Androscoggin Bank Colisée"
+      ],
+      "candidate_count": 10,
+      "selection_reason": "supporting paragraphs mention each other's titles, suitable for bridge-style graph expansion"
+    },
+    {
+      "index": 8,
+      "hotpotqa_id": "5a7bbb64554299042af8f7cc",
+      "question": "Who is older, Annie Morton or Terry Richardson?",
+      "answer": "Terry Richardson",
+      "type": "bridge",
+      "level": "hard",
+      "support_titles": [
+        "Annie Morton",
+        "Terry Richardson"
+      ],
+      "candidate_count": 10,
+      "selection_reason": "supporting paragraphs mention each other's titles, suitable for bridge-style graph expansion"
+    },
+    {
+      "index": 10,
+      "hotpotqa_id": "5a7166395542994082a3e814",
+      "question": "What is the name of the fight song of the university whose main campus is in Lawrence, Kansas and whose branch campuses are in the Kansas City metropolitan area?",
+      "answer": "Kansas Song",
+      "type": "bridge",
+      "level": "hard",
+      "support_titles": [
+        "Kansas Song",
+        "University of Kansas"
+      ],
+      "candidate_count": 10,
+      "selection_reason": "supporting paragraphs mention each other's titles, suitable for bridge-style graph expansion"
+    },
+    {
+      "index": 11,
+      "hotpotqa_id": "5a877e5d5542993e715abf7d",
+      "question": "What screenwriter with credits for \"Evolution\" co-wrote a film starring Nicolas Cage and Téa Leoni?",
+      "answer": "David Weissman",
+      "type": "bridge",
+      "level": "hard",
+      "support_titles": [
+        "David Weissman",
+        "The Family Man"
+      ],
+      "candidate_count": 10,
+      "selection_reason": "supporting paragraphs mention each other's titles, suitable for bridge-style graph expansion"
+    },
+    {
+      "index": 14,
+      "hotpotqa_id": "5ab6d09255429954757d337d",
+      "question": "The football manager who recruited David Beckham managed Manchester United during what timeframe?",
+      "answer": "from 1986 to 2013",
+      "type": "bridge",
+      "level": "hard",
+      "support_titles": [
+        "1995–96 Manchester United F.C. season",
+        "Alex Ferguson"
+      ],
+      "candidate_count": 10,
+      "selection_reason": "supporting paragraphs mention each other's titles, suitable for bridge-style graph expansion"
+    }
+  ]
+}

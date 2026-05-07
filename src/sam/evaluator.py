@@ -16,6 +16,8 @@ from sam.store import MemoryStore
 class ExperimentResult:
     dataset_count: int
     query_count: int
+    document_count: int
+    total_supporting_evidence: int
     vector_recall: float
     associative_recall: float
     vector_support_hits: int
@@ -28,6 +30,8 @@ class ExperimentResult:
         return {
             "dataset_count": self.dataset_count,
             "query_count": self.query_count,
+            "document_count": self.document_count,
+            "total_supporting_evidence": self.total_supporting_evidence,
             "vector_recall": self.vector_recall,
             "associative_recall": self.associative_recall,
             "vector_support_hits": self.vector_support_hits,
@@ -124,6 +128,8 @@ class Evaluator:
         return ExperimentResult(
             dataset_count=len({query.dataset for query in queries}),
             query_count=len(queries),
+            document_count=len(self.store.get_nodes()),
+            total_supporting_evidence=total_support,
             vector_recall=vector_recall,
             associative_recall=associative_recall,
             vector_support_hits=vector_support_hits,
@@ -175,6 +181,8 @@ class Evaluator:
             "| --- | ---: |",
             f"| 数据集来源数 | {result.dataset_count} |",
             f"| 查询数量 | {result.query_count} |",
+            f"| 候选文档节点数量 | {result.document_count} |",
+            f"| Gold 支持证据数量 | {result.total_supporting_evidence} |",
             f"| 纯向量检索证据召回率 | {result.vector_recall:.3f} |",
             f"| 联想图检索证据召回率 | {result.associative_recall:.3f} |",
             f"| 纯向量命中支持证据数 | {result.vector_support_hits} |",
@@ -218,4 +226,3 @@ class Evaluator:
                     )
             lines.append("")
         return "\n".join(lines)
-
