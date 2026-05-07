@@ -1,0 +1,17 @@
+{
+  "multihop_rag": {
+    "name": "MultiHop-RAG",
+    "homepage": "https://github.com/yixuantt/MultiHop-RAG",
+    "note": "跨文档、多跳 RAG 评测数据集，证据分布在 2 到 4 篇文档中。"
+  },
+  "hotpotqa": {
+    "name": "HotpotQA",
+    "homepage": "https://hotpotqa.github.io/",
+    "note": "经典多跳问答数据集，提供 supporting facts。"
+  },
+  "musique": {
+    "name": "MuSiQue",
+    "homepage": "https://github.com/stonybrooknlp/musique",
+    "note": "通过单跳问题组合构造的多跳问答数据集。"
+  }
+}

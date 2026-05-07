@@ -1,0 +1,222 @@
+{
+  "dataset_count": 3,
+  "query_count": 3,
+  "vector_recall": 0.6666666666666666,
+  "associative_recall": 1.0,
+  "vector_support_hits": 4,
+  "associative_support_hits": 6,
+  "associative_gain": 2,
+  "average_path_length": 1.5,
+  "cases": [
+    {
+      "query_id": "mh_local_001",
+      "dataset": "multihop_rag",
+      "question": "Which city hosts the university where the researcher who introduced Graphiti-style temporal memory studied?",
+      "answer": "Shanghai",
+      "supporting_doc_ids": [
+        "mh_local_001_doc_a",
+        "mh_local_001_doc_b"
+      ],
+      "vector": [
+        {
+          "node_id": "mem_aba740843626fd60",
+          "original_doc_id": "mh_local_001_doc_a",
+          "title": "Temporal memory researcher profile",
+          "is_supporting": true,
+          "score": 0.555,
+          "similarity_score": 0.5206,
+          "graph_score": 0.0,
+          "path": [
+            "mem_aba740843626fd60"
+          ],
+          "reason": "向量相似度=0.521"
+        },
+        {
+          "node_id": "mem_d48b9fb112886778",
+          "original_doc_id": "mh_local_001_doc_c",
+          "title": "Temporal databases overview",
+          "is_supporting": false,
+          "score": 0.2526,
+          "similarity_score": 0.2182,
+          "graph_score": 0.0,
+          "path": [
+            "mem_d48b9fb112886778"
+          ],
+          "reason": "向量相似度=0.218"
+        }
+      ],
+      "associative": [
+        {
+          "node_id": "mem_aba740843626fd60",
+          "original_doc_id": "mh_local_001_doc_a",
+          "title": "Temporal memory researcher profile",
+          "is_supporting": true,
+          "score": 0.3772,
+          "similarity_score": 0.5206,
+          "graph_score": 0.0,
+          "path": [
+            "mem_aba740843626fd60"
+          ],
+          "reason": "向量种子节点"
+        },
+        {
+          "node_id": "mem_6047c3838453ab12",
+          "original_doc_id": "mh_local_001_doc_b",
+          "title": "Fudan University location",
+          "is_supporting": true,
+          "score": 0.3536,
+          "similarity_score": 0.169,
+          "graph_score": 0.67,
+          "path": [
+            "mem_aba740843626fd60",
+            "mem_6047c3838453ab12"
+          ],
+          "reason": "向量种子节点 -> shared_entity(共享实体：Fudan University)"
+        }
+      ],
+      "vector_support_hits": 1,
+      "associative_support_hits": 2,
+      "gain": 1
+    },
+    {
+      "query_id": "mh_local_002",
+      "dataset": "musique",
+      "question": "What ability is evaluated by the benchmark associated with the dataset composed from single-hop questions?",
+      "answer": "multi-hop reasoning",
+      "supporting_doc_ids": [
+        "mh_local_002_doc_a",
+        "mh_local_002_doc_b"
+      ],
+      "vector": [
+        {
+          "node_id": "mem_b420db98c20a7e2b",
+          "original_doc_id": "mh_local_002_doc_a",
+          "title": "MuSiQue construction",
+          "is_supporting": true,
+          "score": 0.3017,
+          "similarity_score": 0.2673,
+          "graph_score": 0.0,
+          "path": [
+            "mem_b420db98c20a7e2b"
+          ],
+          "reason": "向量相似度=0.267"
+        },
+        {
+          "node_id": "mem_dd692f6ef91b1aa6",
+          "original_doc_id": "mh_local_002_doc_b",
+          "title": "Multi-hop reasoning benchmark",
+          "is_supporting": true,
+          "score": 0.1977,
+          "similarity_score": 0.1633,
+          "graph_score": 0.0,
+          "path": [
+            "mem_dd692f6ef91b1aa6"
+          ],
+          "reason": "向量相似度=0.163"
+        }
+      ],
+      "associative": [
+        {
+          "node_id": "mem_dd692f6ef91b1aa6",
+          "original_doc_id": "mh_local_002_doc_b",
+          "title": "Multi-hop reasoning benchmark",
+          "is_supporting": true,
+          "score": 0.37,
+          "similarity_score": 0.1633,
+          "graph_score": 0.67,
+          "path": [
+            "mem_b420db98c20a7e2b",
+            "mem_dd692f6ef91b1aa6"
+          ],
+          "reason": "向量种子节点 -> shared_entity(共享实体：multi-hop reasoning)"
+        },
+        {
+          "node_id": "mem_b420db98c20a7e2b",
+          "original_doc_id": "mh_local_002_doc_a",
+          "title": "MuSiQue construction",
+          "is_supporting": true,
+          "score": 0.2201,
+          "similarity_score": 0.2673,
+          "graph_score": 0.0,
+          "path": [
+            "mem_b420db98c20a7e2b"
+          ],
+          "reason": "向量种子节点"
+        }
+      ],
+      "vector_support_hits": 2,
+      "associative_support_hits": 2,
+      "gain": 0
+    },
+    {
+      "query_id": "mh_local_003",
+      "dataset": "hotpotqa",
+      "question": "What evidence-chain problem is addressed by the architecture inspired by the brain structure used in long-term memory?",
+      "answer": "multi-hop retrieval",
+      "supporting_doc_ids": [
+        "mh_local_003_doc_a",
+        "mh_local_003_doc_b"
+      ],
+      "vector": [
+        {
+          "node_id": "mem_66a43a641a57d401",
+          "original_doc_id": "mh_local_003_doc_a",
+          "title": "HippoRAG inspiration",
+          "is_supporting": true,
+          "score": 0.1835,
+          "similarity_score": 0.1491,
+          "graph_score": 0.0,
+          "path": [
+            "mem_66a43a641a57d401"
+          ],
+          "reason": "向量相似度=0.149"
+        },
+        {
+          "node_id": "mem_ee4e16e1c78ec5af",
+          "original_doc_id": "mh_local_003_doc_c",
+          "title": "Long context window",
+          "is_supporting": false,
+          "score": 0.0344,
+          "similarity_score": 0.0,
+          "graph_score": 0.0,
+          "path": [
+            "mem_ee4e16e1c78ec5af"
+          ],
+          "reason": "向量相似度=0.000"
+        }
+      ],
+      "associative": [
+        {
+          "node_id": "mem_cb521638c5613657",
+          "original_doc_id": "mh_local_003_doc_b",
+          "title": "Multi-hop retrieval challenge",
+          "is_supporting": true,
+          "score": 0.2136,
+          "similarity_score": -0.0568,
+          "graph_score": 0.67,
+          "path": [
+            "mem_66a43a641a57d401",
+            "mem_cb521638c5613657"
+          ],
+          "reason": "向量种子节点 -> shared_entity(共享实体：multi-hop retrieval)"
+        },
+        {
+          "node_id": "mem_66a43a641a57d401",
+          "original_doc_id": "mh_local_003_doc_a",
+          "title": "HippoRAG inspiration",
+          "is_supporting": true,
+          "score": 0.1468,
+          "similarity_score": 0.1491,
+          "graph_score": 0.0,
+          "path": [
+            "mem_66a43a641a57d401"
+          ],
+          "reason": "向量种子节点"
+        }
+      ],
+      "vector_support_hits": 1,
+      "associative_support_hits": 2,
+      "gain": 1
+    }
+  ]
+}

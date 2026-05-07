@@ -10,6 +10,7 @@ venv/
 # Data and generated outputs
 data/raw/
 data/processed/
+data/*.sqlite
 outputs/
 reports/generated/
 
@@ -19,4 +20,3 @@ reports/generated/
 
 # System files
 .DS_Store
-
