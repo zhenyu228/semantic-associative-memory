@@ -1,4 +1,6 @@
-# Semantic Associative Memory KG
+# Semantic Associative Memory
+
+GitHub repository name: `semantic-associative-memory`
 
 Local repository for the master's thesis project:
 
@@ -41,4 +43,3 @@ Before the midterm assessment, the goal is to produce an early but demonstrable 
 5. A small experiment showing that associative retrieval can recover related cross-document information better than plain top-k vector retrieval in at least one toy or small literature-reading scenario.
 
 No implementation code has been added yet.
-
