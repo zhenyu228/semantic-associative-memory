@@ -102,55 +102,24 @@ def _to_html(
     edges: list[dict[str, object]],
     retrieval_cases: list[dict[str, object]],
 ) -> str:
-    width = 1300
-    height = max(720, len(nodes) * 46)
     by_query: dict[str, list[dict[str, object]]] = {}
     for node in nodes:
         by_query.setdefault(str(node["query_id"]), []).append(node)
-
-    positions: dict[str, tuple[int, int]] = {}
-    y = 70
-    for _, query_nodes in by_query.items():
-        for index, node in enumerate(query_nodes):
-            x = 120 + (index % 5) * 230
-            positions[str(node["id"])] = (x, y)
-        y += 150
-
-    svg_parts = [
-        f'<svg width="{width}" height="{height}" viewBox="0 0 {width} {height}" xmlns="http://www.w3.org/2000/svg">',
-        "<defs><marker id='arrow' markerWidth='10' markerHeight='10' refX='9' refY='3' orient='auto' markerUnits='strokeWidth'><path d='M0,0 L0,6 L9,3 z' fill='#555'/></marker></defs>",
-    ]
-    for edge in edges:
-        if float(edge["weight"]) < 0.2:
-            continue
-        source = positions.get(str(edge["source_id"]))
-        target = positions.get(str(edge["target_id"]))
-        if not source or not target:
-            continue
-        x1, y1 = source
-        x2, y2 = target
-        color = _edge_color(str(edge["relation_type"]))
-        svg_parts.append(
-            f"<line x1='{x1}' y1='{y1}' x2='{x2}' y2='{y2}' stroke='{color}' stroke-width='{1.2 + float(edge['weight']) * 2:.2f}' marker-end='url(#arrow)' opacity='0.72'/>"
+    cases_by_query = {str(case["query_id"]): case for case in retrieval_cases}
+    graph_blocks = "\n".join(
+        _query_graph_html(
+            query_id=query_id,
+            query_nodes=query_nodes,
+            query_edges=[
+                edge
+                for edge in edges
+                if edge["source_id"] in {node["id"] for node in query_nodes}
+                and edge["target_id"] in {node["id"] for node in query_nodes}
+            ],
+            case=cases_by_query.get(query_id),
         )
-        mid_x = (x1 + x2) / 2
-        mid_y = (y1 + y2) / 2 - 6
-        svg_parts.append(
-            f"<text x='{mid_x}' y='{mid_y}' font-size='11' fill='{color}'>{html.escape(str(edge['relation_type']))}</text>"
-        )
-    for node in nodes:
-        x, y = positions[str(node["id"])]
-        fill = "#ffe8a3" if node["is_supporting"] else "#d8ecff"
-        stroke = "#bd7b00" if node["is_supporting"] else "#3a78a0"
-        title = html.escape(str(node["title"])[:26])
-        svg_parts.append(f"<circle cx='{x}' cy='{y}' r='34' fill='{fill}' stroke='{stroke}' stroke-width='2'/>")
-        svg_parts.append(
-            f"<text x='{x}' y='{y - 4}' text-anchor='middle' font-size='11' font-weight='700'>{title}</text>"
-        )
-        svg_parts.append(
-            f"<text x='{x}' y='{y + 12}' text-anchor='middle' font-size='10'>{'support' if node['is_supporting'] else 'candidate'}</text>"
-        )
-    svg_parts.append("</svg>")
+        for query_id, query_nodes in by_query.items()
+    )
 
     node_rows = "\n".join(
         "<tr>"
@@ -180,22 +149,28 @@ def _to_html(
   <meta charset="utf-8" />
   <title>SAM 图谱运行产物</title>
   <style>
-    body {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; margin: 24px; color: #1f2933; }}
-    h1, h2 {{ margin: 18px 0 10px; }}
+    body {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; margin: 24px; color: #1f2933; background: #f7f9fc; }}
+    h1, h2, h3 {{ margin: 18px 0 10px; }}
     .hint {{ color: #52606d; line-height: 1.6; }}
     .legend span {{ display: inline-block; margin-right: 18px; }}
+    .query-card {{ background: white; border: 1px solid #d7dde5; border-radius: 8px; margin: 18px 0 26px; padding: 16px; }}
+    .question {{ color: #334e68; line-height: 1.5; margin-bottom: 12px; }}
+    .graph {{ overflow-x: auto; border: 1px solid #d7dde5; background: #fbfcfe; border-radius: 6px; }}
+    .edge-note {{ color: #52606d; font-size: 13px; margin: 8px 0 0; }}
     table {{ border-collapse: collapse; width: 100%; margin: 12px 0 28px; font-size: 13px; }}
     th, td {{ border: 1px solid #d7dde5; padding: 8px; vertical-align: top; }}
     th {{ background: #f3f6f9; text-align: left; }}
-    .graph {{ overflow-x: auto; border: 1px solid #d7dde5; background: #fbfcfe; }}
     code {{ background: #eef2f7; padding: 2px 4px; }}
+    .support-pill {{ color: #8a5a00; font-weight: 700; }}
+    .candidate-pill {{ color: #1f5f8b; font-weight: 700; }}
   </style>
 </head>
 <body>
   <h1>SAM 图谱运行产物</h1>
-  <p class="hint">黄色节点是真实 HotpotQA supporting paragraph，蓝色节点是候选干扰段落。边上的文字表示系统实际创建的语义关系。这个文件由代码自动生成，不是手绘示意图。</p>
-  <p class="legend"><span>黄色：支持证据</span><span>蓝色：候选文档</span><span>箭头：语义边</span></p>
-  <div class="graph">{''.join(svg_parts)}</div>
+  <p class="hint">黄色节点是真实 HotpotQA supporting paragraph，蓝色节点是候选干扰段落。箭头表示系统实际创建的关键语义边。这个文件由代码自动生成，不是手绘示意图。</p>
+  <p class="legend"><span>黄色：支持证据</span><span>蓝色：候选文档</span><span>橙色边：共享实体</span><span>蓝色边：关键词重叠</span><span>紫色边：embedding 相似</span></p>
+  <h2>按问题拆分的图谱</h2>
+  {graph_blocks}
   <h2>检索案例</h2>
   {case_blocks}
   <h2>节点明细</h2>
@@ -205,6 +180,135 @@ def _to_html(
 </body>
 </html>
 """
+
+
+def _query_graph_html(
+    query_id: str,
+    query_nodes: list[dict[str, object]],
+    query_edges: list[dict[str, object]],
+    case: dict[str, object] | None,
+) -> str:
+    width = 1240
+    height = 360
+    node_width = 160
+    node_height = 58
+    support_nodes = [node for node in query_nodes if node["is_supporting"]]
+    candidate_nodes = [node for node in query_nodes if not node["is_supporting"]]
+    ordered_nodes = [*support_nodes, *candidate_nodes]
+    positions: dict[str, tuple[int, int]] = {}
+    for index, node in enumerate(ordered_nodes):
+        row = 0 if index < 5 else 1
+        col = index if index < 5 else index - 5
+        x = 70 + col * 230
+        y = 90 + row * 150
+        positions[str(node["id"])] = (x, y)
+
+    path_edges = _path_edge_keys(case)
+    important_edges = _select_important_edges(query_edges, path_edges)
+    svg_parts = [
+        f'<svg width="{width}" height="{height}" viewBox="0 0 {width} {height}" xmlns="http://www.w3.org/2000/svg">',
+        "<defs><marker id='arrow' markerWidth='10' markerHeight='10' refX='9' refY='3' orient='auto' markerUnits='strokeWidth'><path d='M0,0 L0,6 L9,3 z' fill='#555'/></marker></defs>",
+    ]
+    for edge in important_edges:
+        source = positions.get(str(edge["source_id"]))
+        target = positions.get(str(edge["target_id"]))
+        if not source or not target:
+            continue
+        x1, y1 = source[0] + node_width / 2, source[1] + node_height / 2
+        x2, y2 = target[0] + node_width / 2, target[1] + node_height / 2
+        color = _edge_color(str(edge["relation_type"]))
+        stroke_width = 2.2 if _edge_key(edge) in path_edges else 1.4
+        svg_parts.append(
+            f"<line x1='{x1}' y1='{y1}' x2='{x2}' y2='{y2}' stroke='{color}' stroke-width='{stroke_width}' marker-end='url(#arrow)' opacity='0.68'/>"
+        )
+    for node in ordered_nodes:
+        x, y = positions[str(node["id"])]
+        fill = "#fff2bd" if node["is_supporting"] else "#e6f2ff"
+        stroke = "#bd7b00" if node["is_supporting"] else "#2f75a8"
+        title = html.escape(_short_title(str(node["title"]), 36))
+        role = "supporting" if node["is_supporting"] else "candidate"
+        svg_parts.append(
+            f"<rect x='{x}' y='{y}' width='{node_width}' height='{node_height}' rx='8' fill='{fill}' stroke='{stroke}' stroke-width='2'/>"
+        )
+        svg_parts.append(
+            f"<foreignObject x='{x + 8}' y='{y + 8}' width='{node_width - 16}' height='28'><div xmlns='http://www.w3.org/1999/xhtml' style='font-size:12px;font-weight:700;line-height:14px;text-align:center;color:#102a43;'>{title}</div></foreignObject>"
+        )
+        svg_parts.append(
+            f"<text x='{x + node_width / 2}' y='{y + 47}' text-anchor='middle' font-size='11'>{role}</text>"
+        )
+    svg_parts.append("</svg>")
+
+    edge_rows = "\n".join(
+        "<tr>"
+        f"<td>{html.escape(_title_for(query_nodes, str(edge['source_id'])))}</td>"
+        f"<td>{html.escape(_title_for(query_nodes, str(edge['target_id'])))}</td>"
+        f"<td>{html.escape(str(edge['relation_type']))}</td>"
+        f"<td>{float(edge['weight']):.3f}</td>"
+        f"<td>{html.escape(str(edge['reason']))}</td>"
+        "</tr>"
+        for edge in important_edges
+    )
+    question = html.escape(str(case["question"])) if case else query_id
+    answer = html.escape(str(case["answer"])) if case else ""
+    return f"""
+  <section class="query-card">
+    <h3>{html.escape(query_id)}</h3>
+    <div class="question"><b>问题：</b>{question}<br><b>答案：</b>{answer}</div>
+    <div class="graph">{''.join(svg_parts)}</div>
+    <p class="edge-note">为避免拥挤，此处只展示检索路径边、supporting 相关边和高权重边；完整图数据见 <code>graph_artifact.json</code>。</p>
+    <table><thead><tr><th>起点</th><th>终点</th><th>关系</th><th>权重</th><th>原因</th></tr></thead><tbody>{edge_rows}</tbody></table>
+  </section>
+"""
+
+
+def _select_important_edges(
+    query_edges: list[dict[str, object]],
+    path_edges: set[tuple[str, str]],
+) -> list[dict[str, object]]:
+    selected: list[dict[str, object]] = []
+    for edge in query_edges:
+        if _edge_key(edge) in path_edges:
+            selected.append(edge)
+            continue
+        if edge["relation_type"] == "shared_entity" and float(edge["weight"]) >= 0.5:
+            selected.append(edge)
+    if len(selected) < 8:
+        remaining = [
+            edge
+            for edge in query_edges
+            if edge not in selected and float(edge["weight"]) >= 0.45
+        ]
+        remaining.sort(key=lambda edge: float(edge["weight"]), reverse=True)
+        selected.extend(remaining[: 8 - len(selected)])
+    return selected[:12]
+
+
+def _path_edge_keys(case: dict[str, object] | None) -> set[tuple[str, str]]:
+    keys: set[tuple[str, str]] = set()
+    if not case:
+        return keys
+    for mode in ["vector", "associative"]:
+        for hit in case.get(mode, []):
+            path = [str(node_id) for node_id in hit.get("path", [])]
+            for left, right in zip(path, path[1:], strict=False):
+                keys.add((left, right))
+                keys.add((right, left))
+    return keys
+
+
+def _edge_key(edge: dict[str, object]) -> tuple[str, str]:
+    return (str(edge["source_id"]), str(edge["target_id"]))
+
+
+def _title_for(nodes: list[dict[str, object]], node_id: str) -> str:
+    for node in nodes:
+        if str(node["id"]) == node_id:
+            return str(node["title"])
+    return node_id
+
+
+def _short_title(title: str, limit: int) -> str:
+    return title if len(title) <= limit else f"{title[: limit - 1]}…"
 
 
 def _case_to_html(case: dict[str, object]) -> str:

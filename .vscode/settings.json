@@ -1,0 +1,13 @@
+{
+  "python.defaultInterpreterPath": "/Users/bytedance/miniconda3/envs/sam/bin/python",
+  "python.analysis.extraPaths": [
+    "${workspaceFolder}/src"
+  ],
+  "python.analysis.autoSearchPaths": true,
+  "python.testing.unittestEnabled": true,
+  "python.testing.unittestArgs": [
+    "-v",
+    "-s",
+    "tests"
+  ]
+}

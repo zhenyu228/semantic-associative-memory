@@ -9,7 +9,7 @@
   },
   "raw_path": "/Users/bytedance/Desktop/masterThesis/SAM/data/raw/hotpot_dev_distractor_v1.json",
   "sample_size": 8,
-  "max_scan": 1000,
+  "max_scan": 800,
   "selected_examples": [
     {
       "index": 1,
