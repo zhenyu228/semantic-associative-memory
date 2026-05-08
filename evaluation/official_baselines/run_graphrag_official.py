@@ -21,7 +21,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="使用 Microsoft GraphRAG 官方 CLI 运行 baseline")
     parser.add_argument("--prepared-dir", required=True, help="export_sam_for_official.py 生成的 prepared 目录")
     parser.add_argument("--work-dir", default=None, help="GraphRAG 官方工作目录")
-    parser.add_argument("--cli", default="graphrag", help="GraphRAG 官方 CLI 命令")
+    parser.add_argument("--cli", default="evaluation/.venvs/graphrag/bin/graphrag", help="GraphRAG 官方 CLI 命令")
     parser.add_argument("--query-method", default="local", choices=["local", "global", "drift"], help="GraphRAG 查询模式")
     parser.add_argument("--limit", type=int, default=None, help="最多评测多少个问题")
     parser.add_argument("--skip-index", action="store_true", help="跳过 graphrag index，仅运行 query")

@@ -27,6 +27,61 @@ evaluation/external/
 
 注意：这里只是下载官方代码。依赖安装仍按各官方 README 执行，因为 GraphRAG、RAPTOR、HippoRAG 依赖较重，而且通常需要 `OPENAI_API_KEY` 或本地模型服务。
 
+## 1.1 当前本机依赖安装状态
+
+本机已经创建隔离环境，避免污染 `sam` conda 环境：
+
+```text
+evaluation/.venvs/raptor
+evaluation/.venvs/graphrag
+evaluation/.venvs/hipporag
+```
+
+当前状态：
+
+- RAPTOR：已安装依赖，并已验证 `from raptor import RetrievalAugmentation` 可导入。
+- GraphRAG：已安装官方 `graphrag==3.0.9`，并已验证 CLI 可用。
+- HippoRAG：暂不安装。官方依赖包含 `vllm==0.6.6.post1`，在当前 macOS arm64 环境会进入源码构建并卡在大依赖下载；官方 `requirements.txt` 还固定了 PyPI 上不存在的 `openai==1.91.1`。建议在 Linux/CUDA 环境单独安装。
+
+如果需要重新安装：
+
+```bash
+conda run -n sam python -m venv evaluation/.venvs/raptor
+evaluation/.venvs/raptor/bin/python -m pip install -i https://pypi.tuna.tsinghua.edu.cn/simple -r evaluation/external/raptor/requirements.txt
+evaluation/.venvs/raptor/bin/python -m pip install -i https://pypi.tuna.tsinghua.edu.cn/simple "huggingface-hub==0.25.2"
+
+conda run -n sam python -m venv evaluation/.venvs/graphrag
+evaluation/.venvs/graphrag/bin/python -m pip install -i https://pypi.tuna.tsinghua.edu.cn/simple graphrag
+```
+
+## 1.2 API key 配置
+
+复制模板到本地文件：
+
+```bash
+cp evaluation/official_baselines/env.template evaluation/official_baselines/.env.local
+```
+
+编辑 `.env.local`，填入真实 key：
+
+```bash
+export OPENAI_API_KEY="sk-your-openai-api-key"
+export GRAPHRAG_API_KEY="$OPENAI_API_KEY"
+```
+
+每次运行官方 baseline 前，在同一个终端执行：
+
+```bash
+source evaluation/official_baselines/.env.local
+```
+
+说明：
+
+- RAPTOR 官方代码读取 `OPENAI_API_KEY`。
+- GraphRAG 官方配置读取 `GRAPHRAG_API_KEY`。
+- `.env.local` 不会提交到 Git。
+- 如果使用 OpenAI-compatible 代理，GraphRAG 可以在它生成的 `settings.yaml` 中改模型 provider/base url；RAPTOR 官方代码当前主要按 OpenAI 官方 SDK 直连方式写，base url 支持不如 GraphRAG 清晰。
+
 ## 2. 导出 SAM 数据为官方评测格式
 
 以 NovelQA demonstration 为例：
@@ -65,7 +120,8 @@ evaluation/runs/novelqa_demo/prepared/
 先按官方 README 安装依赖，然后运行：
 
 ```bash
-conda run -n sam python evaluation/official_baselines/run_raptor_official.py \
+source evaluation/official_baselines/.env.local
+evaluation/.venvs/raptor/bin/python evaluation/official_baselines/run_raptor_official.py \
   --prepared-dir evaluation/runs/novelqa_demo/prepared \
   --limit 8
 ```
@@ -77,13 +133,13 @@ conda run -n sam python evaluation/official_baselines/run_raptor_official.py \
 先安装官方包并准备 LLM 配置：
 
 ```bash
-pip install graphrag
+source evaluation/official_baselines/.env.local
 ```
 
 然后运行：
 
 ```bash
-conda run -n sam python evaluation/official_baselines/run_graphrag_official.py \
+evaluation/.venvs/graphrag/bin/python evaluation/official_baselines/run_graphrag_official.py \
   --prepared-dir evaluation/runs/novelqa_demo/prepared \
   --query-method local \
   --limit 8
@@ -93,7 +149,7 @@ conda run -n sam python evaluation/official_baselines/run_graphrag_official.py \
 
 ### HippoRAG
 
-先按官方 README 安装依赖，然后运行：
+当前 Mac 本机暂不运行 HippoRAG 官方实现。推荐在 Linux/CUDA 环境按官方 README 安装，然后运行：
 
 ```bash
 conda run -n sam python evaluation/official_baselines/run_hipporag_official.py \

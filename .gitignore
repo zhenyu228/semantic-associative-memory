@@ -16,6 +16,7 @@ outputs/
 reports/generated/
 evaluation/external/
 evaluation/runs/
+evaluation/.venvs/
 
 # Local environment
 .env
