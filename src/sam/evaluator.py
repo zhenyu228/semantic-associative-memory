@@ -8,8 +8,17 @@ from sam.datasets import documents_to_nodes
 from sam.embedding import EmbeddingProvider
 from sam.graph import GraphBuilder
 from sam.models import DatasetDocument, EvaluationQuery, MemoryNode, RetrievalHit
-from sam.retriever import Retriever
+from sam.retriever import RETRIEVAL_METHOD_NAMES, Retriever
 from sam.store import MemoryStore
+
+
+DEFAULT_EVALUATION_METHODS = [
+    "embedding_topk",
+    "raptor_style",
+    "graphrag_style",
+    "hipporag_style",
+    "sam",
+]
 
 
 @dataclass(slots=True)
@@ -24,6 +33,7 @@ class ExperimentResult:
     associative_support_hits: int
     associative_gain: int
     average_path_length: float
+    method_metrics: dict[str, dict[str, object]]
     cases: list[dict[str, object]]
 
     def to_dict(self) -> dict[str, object]:
@@ -38,6 +48,7 @@ class ExperimentResult:
             "associative_support_hits": self.associative_support_hits,
             "associative_gain": self.associative_gain,
             "average_path_length": self.average_path_length,
+            "method_metrics": self.method_metrics,
             "cases": self.cases,
         }
 
@@ -68,11 +79,13 @@ class Evaluator:
         top_k: int = 2,
         seed_k: int = 1,
         hops: int = 2,
+        methods: list[str] | None = None,
     ) -> ExperimentResult:
         retriever = Retriever(self.store, self.embedding_provider, self.graph_builder)
+        active_methods = methods or DEFAULT_EVALUATION_METHODS
         total_support = 0
-        vector_support_hits = 0
-        associative_support_hits = 0
+        method_support_hits = {method: 0 for method in active_methods}
+        method_answer_hits = {method: 0 for method in active_methods}
         path_lengths: list[int] = []
         cases: list[dict[str, object]] = []
 
@@ -82,51 +95,82 @@ class Evaluator:
             if "original_doc_id" in node.metadata
         }
         for query in queries:
-            support_node_ids = {original_to_node[doc_id] for doc_id in query.supporting_doc_ids}
-            candidate_node_ids = [original_to_node[doc_id] for doc_id in query.candidate_doc_ids]
-
-            vector_hits = retriever.retrieve(
-                query=query.question,
-                mode="vector",
-                top_k=top_k,
-                candidate_doc_ids=candidate_node_ids,
-            )
-            associative_hits = retriever.retrieve(
-                query=query.question,
-                mode="associative",
-                top_k=top_k,
-                seed_k=seed_k,
-                hops=hops,
-                candidate_doc_ids=candidate_node_ids,
-            )
-            vector_hit_ids = {hit.node.id for hit in vector_hits}
-            associative_hit_ids = {hit.node.id for hit in associative_hits}
-            vector_case_hits = len(vector_hit_ids & support_node_ids)
-            associative_case_hits = len(associative_hit_ids & support_node_ids)
+            support_node_ids = {
+                original_to_node[doc_id]
+                for doc_id in query.supporting_doc_ids
+                if doc_id in original_to_node
+            }
+            candidate_node_ids = [
+                original_to_node[doc_id]
+                for doc_id in query.candidate_doc_ids
+                if doc_id in original_to_node
+            ]
             total_support += len(support_node_ids)
-            vector_support_hits += vector_case_hits
-            associative_support_hits += associative_case_hits
-            path_lengths.extend(len(hit.path) for hit in associative_hits)
-            cases.append(
-                {
-                    "query_id": query.id,
-                    "dataset": query.dataset,
-                    "question": query.question,
-                    "answer": query.answer,
-                    "supporting_doc_ids": query.supporting_doc_ids,
-                    "vector": self._serialize_hits(vector_hits, support_node_ids),
-                    "associative": self._serialize_hits(associative_hits, support_node_ids),
-                    "vector_final_answer": self._extract_answer(query.answer, vector_hits),
-                    "associative_final_answer": self._extract_answer(query.answer, associative_hits),
-                    "vector_support_hits": vector_case_hits,
-                    "associative_support_hits": associative_case_hits,
-                    "gain": associative_case_hits - vector_case_hits,
-                }
-            )
 
+            serialized_methods: dict[str, list[dict[str, object]]] = {}
+            final_answers: dict[str, dict[str, object]] = {}
+            support_hits_by_method: dict[str, int] = {}
+            for method in active_methods:
+                hits = retriever.retrieve(
+                    query=query.question,
+                    mode=method,
+                    top_k=top_k,
+                    seed_k=seed_k,
+                    hops=hops,
+                    candidate_doc_ids=candidate_node_ids,
+                )
+                hit_ids = {hit.node.id for hit in hits}
+                case_support_hits = len(hit_ids & support_node_ids)
+                extracted_answer = self._extract_answer(query.answer, hits, query.metadata)
+                method_support_hits[method] += case_support_hits
+                if extracted_answer["status"] in {"found_in_retrieved_context", "matched_option"}:
+                    method_answer_hits[method] += 1
+                if method == "sam":
+                    path_lengths.extend(len(hit.path) for hit in hits)
+                serialized_methods[method] = self._serialize_hits(hits, support_node_ids)
+                final_answers[method] = extracted_answer
+                support_hits_by_method[method] = case_support_hits
+
+            vector_hits = serialized_methods.get("embedding_topk", [])
+            sam_hits = serialized_methods.get("sam", [])
+            vector_case_hits = support_hits_by_method.get("embedding_topk", 0)
+            sam_case_hits = support_hits_by_method.get("sam", 0)
+            case_payload = {
+                "query_id": query.id,
+                "dataset": query.dataset,
+                "question": query.question,
+                "answer": query.answer,
+                "query_metadata": query.metadata,
+                "supporting_doc_ids": query.supporting_doc_ids,
+                "methods": serialized_methods,
+                "final_answers": final_answers,
+                "support_hits_by_method": support_hits_by_method,
+                # 兼容旧 HTML/报告字段。
+                "vector": vector_hits,
+                "associative": sam_hits,
+                "vector_final_answer": final_answers.get("embedding_topk", {}),
+                "associative_final_answer": final_answers.get("sam", {}),
+                "vector_support_hits": vector_case_hits,
+                "associative_support_hits": sam_case_hits,
+                "gain": sam_case_hits - vector_case_hits,
+            }
+            cases.append(case_payload)
+
+        vector_support_hits = method_support_hits.get("embedding_topk", 0)
+        associative_support_hits = method_support_hits.get("sam", 0)
         vector_recall = vector_support_hits / total_support if total_support else 0.0
         associative_recall = associative_support_hits / total_support if total_support else 0.0
         average_path_length = sum(path_lengths) / len(path_lengths) if path_lengths else 0.0
+        method_metrics = {
+            method: {
+                "display_name": RETRIEVAL_METHOD_NAMES.get(method, method),
+                "support_hits": method_support_hits[method],
+                "evidence_recall": method_support_hits[method] / total_support if total_support else None,
+                "answer_hit_count": method_answer_hits[method],
+                "answer_hit_rate": method_answer_hits[method] / len(queries) if queries else 0.0,
+            }
+            for method in active_methods
+        }
         return ExperimentResult(
             dataset_count=len({query.dataset for query in queries}),
             query_count=len(queries),
@@ -138,16 +182,21 @@ class Evaluator:
             associative_support_hits=associative_support_hits,
             associative_gain=associative_support_hits - vector_support_hits,
             average_path_length=average_path_length,
+            method_metrics=method_metrics,
             cases=cases,
         )
 
     def write_reports(self, result: ExperimentResult, report_dir: str | Path) -> tuple[Path, Path]:
         output_dir = Path(report_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
-        json_path = output_dir / "experiment_results.json"
-        markdown_path = output_dir / "experiment_results.md"
+        json_path = output_dir / "metrics.json"
+        markdown_path = output_dir / "metrics.md"
         json_path.write_text(
             json.dumps(result.to_dict(), ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+        (output_dir / "cases.json").write_text(
+            json.dumps(result.cases, ensure_ascii=False, indent=2),
             encoding="utf-8",
         )
         markdown_path.write_text(self._to_markdown(result), encoding="utf-8")
@@ -173,20 +222,40 @@ class Evaluator:
             for hit in hits
         ]
 
-    def _extract_answer(self, gold_answer: str, hits: list[RetrievalHit]) -> dict[str, object]:
+    def _extract_answer(
+        self,
+        gold_answer: str,
+        hits: list[RetrievalHit],
+        query_metadata: dict[str, object] | None = None,
+    ) -> dict[str, object]:
         """当前阶段的轻量答案抽取。
 
         这里还没有接 LLM 生成答案，因此先做“检索文本是否覆盖标准答案”的抽取检测：
         如果 top-k 文档里包含标准答案字符串，就认为该方法具备生成该答案的证据基础。
         """
 
+        query_metadata = query_metadata or {}
+        options = query_metadata.get("options")
+        if isinstance(options, dict) and gold_answer in options:
+            gold_text = str(options[gold_answer])
+        else:
+            gold_text = gold_answer
+        if not str(gold_answer).strip() and not str(gold_text).strip():
+            return {
+                "answer": "数据集中未提供标准答案",
+                "status": "answer_not_available",
+                "evidence_node_id": None,
+                "evidence_title": None,
+                "note": "当前样本没有可评估的标准答案，通常需要使用 NovelQA 官方评测或人工答案文件。",
+            }
         normalized_gold = gold_answer.lower()
+        normalized_gold_text = gold_text.lower()
         for hit in hits:
             haystack = f"{hit.node.metadata.get('title', '')}\n{hit.node.text}".lower()
-            if normalized_gold in haystack:
+            if normalized_gold in haystack or normalized_gold_text in haystack:
                 return {
-                    "answer": gold_answer,
-                    "status": "found_in_retrieved_context",
+                    "answer": gold_text,
+                    "status": "matched_option" if isinstance(options, dict) else "found_in_retrieved_context",
                     "evidence_node_id": hit.node.id,
                     "evidence_title": hit.node.metadata.get("title", hit.node.id),
                     "note": "当前阶段未接 LLM，此处表示 top-k 检索文本中包含标准答案字符串。",
@@ -218,9 +287,34 @@ class Evaluator:
             f"| 联想检索新增有效证据数 | {result.associative_gain} |",
             f"| 联想检索平均路径长度 | {result.average_path_length:.2f} |",
             "",
+            "## 方法对比",
+            "",
+            "| 方法 | 证据命中数 | 证据召回率 | 答案命中数 | 答案命中率 |",
+            "| --- | ---: | ---: | ---: | ---: |",
+        ]
+        for metric in result.method_metrics.values():
+            recall = metric["evidence_recall"]
+            recall_text = "N/A" if recall is None else f"{float(recall):.3f}"
+            lines.append(
+                "| "
+                + " | ".join(
+                    [
+                        str(metric["display_name"]),
+                        str(metric["support_hits"]),
+                        recall_text,
+                        str(metric["answer_hit_count"]),
+                        f"{float(metric['answer_hit_rate']):.3f}",
+                    ]
+                )
+                + " |"
+            )
+        lines.extend(
+            [
+                "",
             "## 案例分析",
             "",
-        ]
+            ]
+        )
         for case in result.cases:
             lines.extend(
                 [
@@ -236,13 +330,13 @@ class Evaluator:
                     "| --- | --- | --- | ---: | --- | --- |",
                 ]
             )
-            for mode in ["vector", "associative"]:
-                for hit in case[mode]:
+            for method, hits in case["methods"].items():
+                for hit in hits:
                     lines.append(
                         "| "
                         + " | ".join(
                             [
-                                "纯向量" if mode == "vector" else "联想检索",
+                                RETRIEVAL_METHOD_NAMES.get(method, method),
                                 str(hit["title"]),
                                 "是" if hit["is_supporting"] else "否",
                                 f"{hit['score']:.4f}",

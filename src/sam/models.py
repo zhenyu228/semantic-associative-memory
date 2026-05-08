@@ -109,6 +109,7 @@ class EvaluationQuery:
     answer: str
     supporting_doc_ids: list[str]
     candidate_doc_ids: list[str]
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(slots=True)
@@ -123,4 +124,3 @@ class DatasetDocument:
     tags: list[str]
     keywords: list[str]
     metadata: dict[str, Any] = field(default_factory=dict)
-

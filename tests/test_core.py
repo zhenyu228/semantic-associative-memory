@@ -4,13 +4,14 @@ import tempfile
 import unittest
 from pathlib import Path
 import sys
+import json
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from sam.datasets import load_builtin_benchmark_sample
+from sam.datasets import load_builtin_benchmark_sample, load_novelqa_sample
 from sam.dataset_format import load_sam_dataset, save_sam_dataset, summarize_sam_dataset
 from sam.embedding import LocalHashEmbeddingProvider
 from sam.evaluator import Evaluator
@@ -87,6 +88,44 @@ class SamCoreTest(unittest.TestCase):
         self.assertEqual(len(loaded_documents), len(documents))
         self.assertEqual(len(loaded_queries), len(queries))
         self.assertEqual(summary["query_count"], len(queries))
+        self.assertEqual(loaded_queries[0].metadata, queries[0].metadata)
+
+    def test_novelqa_adapter_reads_local_directory(self) -> None:
+        source_root = Path(self.temp_dir.name) / "NovelQA"
+        (source_root / "Books" / "PublicDomain").mkdir(parents=True)
+        (source_root / "Data" / "PublicDomain").mkdir(parents=True)
+        (source_root / "Books" / "PublicDomain" / "B00.txt").write_text(
+            "Alice met the White Rabbit near the river. " * 80,
+            encoding="utf-8",
+        )
+        (source_root / "Data" / "PublicDomain" / "B00.json").write_text(
+            json.dumps(
+                [
+                    {
+                        "QID": "Q0001",
+                        "Aspect": "plot",
+                        "Complexity": "mh",
+                        "Question": "Who did Alice meet?",
+                        "Options": {"A": "White Rabbit", "B": "Mad Hatter"},
+                        "Answer": "A",
+                    }
+                ],
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+        documents, queries, manifest = load_novelqa_sample(
+            source_root,
+            sample_size=1,
+            max_books=1,
+            chunk_chars=300,
+            chunk_overlap=20,
+            max_chunks_per_book=3,
+        )
+        self.assertEqual(len(queries), 1)
+        self.assertEqual(len(documents), 3)
+        self.assertEqual(queries[0].metadata["options"]["A"], "White Rabbit")
+        self.assertEqual(manifest["selected_books"][0]["book_id"], "B00")
 
 
 if __name__ == "__main__":

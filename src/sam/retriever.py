@@ -6,7 +6,16 @@ from sam.embedding import EmbeddingProvider
 from sam.graph import GraphBuilder
 from sam.models import MemoryNode, RetrievalHit
 from sam.store import MemoryStore
-from sam.text import cosine_similarity
+from sam.text import cosine_similarity, extract_keywords
+
+
+RETRIEVAL_METHOD_NAMES = {
+    "embedding_topk": "Embedding Top-k",
+    "raptor_style": "RAPTOR-style",
+    "graphrag_style": "GraphRAG-style",
+    "hipporag_style": "HippoRAG-style",
+    "sam": "SAM 动态联想检索",
+}
 
 
 class Retriever:
@@ -31,15 +40,38 @@ class Retriever:
         hops: int = 2,
         candidate_doc_ids: list[str] | None = None,
     ) -> list[RetrievalHit]:
-        if mode not in {"vector", "associative"}:
-            raise ValueError("mode 只能是 vector 或 associative")
+        mode = _normalize_mode(mode)
+        if mode not in RETRIEVAL_METHOD_NAMES:
+            raise ValueError(f"未知检索模式：{mode}")
         query_embedding = self.embedding_provider.embed(query)
         candidates = self.store.get_nodes(candidate_doc_ids)
         vector_hits = self._vector_hits(query_embedding, candidates, top_k=max(top_k, seed_k))
-        if mode == "vector":
+        if mode == "embedding_topk":
             hits = vector_hits[:top_k]
             self.store.increment_usage([hit.node.id for hit in hits])
             self.store.log_retrieval(query, mode, hits, {"top_k": top_k})
+            return hits
+
+        if mode == "raptor_style":
+            hits = self._raptor_style_hits(query, query_embedding, candidates, top_k)
+            self.store.increment_usage([hit.node.id for hit in hits])
+            self.store.log_retrieval(query, mode, hits, {"top_k": top_k})
+            return hits
+
+        if mode == "graphrag_style":
+            seed_nodes = [hit.node for hit in vector_hits[: max(seed_k, 2)]]
+            self.graph_builder.build_edges_on_demand(seed_nodes)
+            hits = self._graphrag_style_hits(query, query_embedding, candidates, top_k)
+            self.store.increment_usage([hit.node.id for hit in hits])
+            self.store.log_retrieval(query, mode, hits, {"top_k": top_k, "seed_k": max(seed_k, 2)})
+            return hits
+
+        if mode == "hipporag_style":
+            seed_nodes = [hit.node for hit in vector_hits[: max(seed_k, 2)]]
+            self.graph_builder.build_edges_on_demand(seed_nodes)
+            hits = self._hipporag_style_hits(query_embedding, candidates, top_k)
+            self.store.increment_usage([hit.node.id for hit in hits])
+            self.store.log_retrieval(query, mode, hits, {"top_k": top_k, "seed_k": max(seed_k, 2)})
             return hits
 
         seed_nodes = [hit.node for hit in vector_hits[:seed_k]]
@@ -113,6 +145,153 @@ class Retriever:
         hits.sort(key=lambda hit: hit.score, reverse=True)
         return hits[:top_k]
 
+    def _raptor_style_hits(
+        self,
+        query: str,
+        query_embedding: list[float],
+        candidates: list[MemoryNode],
+        top_k: int,
+    ) -> list[RetrievalHit]:
+        """RAPTOR-style 多层摘要树检索。
+
+        这里不声称复现 RAPTOR 官方实现，只模拟它的核心对照思想：
+        先把叶子 chunk 聚成若干语义簇，再同时考虑 chunk 与簇摘要的相关性。
+        """
+
+        clusters = self._semantic_clusters(candidates)
+        query_keywords = set(extract_keywords(query, limit=12))
+        cluster_scores: dict[str, float] = {}
+        cluster_keywords: dict[str, set[str]] = {}
+        for cluster_id, nodes in clusters.items():
+            summary_text = " ".join(
+                f"{node.metadata.get('title', '')} {' '.join(node.keywords[:6])} {node.summary}"
+                for node in nodes
+            )
+            summary_embedding = self.embedding_provider.embed(summary_text)
+            keywords = set(extract_keywords(summary_text, limit=18))
+            keyword_score = _overlap_ratio(query_keywords, keywords)
+            cluster_scores[cluster_id] = 0.72 * cosine_similarity(query_embedding, summary_embedding) + 0.28 * keyword_score
+            cluster_keywords[cluster_id] = keywords
+
+        hits: list[RetrievalHit] = []
+        for node in candidates:
+            cluster_id = self._cluster_id(node)
+            node_similarity = cosine_similarity(query_embedding, node.embedding)
+            cluster_score = cluster_scores.get(cluster_id, 0.0)
+            keyword_score = _overlap_ratio(query_keywords, set(node.keywords) | cluster_keywords.get(cluster_id, set()))
+            score = 0.58 * node_similarity + 0.32 * cluster_score + 0.10 * keyword_score
+            hits.append(
+                RetrievalHit(
+                    node=node,
+                    score=score,
+                    similarity_score=node_similarity,
+                    graph_score=cluster_score,
+                    usage_score=0.0,
+                    confidence_score=node.confidence * 0.03,
+                    path=[f"summary::{cluster_id}", node.id],
+                    reason=f"RAPTOR-style：先命中摘要簇 {cluster_id}，再下钻到叶子记忆节点",
+                )
+            )
+        hits.sort(key=lambda hit: hit.score, reverse=True)
+        return hits[:top_k]
+
+    def _graphrag_style_hits(
+        self,
+        query: str,
+        query_embedding: list[float],
+        candidates: list[MemoryNode],
+        top_k: int,
+    ) -> list[RetrievalHit]:
+        """GraphRAG-style 实体图局部检索。"""
+
+        query_terms = set(extract_keywords(query, limit=16))
+        candidate_ids = {node.id for node in candidates}
+        edges_by_node: dict[str, list[float]] = {node.id: [] for node in candidates}
+        for edge in self.store.get_edges():
+            if edge.source_id in candidate_ids and edge.target_id in candidate_ids:
+                edges_by_node.setdefault(edge.source_id, []).append(edge.weight)
+                edges_by_node.setdefault(edge.target_id, []).append(edge.weight)
+
+        hits: list[RetrievalHit] = []
+        for node in candidates:
+            entities = {str(entity).lower() for entity in node.metadata.get("entities", [])}
+            title_terms = set(extract_keywords(str(node.metadata.get("title", "")), limit=8))
+            entity_score = _overlap_ratio(query_terms, set(node.keywords) | title_terms | entities)
+            neighborhood_score = min(1.0, sum(edges_by_node.get(node.id, [])) / 3.0)
+            similarity = cosine_similarity(query_embedding, node.embedding)
+            score = 0.38 * similarity + 0.34 * entity_score + 0.22 * neighborhood_score + node.confidence * 0.03
+            hits.append(
+                RetrievalHit(
+                    node=node,
+                    score=score,
+                    similarity_score=similarity,
+                    graph_score=entity_score + neighborhood_score,
+                    usage_score=0.0,
+                    confidence_score=node.confidence * 0.03,
+                    path=[node.id],
+                    reason=(
+                        "GraphRAG-style：结合实体/关键词命中、局部图邻域强度和文本相似度排序，"
+                        f"实体得分={entity_score:.3f}，邻域得分={neighborhood_score:.3f}"
+                    ),
+                )
+            )
+        hits.sort(key=lambda hit: hit.score, reverse=True)
+        return hits[:top_k]
+
+    def _hipporag_style_hits(
+        self,
+        query_embedding: list[float],
+        candidates: list[MemoryNode],
+        top_k: int,
+    ) -> list[RetrievalHit]:
+        """HippoRAG-style Personalized PageRank 图激活检索。"""
+
+        candidate_ids = {node.id for node in candidates}
+        nodes_by_id = {node.id: node for node in candidates}
+        priors = {
+            node.id: max(0.0, cosine_similarity(query_embedding, node.embedding))
+            for node in candidates
+        }
+        prior_sum = sum(priors.values()) or 1.0
+        priors = {node_id: value / prior_sum for node_id, value in priors.items()}
+
+        adjacency: dict[str, list[tuple[str, float]]] = {node.id: [] for node in candidates}
+        for edge in self.store.get_edges():
+            if edge.source_id in candidate_ids and edge.target_id in candidate_ids:
+                adjacency[edge.source_id].append((edge.target_id, edge.weight))
+
+        ranks = dict(priors)
+        damping = 0.78
+        for _ in range(18):
+            next_ranks = {node_id: (1.0 - damping) * priors[node_id] for node_id in candidate_ids}
+            for node_id, neighbors in adjacency.items():
+                if not neighbors:
+                    continue
+                total_weight = sum(weight for _, weight in neighbors) or 1.0
+                for target_id, weight in neighbors:
+                    next_ranks[target_id] += damping * ranks.get(node_id, 0.0) * weight / total_weight
+            ranks = next_ranks
+
+        hits: list[RetrievalHit] = []
+        for node_id, rank in ranks.items():
+            node = nodes_by_id[node_id]
+            similarity = cosine_similarity(query_embedding, node.embedding)
+            score = 0.52 * rank + 0.40 * similarity + node.confidence * 0.03
+            hits.append(
+                RetrievalHit(
+                    node=node,
+                    score=score,
+                    similarity_score=similarity,
+                    graph_score=rank,
+                    usage_score=0.0,
+                    confidence_score=node.confidence * 0.03,
+                    path=[node.id],
+                    reason=f"HippoRAG-style：以查询相似度作为个性化先验，在知识图上执行 PPR，rank={rank:.4f}",
+                )
+            )
+        hits.sort(key=lambda hit: hit.score, reverse=True)
+        return hits[:top_k]
+
     def _associative_hits(
         self,
         query_embedding: list[float],
@@ -179,3 +358,32 @@ class Retriever:
         # 联想检索以向量种子作为“当前被激活记忆”，不能在扩展后把种子挤掉。
         # 否则图扩展会变成替代检索，而不是开题报告中的“种子激活 + 语义扩散”。
         return [*seed_results, *other_results][:top_k]
+
+    def _semantic_clusters(self, nodes: list[MemoryNode]) -> dict[str, list[MemoryNode]]:
+        clusters: dict[str, list[MemoryNode]] = {}
+        for node in nodes:
+            clusters.setdefault(self._cluster_id(node), []).append(node)
+        return clusters
+
+    def _cluster_id(self, node: MemoryNode) -> str:
+        query_id = node.metadata.get("query_id")
+        entities = node.metadata.get("entities", [])
+        if entities:
+            return f"{query_id or node.metadata.get('dataset', 'global')}::{str(entities[0]).lower()}"
+        if node.keywords:
+            return f"{query_id or node.metadata.get('dataset', 'global')}::{node.keywords[0]}"
+        return f"{query_id or node.metadata.get('dataset', 'global')}::misc"
+
+
+def _normalize_mode(mode: str) -> str:
+    aliases = {
+        "vector": "embedding_topk",
+        "associative": "sam",
+    }
+    return aliases.get(mode, mode)
+
+
+def _overlap_ratio(left: set[str], right: set[str]) -> float:
+    if not left or not right:
+        return 0.0
+    return len(left & right) / max(1, len(left))

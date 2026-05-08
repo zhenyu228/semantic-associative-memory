@@ -65,6 +65,7 @@ def load_sam_dataset(path: str | Path) -> tuple[list[DatasetDocument], list[Eval
             answer=item["answer"],
             supporting_doc_ids=list(item["supporting_doc_ids"]),
             candidate_doc_ids=list(item["candidate_doc_ids"]),
+            metadata=dict(item.get("metadata", {})),
         )
         for item in payload["queries"]
     ]
@@ -89,4 +90,3 @@ def summarize_sam_dataset(path: str | Path) -> dict[str, Any]:
         "supporting_document_count": len(supporting_ids),
         "processing": payload.get("processing", {}),
     }
-

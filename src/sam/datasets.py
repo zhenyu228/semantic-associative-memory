@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import zipfile
 import urllib.request
 from pathlib import Path
 from typing import Any
@@ -33,6 +34,14 @@ DATASET_REFERENCES = {
         "name": "MuSiQue",
         "homepage": "https://github.com/stonybrooknlp/musique",
         "note": "通过单跳问题组合构造的多跳问答数据集。",
+    },
+    "novelqa": {
+        "name": "NovelQA",
+        "homepage": "https://novelqa.github.io/",
+        "huggingface": "https://huggingface.co/datasets/NovelQA/NovelQA",
+        "paper": "https://arxiv.org/abs/2403.12766",
+        "license": "Apache-2.0",
+        "note": "长篇小说问答数据集，面向超过 200K token 的长文本理解和检索评测；原始数据需要用户同意访问条件后本地提供。",
     },
 }
 
@@ -333,6 +342,121 @@ def load_multihop_rag_from_huggingface(cache_path: str | Path) -> dict[str, Any]
     return {"url": url, "cache_path": str(target), "bytes": len(content.encode("utf-8"))}
 
 
+def load_novelqa_sample(
+    source_path: str | Path,
+    sample_size: int = 8,
+    max_books: int = 1,
+    chunk_chars: int = 1800,
+    chunk_overlap: int = 180,
+    max_chunks_per_book: int = 80,
+) -> tuple[list[DatasetDocument], list[EvaluationQuery], dict[str, Any]]:
+    """把本地 NovelQA zip 或目录转换成 SAM 统一数据结构。
+
+    NovelQA 是 gated dataset，本函数只读取用户本地已经获得的数据，不负责登录或下载。
+    """
+
+    reader = _NovelQAReader(Path(source_path))
+    qa_files = reader.list_files("Data/", ".json")
+    if not qa_files:
+        qa_files = reader.list_files("Demonstration/", ".json")
+    selected_books: list[dict[str, Any]] = []
+    documents: list[DatasetDocument] = []
+    queries: list[EvaluationQuery] = []
+
+    for qa_file in qa_files:
+        if len(selected_books) >= max_books or len(queries) >= sample_size:
+            break
+        book_id = Path(qa_file).stem
+        book_file = reader.find_book_file(book_id)
+        if not book_file:
+            continue
+        book_text = reader.read_text(book_file)
+        qa_items = reader.read_json(qa_file)
+        if not isinstance(qa_items, list):
+            continue
+
+        chunks = _chunk_text(book_text, chunk_chars=chunk_chars, overlap=chunk_overlap)[:max_chunks_per_book]
+        candidate_doc_ids: list[str] = []
+        for chunk_index, chunk in enumerate(chunks):
+            doc_id = f"novelqa_{book_id}_chunk_{chunk_index:04d}"
+            candidate_doc_ids.append(doc_id)
+            title = f"{book_id} chunk {chunk_index:04d}"
+            documents.append(
+                DatasetDocument(
+                    id=doc_id,
+                    dataset="novelqa",
+                    title=title,
+                    text=chunk,
+                    source="NovelQA",
+                    tags=["novelqa", "long_context", "novel_chunk"],
+                    keywords=extract_keywords(f"{title} {chunk}", limit=12),
+                    metadata={
+                        "book_id": book_id,
+                        "chunk_index": chunk_index,
+                        "dataset_reference": DATASET_REFERENCES["novelqa"],
+                        "title": title,
+                    },
+                )
+            )
+
+        added_questions = 0
+        for item in qa_items:
+            if len(queries) >= sample_size:
+                break
+            if not isinstance(item, dict) or "Question" not in item:
+                continue
+            qid = str(item.get("QID") or item.get("qid") or f"Q{len(queries):04d}")
+            options = dict(item.get("Options") or item.get("options") or {})
+            answer = _extract_novelqa_answer(item)
+            queries.append(
+                EvaluationQuery(
+                    id=f"novelqa_{book_id}_{qid}",
+                    dataset="novelqa",
+                    question=str(item["Question"]),
+                    answer=answer,
+                    supporting_doc_ids=[],
+                    candidate_doc_ids=list(candidate_doc_ids),
+                    metadata={
+                        "book_id": book_id,
+                        "qid": qid,
+                        "aspect": item.get("Aspect") or item.get("aspect"),
+                        "complexity": item.get("Complexity") or item.get("Complex") or item.get("complexity"),
+                        "options": options,
+                        "raw_answer": item.get("Answer") or item.get("answer"),
+                        "source_file": qa_file,
+                        "book_file": book_file,
+                        "note": "NovelQA 公开格式通常不提供可直接映射到 chunk 的 gold evidence，本阶段主要评估答案/选项覆盖。",
+                    },
+                )
+            )
+            added_questions += 1
+
+        selected_books.append(
+            {
+                "book_id": book_id,
+                "book_file": book_file,
+                "qa_file": qa_file,
+                "chunk_count": len(chunks),
+                "question_count": added_questions,
+            }
+        )
+
+    if not queries:
+        raise ValueError("没有从 NovelQA 本地路径中读取到可用问题，请确认 zip/目录结构包含 Books 和 Data/Demonstration")
+
+    manifest = {
+        "dataset": DATASET_REFERENCES["novelqa"],
+        "source_path": str(source_path),
+        "sample_size": len(queries),
+        "max_books": max_books,
+        "chunk_chars": chunk_chars,
+        "chunk_overlap": chunk_overlap,
+        "max_chunks_per_book": max_chunks_per_book,
+        "selected_books": selected_books,
+    }
+    return documents, queries, manifest
+
+
 def documents_to_nodes(
     documents: list[DatasetDocument],
     embedding_provider: EmbeddingProvider,
@@ -378,3 +502,68 @@ def _extract_title_entities(title: str, text: str, all_titles: list[str]) -> lis
         if candidate != title and candidate.lower() in lowered:
             entities.add(candidate)
     return sorted(entities)
+
+
+class _NovelQAReader:
+    def __init__(self, source_path: Path) -> None:
+        self.source_path = source_path
+        self.archive: zipfile.ZipFile | None = None
+        if source_path.is_file() and source_path.suffix.lower() == ".zip":
+            self.archive = zipfile.ZipFile(source_path)
+        elif not source_path.exists():
+            raise FileNotFoundError(f"NovelQA 路径不存在：{source_path}")
+
+    def list_files(self, prefix: str, suffix: str) -> list[str]:
+        if self.archive:
+            return sorted(
+                name
+                for name in self.archive.namelist()
+                if prefix in name and name.lower().endswith(suffix)
+            )
+        return sorted(
+            str(path.relative_to(self.source_path))
+            for path in self.source_path.rglob(f"*{suffix}")
+            if prefix.rstrip("/") in str(path.relative_to(self.source_path))
+        )
+
+    def find_book_file(self, book_id: str) -> str | None:
+        candidates = self.list_files("Books/", ".txt")
+        for candidate in candidates:
+            if Path(candidate).stem == book_id:
+                return candidate
+        for candidate in candidates:
+            if book_id in Path(candidate).stem or Path(candidate).stem in book_id:
+                return candidate
+        return None
+
+    def read_text(self, name: str) -> str:
+        if self.archive:
+            return self.archive.read(name).decode("utf-8", errors="ignore")
+        return (self.source_path / name).read_text(encoding="utf-8", errors="ignore")
+
+    def read_json(self, name: str) -> Any:
+        return json.loads(self.read_text(name))
+
+
+def _chunk_text(text: str, chunk_chars: int, overlap: int) -> list[str]:
+    cleaned = "\n".join(line.strip() for line in text.splitlines() if line.strip())
+    chunks: list[str] = []
+    start = 0
+    step = max(1, chunk_chars - overlap)
+    while start < len(cleaned):
+        chunk = cleaned[start : start + chunk_chars].strip()
+        if chunk:
+            chunks.append(chunk)
+        start += step
+    return chunks
+
+
+def _extract_novelqa_answer(item: dict[str, Any]) -> str:
+    for key in ["Answer", "answer", "Gold", "gold", "Label", "label"]:
+        value = item.get(key)
+        if value is not None:
+            return str(value)
+    options = item.get("Options") or item.get("options") or {}
+    if isinstance(options, dict) and options:
+        return str(next(iter(options)))
+    return ""

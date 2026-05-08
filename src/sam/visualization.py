@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 
 from sam.models import EvaluationQuery, MemoryEdge, MemoryNode, RetrievalHit
+from sam.retriever import RETRIEVAL_METHOD_NAMES
 
 
 def export_graph_artifacts(
@@ -183,7 +184,7 @@ def _to_html(
 </head>
 <body>
   <h1>SAM 图谱运行产物</h1>
-  <p class="hint">黄色节点是真实 HotpotQA supporting paragraph，蓝色节点是候选干扰段落。箭头表示系统实际创建的关键语义边。这个文件由代码自动生成，不是手绘示意图。</p>
+  <p class="hint">黄色节点表示数据集标注的支持证据，蓝色节点表示候选文档或切块。箭头表示系统实际创建的关键语义边。这个文件由代码自动生成，不是手绘示意图。</p>
   <p class="legend"><span>黄色：支持证据</span><span>蓝色：候选文档</span><span>橙色边：共享实体</span><span>蓝色边：关键词重叠</span><span>紫色边：embedding 相似</span></p>
   <div class="toolbar">
     <label for="case-select"><b>选择样本：</b></label>
@@ -290,52 +291,42 @@ def _query_graph_html(
         y = 90 + row * 150
         positions[str(node["id"])] = (x, y)
 
-    vector_hit_ids = {str(hit["node_id"]) for hit in case.get("vector", [])} if case else set()
-    associative_hit_ids = {str(hit["node_id"]) for hit in case.get("associative", [])} if case else set()
-    vector_svg = _method_svg(
-        ordered_nodes=ordered_nodes,
-        query_edges=query_edges,
-        positions=positions,
-        width=width,
-        height=height,
-        node_width=node_width,
-        node_height=node_height,
-        case=case,
-        method="vector",
-        hit_ids=vector_hit_ids,
-    )
-    associative_svg = _method_svg(
-        ordered_nodes=ordered_nodes,
-        query_edges=query_edges,
-        positions=positions,
-        width=width,
-        height=height,
-        node_width=node_width,
-        node_height=node_height,
-        case=case,
-        method="associative",
-        hit_ids=associative_hit_ids,
-    )
+    method_payloads = case.get("methods", {}) if case else {}
+    if not method_payloads and case:
+        method_payloads = {"embedding_topk": case.get("vector", []), "sam": case.get("associative", [])}
+    method_cards = []
+    for method, hits in method_payloads.items():
+        hit_ids = {str(hit["node_id"]) for hit in hits}
+        method_svg = _method_svg(
+            ordered_nodes=ordered_nodes,
+            query_edges=query_edges,
+            positions=positions,
+            width=width,
+            height=height,
+            node_width=node_width,
+            node_height=node_height,
+            case=case,
+            method=str(method),
+            hit_ids=hit_ids,
+        )
+        method_cards.append(
+            f"""
+      <div class="method-card">
+        <h4>{html.escape(RETRIEVAL_METHOD_NAMES.get(str(method), str(method)))}</h4>
+        {_method_answer_html(case, str(method)) if case else ""}
+        <div class="graph">{method_svg}</div>
+      </div>
+"""
+        )
 
     question = html.escape(str(case["question"])) if case else query_id
     answer = html.escape(str(case["answer"])) if case else ""
-    vector_answer = _method_answer_html(case, "vector") if case else ""
-    associative_answer = _method_answer_html(case, "associative") if case else ""
     return f"""
   <section class="query-card" data-query-id="{html.escape(query_id)}">
     <h3>{html.escape(query_id)}</h3>
     <div class="question"><b>问题：</b>{question}<br><b>标准答案：</b>{answer}</div>
     <div class="method-grid">
-      <div class="method-card">
-        <h4>纯向量检索</h4>
-        {vector_answer}
-        <div class="graph">{vector_svg}</div>
-      </div>
-      <div class="method-card">
-        <h4>SAM 联想图检索</h4>
-        {associative_answer}
-        <div class="graph">{associative_svg}</div>
-      </div>
+      {"".join(method_cards)}
     </div>
     <p class="edge-note">粗边表示该方法实际检索路径；带红色描边的节点表示该方法最终 top-k 选择的节点。点击节点/边可在右侧查看完整信息。</p>
   </section>
@@ -421,7 +412,8 @@ def _method_path_edge_keys(case: dict[str, object] | None, method: str) -> set[t
     keys: set[tuple[str, str]] = set()
     if not case:
         return keys
-    for hit in case.get(method, []):
+    method_hits = case.get("methods", {}).get(method, case.get(method, []))
+    for hit in method_hits:
         path = [str(node_id) for node_id in hit.get("path", [])]
         for left, right in zip(path, path[1:], strict=False):
             keys.add((left, right))
@@ -430,18 +422,17 @@ def _method_path_edge_keys(case: dict[str, object] | None, method: str) -> set[t
 
 
 def _method_answer_html(case: dict[str, object], method: str) -> str:
-    answer_key = f"{method}_final_answer"
-    support_key = f"{method}_support_hits"
-    answer = case.get(answer_key, {})
+    answer = case.get("final_answers", {}).get(method, case.get(f"{method}_final_answer", {}))
     status = answer.get("status") if isinstance(answer, dict) else None
     value = answer.get("answer") if isinstance(answer, dict) else ""
     evidence = answer.get("evidence_title") if isinstance(answer, dict) else None
-    status_text = "找到标准答案字符串" if status == "found_in_retrieved_context" else "未找到标准答案字符串"
+    support_hits = case.get("support_hits_by_method", {}).get(method, case.get(f"{method}_support_hits", 0))
+    status_text = "找到标准答案/选项" if status in {"found_in_retrieved_context", "matched_option"} else "未找到标准答案字符串"
     return (
         '<div class="answer-card">'
         f"<b>方法最终答案：</b>{html.escape(str(value))}<br>"
         f"<b>答案状态：</b>{html.escape(status_text)}<br>"
-        f"<b>命中 gold 支持证据：</b>{html.escape(str(case.get(support_key, 0)))}<br>"
+        f"<b>命中 gold 支持证据：</b>{html.escape(str(support_hits))}<br>"
         f"<b>答案来源节点：</b>{html.escape(str(evidence or '无'))}"
         "</div>"
     )
