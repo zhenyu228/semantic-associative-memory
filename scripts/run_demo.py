@@ -230,6 +230,7 @@ def main() -> None:
         retrieval_cases=result.cases,
         focus_query_id=focus_query_id,
     )
+    edge_log_path = graph_builder.write_edge_creation_log(graph_dir / "edge_creation_log.json")
     (run_dir / "logs" / "run_summary.txt").write_text(
         "\n".join(
             [
@@ -237,6 +238,7 @@ def main() -> None:
                 f"运行目录：{run_dir}",
                 f"查询数量：{result.query_count}",
                 f"方法列表：{', '.join(methods)}",
+                f"按需建边日志：{edge_log_path}",
                 f"Embedding Top-k 证据召回率：{result.vector_recall:.3f}",
                 f"SAM 证据召回率：{result.associative_recall:.3f}",
             ]
@@ -255,6 +257,7 @@ def main() -> None:
     print(f"Metrics Markdown：{markdown_path}")
     print(f"图谱 HTML：{graph_paths['html']}")
     print(f"图谱 JSON：{graph_paths['json']}")
+    print(f"按需建边日志：{edge_log_path}")
 
 
 if __name__ == "__main__":

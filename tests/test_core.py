@@ -45,6 +45,19 @@ class SamCoreTest(unittest.TestCase):
         edges = self.graph.build_edges_on_demand(seed)
         self.assertTrue(edges)
         self.assertTrue(any(edge.reason for edge in edges))
+        self.assertTrue(any("score_breakdown" in edge.metadata for edge in edges))
+        self.assertTrue(self.graph.edge_creation_log)
+        self.assertIn("score_breakdown", self.graph.edge_creation_log[0])
+
+    def test_edge_creation_log_is_written(self) -> None:
+        seed = self.store.get_nodes([self.nodes[0].id])
+        self.graph.build_edges_on_demand(seed)
+        output_path = Path(self.temp_dir.name) / "edge_creation_log.json"
+        self.graph.write_edge_creation_log(output_path)
+        payload = json.loads(output_path.read_text(encoding="utf-8"))
+        self.assertTrue(payload)
+        self.assertIn("relation_type", payload[0])
+        self.assertIn("score_breakdown", payload[0])
 
     def test_vector_and_associative_retrieval_return_hits(self) -> None:
         query = self.queries[0]

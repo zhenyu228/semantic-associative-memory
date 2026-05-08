@@ -225,6 +225,16 @@ class MemoryStore:
         ).fetchall()
         return [self._row_to_edge(row) for row in rows]
 
+    def get_edge(self, source_id: str, target_id: str, relation_type: str) -> MemoryEdge | None:
+        row = self.connection.execute(
+            """
+            SELECT * FROM memory_edges
+            WHERE source_id = ? AND target_id = ? AND relation_type = ?
+            """,
+            (source_id, target_id, relation_type),
+        ).fetchone()
+        return self._row_to_edge(row) if row else None
+
     def get_edges(self) -> list[MemoryEdge]:
         rows = self.connection.execute("SELECT * FROM memory_edges").fetchall()
         return [self._row_to_edge(row) for row in rows]
