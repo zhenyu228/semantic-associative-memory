@@ -161,7 +161,7 @@ def _to_html(
     .legend span {{ display: inline-block; margin-right: 18px; }}
     .query-card {{ background: white; border: 1px solid #d7dde5; border-radius: 8px; margin: 18px 0 26px; padding: 16px; }}
     .question {{ color: #334e68; line-height: 1.5; margin-bottom: 12px; }}
-    .method-grid {{ display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }}
+    .method-grid {{ display: flex; flex-direction: column; gap: 16px; }}
     .method-card {{ border: 1px solid #d7dde5; border-radius: 8px; padding: 12px; background: #fff; }}
     .method-card h4 {{ margin: 0 0 8px; }}
     .answer-card {{ background: #f8fafc; border: 1px solid #e1e8f0; border-radius: 6px; padding: 10px; margin-bottom: 10px; line-height: 1.5; }}
@@ -178,7 +178,7 @@ def _to_html(
     .clickable, .edge-click {{ cursor: pointer; }}
     .clickable:hover {{ filter: brightness(0.95); }}
     .edge-click:hover {{ opacity: 1; stroke-width: 3.2; }}
-    @media (max-width: 1100px) {{ .layout, .method-grid {{ display: block; }} .method-card {{ margin-bottom: 16px; }} .side-panel {{ position: static; margin-bottom: 16px; }} }}
+    @media (max-width: 1100px) {{ .layout {{ display: block; }} .method-card {{ margin-bottom: 16px; }} .side-panel {{ position: static; margin-bottom: 16px; }} }}
   </style>
 </head>
 <body>
