@@ -54,7 +54,13 @@ def export_graph_artifacts(
     )
     mermaid_md.write_text(_to_mermaid(node_payload, edge_payload), encoding="utf-8")
     html_path.write_text(
-        _to_html(node_payload, edge_payload, retrieval_cases or [], focus_query_id=focus_query_id),
+        _to_html(
+            node_payload,
+            edge_payload,
+            query_payload,
+            retrieval_cases or [],
+            focus_query_id=focus_query_id,
+        ),
         encoding="utf-8",
     )
     return {"json": graph_json, "mermaid": mermaid_md, "html": html_path}
@@ -113,13 +119,12 @@ def _to_mermaid(nodes: list[dict[str, object]], edges: list[dict[str, object]]) 
 def _to_html(
     nodes: list[dict[str, object]],
     edges: list[dict[str, object]],
+    queries: list[dict[str, object]],
     retrieval_cases: list[dict[str, object]],
     focus_query_id: str | None = None,
 ) -> str:
-    by_query: dict[str, list[dict[str, object]]] = {}
-    for node in nodes:
-        by_query.setdefault(str(node["query_id"]), []).append(node)
     cases_by_query = {str(case["query_id"]): case for case in retrieval_cases}
+    queries_by_id = {str(query["id"]): query for query in queries}
     default_query_id = focus_query_id or (str(retrieval_cases[0]["query_id"]) if retrieval_cases else "")
     case_options = "\n".join(
         f'<option value="{html.escape(str(case["query_id"]))}" {"selected" if str(case["query_id"]) == default_query_id else ""}>index={html.escape(str(_case_index(case)))} | {html.escape(str(case["question"])[:90])}</option>'
@@ -132,20 +137,27 @@ def _to_html(
         },
         ensure_ascii=False,
     ).replace("</", "<\\/")
-    graph_blocks = "\n".join(
-        _query_graph_html(
-            query_id=query_id,
-            query_nodes=query_nodes,
-            query_edges=[
-                edge
-                for edge in edges
-                if edge["source_id"] in {node["id"] for node in query_nodes}
-                and edge["target_id"] in {node["id"] for node in query_nodes}
-            ],
-            case=cases_by_query.get(query_id),
+    graph_blocks = []
+    for case in retrieval_cases:
+        query_id = str(case["query_id"])
+        query = queries_by_id.get(query_id, {})
+        query_nodes = _query_nodes_for_case(nodes, query, case)
+        query_node_ids = {str(node["id"]) for node in query_nodes}
+        query_edges = [
+            edge
+            for edge in edges
+            if str(edge["source_id"]) in query_node_ids and str(edge["target_id"]) in query_node_ids
+        ]
+        graph_blocks.append(
+            _query_graph_html(
+                query_id=query_id,
+                query_nodes=query_nodes,
+                query_edges=query_edges,
+                case=cases_by_query.get(query_id),
+            )
         )
-        for query_id, query_nodes in by_query.items()
-    )
+    if not graph_blocks:
+        graph_blocks.append("<p>没有可展示的检索案例。</p>")
 
     return f"""<!doctype html>
 <html lang="zh-CN">
@@ -195,7 +207,7 @@ def _to_html(
   <div class="layout">
     <main>
       <h2>方法对比图</h2>
-      {graph_blocks}
+      {"".join(graph_blocks)}
     </main>
     <aside class="side-panel" id="detail-panel">
       <h2>详情面板</h2>
@@ -270,14 +282,66 @@ def _to_html(
 """
 
 
+def _query_nodes_for_case(
+    nodes: list[dict[str, object]],
+    query: dict[str, object],
+    case: dict[str, object],
+    max_nodes: int = 18,
+) -> list[dict[str, object]]:
+    """为一个问题挑选可读的图节点。
+
+    HotpotQA 的候选节点天然属于单个问题；NovelQA 的小说 chunk 会被多个问题共享，
+    因此这里按 query 的候选文档、gold 证据和各方法检索结果重新组装视图。
+    """
+
+    nodes_by_original_id = {
+        str(node.get("metadata", {}).get("original_doc_id")): node
+        for node in nodes
+        if node.get("metadata", {}).get("original_doc_id") is not None
+    }
+    nodes_by_id = {str(node["id"]): node for node in nodes}
+    supporting_doc_ids = {str(doc_id) for doc_id in query.get("supporting_doc_ids", [])}
+    candidate_doc_ids = [str(doc_id) for doc_id in query.get("candidate_doc_ids", [])]
+    selected_node_ids: list[str] = []
+
+    def add_node_id(node_id: str | None) -> None:
+        if node_id and node_id in nodes_by_id and node_id not in selected_node_ids:
+            selected_node_ids.append(node_id)
+
+    for original_id in supporting_doc_ids:
+        add_node_id(str(nodes_by_original_id.get(original_id, {}).get("id", "")))
+
+    for method_hits in case.get("methods", {}).values():
+        for hit in method_hits:
+            add_node_id(str(hit.get("node_id", "")))
+            for path_node_id in hit.get("path", []):
+                add_node_id(str(path_node_id))
+
+    for original_id in candidate_doc_ids:
+        if len(selected_node_ids) >= max_nodes:
+            break
+        add_node_id(str(nodes_by_original_id.get(original_id, {}).get("id", "")))
+
+    query_nodes: list[dict[str, object]] = []
+    for node_id in selected_node_ids[:max_nodes]:
+        node = dict(nodes_by_id[node_id])
+        original_doc_id = str(node.get("metadata", {}).get("original_doc_id"))
+        node["is_supporting"] = original_doc_id in supporting_doc_ids
+        node["query_id"] = case["query_id"]
+        query_nodes.append(node)
+    return query_nodes
+
+
 def _query_graph_html(
     query_id: str,
     query_nodes: list[dict[str, object]],
     query_edges: list[dict[str, object]],
     case: dict[str, object] | None,
 ) -> str:
-    width = 1240
-    height = 360
+    columns = 6
+    row_count = max(1, (len(query_nodes) + columns - 1) // columns)
+    width = max(1240, 120 + columns * 210)
+    height = 120 + row_count * 140
     node_width = 160
     node_height = 58
     support_nodes = [node for node in query_nodes if node["is_supporting"]]
@@ -285,10 +349,10 @@ def _query_graph_html(
     ordered_nodes = [*support_nodes, *candidate_nodes]
     positions: dict[str, tuple[int, int]] = {}
     for index, node in enumerate(ordered_nodes):
-        row = 0 if index < 5 else 1
-        col = index if index < 5 else index - 5
-        x = 70 + col * 230
-        y = 90 + row * 150
+        row = index // columns
+        col = index % columns
+        x = 60 + col * 210
+        y = 70 + row * 140
         positions[str(node["id"])] = (x, y)
 
     method_payloads = case.get("methods", {}) if case else {}
