@@ -133,6 +133,7 @@ def load_hotpotqa_real_sample(
         selected.append(
             {
                 "index": index,
+                "query_id": query_id,
                 "hotpotqa_id": item["_id"],
                 "question": item["question"],
                 "answer": item["answer"],

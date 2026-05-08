@@ -130,6 +130,20 @@
           "reason": "向量种子节点 -> embedding_similarity(语义相似度达到阈值：0.259)"
         }
       ],
+      "vector_final_answer": {
+        "answer": "未在检索文本中找到答案",
+        "status": "not_found_in_retrieved_context",
+        "evidence_node_id": null,
+        "evidence_title": null,
+        "note": "当前阶段未接 LLM，此处表示 top-k 检索文本中没有覆盖标准答案字符串。"
+      },
+      "associative_final_answer": {
+        "answer": "Chief of Protocol",
+        "status": "found_in_retrieved_context",
+        "evidence_node_id": "mem_370b7d4347cb0f81",
+        "evidence_title": "Shirley Temple",
+        "note": "当前阶段未接 LLM，此处表示 top-k 检索文本中包含标准答案字符串。"
+      },
       "vector_support_hits": 1,
       "associative_support_hits": 2,
       "gain": 1
@@ -254,6 +268,20 @@
           "reason": "向量种子节点 -> keyword_overlap(关键词重叠：adult, young)"
         }
       ],
+      "vector_final_answer": {
+        "answer": "Animorphs",
+        "status": "found_in_retrieved_context",
+        "evidence_node_id": "mem_72009a704fd2cc0a",
+        "evidence_title": "Animorphs",
+        "note": "当前阶段未接 LLM，此处表示 top-k 检索文本中包含标准答案字符串。"
+      },
+      "associative_final_answer": {
+        "answer": "Animorphs",
+        "status": "found_in_retrieved_context",
+        "evidence_node_id": "mem_72009a704fd2cc0a",
+        "evidence_title": "Animorphs",
+        "note": "当前阶段未接 LLM，此处表示 top-k 检索文本中包含标准答案字符串。"
+      },
       "vector_support_hits": 1,
       "associative_support_hits": 1,
       "gain": 0
@@ -378,6 +406,20 @@
           "reason": "向量种子节点 -> shared_entity(共享实体：Adriana Trigiani)"
         }
       ],
+      "vector_final_answer": {
+        "answer": "未在检索文本中找到答案",
+        "status": "not_found_in_retrieved_context",
+        "evidence_node_id": null,
+        "evidence_title": null,
+        "note": "当前阶段未接 LLM，此处表示 top-k 检索文本中没有覆盖标准答案字符串。"
+      },
+      "associative_final_answer": {
+        "answer": "Greenwich Village, New York City",
+        "status": "found_in_retrieved_context",
+        "evidence_node_id": "mem_36dabff8cb904650",
+        "evidence_title": "Adriana Trigiani",
+        "note": "当前阶段未接 LLM，此处表示 top-k 检索文本中包含标准答案字符串。"
+      },
       "vector_support_hits": 1,
       "associative_support_hits": 2,
       "gain": 1
@@ -502,6 +544,20 @@
           "reason": "向量种子节点 -> keyword_overlap(关键词重叠：arena, games, played)"
         }
       ],
+      "vector_final_answer": {
+        "answer": "未在检索文本中找到答案",
+        "status": "not_found_in_retrieved_context",
+        "evidence_node_id": null,
+        "evidence_title": null,
+        "note": "当前阶段未接 LLM，此处表示 top-k 检索文本中没有覆盖标准答案字符串。"
+      },
+      "associative_final_answer": {
+        "answer": "未在检索文本中找到答案",
+        "status": "not_found_in_retrieved_context",
+        "evidence_node_id": null,
+        "evidence_title": null,
+        "note": "当前阶段未接 LLM，此处表示 top-k 检索文本中没有覆盖标准答案字符串。"
+      },
       "vector_support_hits": 1,
       "associative_support_hits": 1,
       "gain": 0
@@ -626,6 +682,20 @@
           "reason": "向量种子节点 -> shared_entity(共享实体：Terry Richardson)"
         }
       ],
+      "vector_final_answer": {
+        "answer": "Terry Richardson",
+        "status": "found_in_retrieved_context",
+        "evidence_node_id": "mem_7f496efdb1d7f3b5",
+        "evidence_title": "Annie Morton",
+        "note": "当前阶段未接 LLM，此处表示 top-k 检索文本中包含标准答案字符串。"
+      },
+      "associative_final_answer": {
+        "answer": "Terry Richardson",
+        "status": "found_in_retrieved_context",
+        "evidence_node_id": "mem_7f496efdb1d7f3b5",
+        "evidence_title": "Annie Morton",
+        "note": "当前阶段未接 LLM，此处表示 top-k 检索文本中包含标准答案字符串。"
+      },
       "vector_support_hits": 2,
       "associative_support_hits": 2,
       "gain": 0
@@ -750,6 +820,20 @@
           "reason": "向量种子节点 -> shared_entity(共享实体：Kansas City metropolitan area)"
         }
       ],
+      "vector_final_answer": {
+        "answer": "Kansas Song",
+        "status": "found_in_retrieved_context",
+        "evidence_node_id": "mem_eab44424e87bdaff",
+        "evidence_title": "Kansas Song",
+        "note": "当前阶段未接 LLM，此处表示 top-k 检索文本中包含标准答案字符串。"
+      },
+      "associative_final_answer": {
+        "answer": "Kansas Song",
+        "status": "found_in_retrieved_context",
+        "evidence_node_id": "mem_eab44424e87bdaff",
+        "evidence_title": "Kansas Song",
+        "note": "当前阶段未接 LLM，此处表示 top-k 检索文本中包含标准答案字符串。"
+      },
       "vector_support_hits": 2,
       "associative_support_hits": 2,
       "gain": 0
@@ -874,6 +958,20 @@
           "reason": "向量种子节点 -> embedding_similarity(语义相似度达到阈值：0.246)"
         }
       ],
+      "vector_final_answer": {
+        "answer": "未在检索文本中找到答案",
+        "status": "not_found_in_retrieved_context",
+        "evidence_node_id": null,
+        "evidence_title": null,
+        "note": "当前阶段未接 LLM，此处表示 top-k 检索文本中没有覆盖标准答案字符串。"
+      },
+      "associative_final_answer": {
+        "answer": "未在检索文本中找到答案",
+        "status": "not_found_in_retrieved_context",
+        "evidence_node_id": null,
+        "evidence_title": null,
+        "note": "当前阶段未接 LLM，此处表示 top-k 检索文本中没有覆盖标准答案字符串。"
+      },
       "vector_support_hits": 0,
       "associative_support_hits": 0,
       "gain": 0
@@ -998,6 +1096,20 @@
           "reason": "向量种子节点 -> context_cooccurrence(同一公开多跳问答样本中的候选上下文，保留跨文档推理的候选关系)"
         }
       ],
+      "vector_final_answer": {
+        "answer": "未在检索文本中找到答案",
+        "status": "not_found_in_retrieved_context",
+        "evidence_node_id": null,
+        "evidence_title": null,
+        "note": "当前阶段未接 LLM，此处表示 top-k 检索文本中没有覆盖标准答案字符串。"
+      },
+      "associative_final_answer": {
+        "answer": "未在检索文本中找到答案",
+        "status": "not_found_in_retrieved_context",
+        "evidence_node_id": null,
+        "evidence_title": null,
+        "note": "当前阶段未接 LLM，此处表示 top-k 检索文本中没有覆盖标准答案字符串。"
+      },
       "vector_support_hits": 0,
       "associative_support_hits": 0,
       "gain": 0

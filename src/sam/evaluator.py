@@ -116,6 +116,8 @@ class Evaluator:
                     "supporting_doc_ids": query.supporting_doc_ids,
                     "vector": self._serialize_hits(vector_hits, support_node_ids),
                     "associative": self._serialize_hits(associative_hits, support_node_ids),
+                    "vector_final_answer": self._extract_answer(query.answer, vector_hits),
+                    "associative_final_answer": self._extract_answer(query.answer, associative_hits),
                     "vector_support_hits": vector_case_hits,
                     "associative_support_hits": associative_case_hits,
                     "gain": associative_case_hits - vector_case_hits,
@@ -170,6 +172,32 @@ class Evaluator:
             }
             for hit in hits
         ]
+
+    def _extract_answer(self, gold_answer: str, hits: list[RetrievalHit]) -> dict[str, object]:
+        """当前阶段的轻量答案抽取。
+
+        这里还没有接 LLM 生成答案，因此先做“检索文本是否覆盖标准答案”的抽取检测：
+        如果 top-k 文档里包含标准答案字符串，就认为该方法具备生成该答案的证据基础。
+        """
+
+        normalized_gold = gold_answer.lower()
+        for hit in hits:
+            haystack = f"{hit.node.metadata.get('title', '')}\n{hit.node.text}".lower()
+            if normalized_gold in haystack:
+                return {
+                    "answer": gold_answer,
+                    "status": "found_in_retrieved_context",
+                    "evidence_node_id": hit.node.id,
+                    "evidence_title": hit.node.metadata.get("title", hit.node.id),
+                    "note": "当前阶段未接 LLM，此处表示 top-k 检索文本中包含标准答案字符串。",
+                }
+        return {
+            "answer": "未在检索文本中找到答案",
+            "status": "not_found_in_retrieved_context",
+            "evidence_node_id": None,
+            "evidence_title": None,
+            "note": "当前阶段未接 LLM，此处表示 top-k 检索文本中没有覆盖标准答案字符串。",
+        }
 
     def _to_markdown(self, result: ExperimentResult) -> str:
         lines = [

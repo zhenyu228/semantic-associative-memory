@@ -13,6 +13,7 @@ def export_graph_artifacts(
     queries: list[EvaluationQuery],
     output_dir: str | Path,
     retrieval_cases: list[dict[str, object]] | None = None,
+    focus_query_id: str | None = None,
 ) -> dict[str, Path]:
     """导出可检查的图谱产物：JSON、Mermaid、HTML/SVG。"""
 
@@ -51,7 +52,10 @@ def export_graph_artifacts(
         encoding="utf-8",
     )
     mermaid_md.write_text(_to_mermaid(node_payload, edge_payload), encoding="utf-8")
-    html_path.write_text(_to_html(node_payload, edge_payload, retrieval_cases or []), encoding="utf-8")
+    html_path.write_text(
+        _to_html(node_payload, edge_payload, retrieval_cases or [], focus_query_id=focus_query_id),
+        encoding="utf-8",
+    )
     return {"json": graph_json, "mermaid": mermaid_md, "html": html_path}
 
 
@@ -109,11 +113,17 @@ def _to_html(
     nodes: list[dict[str, object]],
     edges: list[dict[str, object]],
     retrieval_cases: list[dict[str, object]],
+    focus_query_id: str | None = None,
 ) -> str:
     by_query: dict[str, list[dict[str, object]]] = {}
     for node in nodes:
         by_query.setdefault(str(node["query_id"]), []).append(node)
     cases_by_query = {str(case["query_id"]): case for case in retrieval_cases}
+    default_query_id = focus_query_id or (str(retrieval_cases[0]["query_id"]) if retrieval_cases else "")
+    case_options = "\n".join(
+        f'<option value="{html.escape(str(case["query_id"]))}" {"selected" if str(case["query_id"]) == default_query_id else ""}>index={html.escape(str(_case_index(case)))} | {html.escape(str(case["question"])[:90])}</option>'
+        for case in retrieval_cases
+    )
     graph_data_json = json.dumps(
         {
             "nodes": {str(node["id"]): node for node in nodes},
@@ -136,28 +146,6 @@ def _to_html(
         for query_id, query_nodes in by_query.items()
     )
 
-    node_rows = "\n".join(
-        "<tr>"
-        f"<td>{html.escape(str(node['title']))}</td>"
-        f"<td>{html.escape(str(node['query_id']))}</td>"
-        f"<td>{'是' if node['is_supporting'] else '否'}</td>"
-        f"<td>{html.escape(', '.join(map(str, node['entities'])))}</td>"
-        f"<td>{html.escape(str(node['snippet']))}</td>"
-        "</tr>"
-        for node in nodes
-    )
-    edge_rows = "\n".join(
-        "<tr>"
-        f"<td>{html.escape(str(edge['source_id']))}</td>"
-        f"<td>{html.escape(str(edge['target_id']))}</td>"
-        f"<td>{html.escape(str(edge['relation_type']))}</td>"
-        f"<td>{float(edge['weight']):.3f}</td>"
-        f"<td>{html.escape(str(edge['reason']))}</td>"
-        "</tr>"
-        for edge in edges
-        if float(edge["weight"]) >= 0.2
-    )
-    case_blocks = "\n".join(_case_to_html(case) for case in retrieval_cases)
     return f"""<!doctype html>
 <html lang="zh-CN">
 <head>
@@ -173,6 +161,12 @@ def _to_html(
     .legend span {{ display: inline-block; margin-right: 18px; }}
     .query-card {{ background: white; border: 1px solid #d7dde5; border-radius: 8px; margin: 18px 0 26px; padding: 16px; }}
     .question {{ color: #334e68; line-height: 1.5; margin-bottom: 12px; }}
+    .method-grid {{ display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }}
+    .method-card {{ border: 1px solid #d7dde5; border-radius: 8px; padding: 12px; background: #fff; }}
+    .method-card h4 {{ margin: 0 0 8px; }}
+    .answer-card {{ background: #f8fafc; border: 1px solid #e1e8f0; border-radius: 6px; padding: 10px; margin-bottom: 10px; line-height: 1.5; }}
+    .toolbar {{ background: white; border: 1px solid #d7dde5; border-radius: 8px; padding: 12px; margin: 16px 0; }}
+    .toolbar select {{ width: 100%; max-width: 920px; padding: 8px; font-size: 14px; }}
     .graph {{ overflow-x: auto; border: 1px solid #d7dde5; background: #fbfcfe; border-radius: 6px; }}
     .edge-note {{ color: #52606d; font-size: 13px; margin: 8px 0 0; }}
     table {{ border-collapse: collapse; width: 100%; margin: 12px 0 28px; font-size: 13px; }}
@@ -184,23 +178,23 @@ def _to_html(
     .clickable, .edge-click {{ cursor: pointer; }}
     .clickable:hover {{ filter: brightness(0.95); }}
     .edge-click:hover {{ opacity: 1; stroke-width: 3.2; }}
-    @media (max-width: 1100px) {{ .layout {{ display: block; }} .side-panel {{ position: static; margin-bottom: 16px; }} }}
+    @media (max-width: 1100px) {{ .layout, .method-grid {{ display: block; }} .method-card {{ margin-bottom: 16px; }} .side-panel {{ position: static; margin-bottom: 16px; }} }}
   </style>
 </head>
 <body>
   <h1>SAM 图谱运行产物</h1>
   <p class="hint">黄色节点是真实 HotpotQA supporting paragraph，蓝色节点是候选干扰段落。箭头表示系统实际创建的关键语义边。这个文件由代码自动生成，不是手绘示意图。</p>
   <p class="legend"><span>黄色：支持证据</span><span>蓝色：候选文档</span><span>橙色边：共享实体</span><span>蓝色边：关键词重叠</span><span>紫色边：embedding 相似</span></p>
+  <div class="toolbar">
+    <label for="case-select"><b>选择样本：</b></label>
+    <select id="case-select" onchange="selectCase(this.value)">
+      {case_options}
+    </select>
+  </div>
   <div class="layout">
     <main>
-      <h2>按问题拆分的图谱</h2>
+      <h2>方法对比图</h2>
       {graph_blocks}
-      <h2>检索案例</h2>
-      {case_blocks}
-      <h2>节点明细</h2>
-      <table><thead><tr><th>标题</th><th>问题 ID</th><th>支持证据</th><th>实体</th><th>文本片段</th></tr></thead><tbody>{node_rows}</tbody></table>
-      <h2>语义边明细</h2>
-      <table><thead><tr><th>起点</th><th>终点</th><th>关系</th><th>权重</th><th>原因</th></tr></thead><tbody>{edge_rows}</tbody></table>
     </main>
     <aside class="side-panel" id="detail-panel">
       <h2>详情面板</h2>
@@ -258,6 +252,17 @@ def _to_html(
         <pre>${{escapeHtml(JSON.stringify(edge, null, 2))}}</pre>
       `;
     }}
+    function selectCase(queryId) {{
+      for (const card of document.querySelectorAll(".query-card")) {{
+        card.style.display = card.dataset.queryId === queryId ? "block" : "none";
+      }}
+      document.getElementById("detail-panel").innerHTML = `
+        <h2>详情面板</h2>
+        <p>当前样本：<code>${{escapeHtml(queryId)}}</code></p>
+        <p>点击图中的节点查看完整 MemoryNode；点击边查看建边原因。</p>
+      `;
+    }}
+    selectCase("{html.escape(default_query_id)}");
   </script>
 </body>
 </html>
@@ -285,60 +290,54 @@ def _query_graph_html(
         y = 90 + row * 150
         positions[str(node["id"])] = (x, y)
 
-    path_edges = _path_edge_keys(case)
-    important_edges = _select_important_edges(query_edges, path_edges)
-    svg_parts = [
-        f'<svg width="{width}" height="{height}" viewBox="0 0 {width} {height}" xmlns="http://www.w3.org/2000/svg">',
-        "<defs><marker id='arrow' markerWidth='10' markerHeight='10' refX='9' refY='3' orient='auto' markerUnits='strokeWidth'><path d='M0,0 L0,6 L9,3 z' fill='#555'/></marker></defs>",
-    ]
-    for edge in important_edges:
-        source = positions.get(str(edge["source_id"]))
-        target = positions.get(str(edge["target_id"]))
-        if not source or not target:
-            continue
-        x1, y1 = source[0] + node_width / 2, source[1] + node_height / 2
-        x2, y2 = target[0] + node_width / 2, target[1] + node_height / 2
-        color = _edge_color(str(edge["relation_type"]))
-        stroke_width = 2.2 if _edge_key(edge) in path_edges else 1.4
-        svg_parts.append(
-            f"<line class='edge-click' onclick='showEdge({edge['index']})' x1='{x1}' y1='{y1}' x2='{x2}' y2='{y2}' stroke='{color}' stroke-width='{stroke_width}' marker-end='url(#arrow)' opacity='0.68'/>"
-        )
-    for node in ordered_nodes:
-        x, y = positions[str(node["id"])]
-        fill = "#fff2bd" if node["is_supporting"] else "#e6f2ff"
-        stroke = "#bd7b00" if node["is_supporting"] else "#2f75a8"
-        title = html.escape(_short_title(str(node["title"]), 36))
-        role = "supporting" if node["is_supporting"] else "candidate"
-        svg_parts.append(
-            f"<rect class='clickable' onclick='showNode(\"{html.escape(str(node['id']))}\")' x='{x}' y='{y}' width='{node_width}' height='{node_height}' rx='8' fill='{fill}' stroke='{stroke}' stroke-width='2'/>"
-        )
-        svg_parts.append(
-            f"<foreignObject x='{x + 8}' y='{y + 8}' width='{node_width - 16}' height='28'><div xmlns='http://www.w3.org/1999/xhtml' style='font-size:12px;font-weight:700;line-height:14px;text-align:center;color:#102a43;'>{title}</div></foreignObject>"
-        )
-        svg_parts.append(
-            f"<text x='{x + node_width / 2}' y='{y + 47}' text-anchor='middle' font-size='11'>{role}</text>"
-        )
-    svg_parts.append("</svg>")
-
-    edge_rows = "\n".join(
-        "<tr>"
-        f"<td>{html.escape(_title_for(query_nodes, str(edge['source_id'])))}</td>"
-        f"<td>{html.escape(_title_for(query_nodes, str(edge['target_id'])))}</td>"
-        f"<td>{html.escape(str(edge['relation_type']))}</td>"
-        f"<td>{float(edge['weight']):.3f}</td>"
-        f"<td>{html.escape(str(edge['reason']))}</td>"
-        "</tr>"
-        for edge in important_edges
+    vector_hit_ids = {str(hit["node_id"]) for hit in case.get("vector", [])} if case else set()
+    associative_hit_ids = {str(hit["node_id"]) for hit in case.get("associative", [])} if case else set()
+    vector_svg = _method_svg(
+        ordered_nodes=ordered_nodes,
+        query_edges=query_edges,
+        positions=positions,
+        width=width,
+        height=height,
+        node_width=node_width,
+        node_height=node_height,
+        case=case,
+        method="vector",
+        hit_ids=vector_hit_ids,
     )
+    associative_svg = _method_svg(
+        ordered_nodes=ordered_nodes,
+        query_edges=query_edges,
+        positions=positions,
+        width=width,
+        height=height,
+        node_width=node_width,
+        node_height=node_height,
+        case=case,
+        method="associative",
+        hit_ids=associative_hit_ids,
+    )
+
     question = html.escape(str(case["question"])) if case else query_id
     answer = html.escape(str(case["answer"])) if case else ""
+    vector_answer = _method_answer_html(case, "vector") if case else ""
+    associative_answer = _method_answer_html(case, "associative") if case else ""
     return f"""
-  <section class="query-card">
+  <section class="query-card" data-query-id="{html.escape(query_id)}">
     <h3>{html.escape(query_id)}</h3>
-    <div class="question"><b>问题：</b>{question}<br><b>答案：</b>{answer}</div>
-    <div class="graph">{''.join(svg_parts)}</div>
-    <p class="edge-note">为避免拥挤，此处只展示检索路径边、supporting 相关边和高权重边；完整图数据见 <code>graph_artifact.json</code>。</p>
-    <table><thead><tr><th>起点</th><th>终点</th><th>关系</th><th>权重</th><th>原因</th></tr></thead><tbody>{edge_rows}</tbody></table>
+    <div class="question"><b>问题：</b>{question}<br><b>标准答案：</b>{answer}</div>
+    <div class="method-grid">
+      <div class="method-card">
+        <h4>纯向量检索</h4>
+        {vector_answer}
+        <div class="graph">{vector_svg}</div>
+      </div>
+      <div class="method-card">
+        <h4>SAM 联想图检索</h4>
+        {associative_answer}
+        <div class="graph">{associative_svg}</div>
+      </div>
+    </div>
+    <p class="edge-note">粗边表示该方法实际检索路径；带红色描边的节点表示该方法最终 top-k 选择的节点。点击节点/边可在右侧查看完整信息。</p>
   </section>
 """
 
@@ -363,6 +362,98 @@ def _select_important_edges(
         remaining.sort(key=lambda edge: float(edge["weight"]), reverse=True)
         selected.extend(remaining[: 8 - len(selected)])
     return selected[:12]
+
+
+def _method_svg(
+    ordered_nodes: list[dict[str, object]],
+    query_edges: list[dict[str, object]],
+    positions: dict[str, tuple[int, int]],
+    width: int,
+    height: int,
+    node_width: int,
+    node_height: int,
+    case: dict[str, object] | None,
+    method: str,
+    hit_ids: set[str],
+) -> str:
+    method_path_edges = _method_path_edge_keys(case, method)
+    important_edges = _select_important_edges(query_edges, method_path_edges)
+    svg_parts = [
+        f'<svg width="{width}" height="{height}" viewBox="0 0 {width} {height}" xmlns="http://www.w3.org/2000/svg">',
+        "<defs><marker id='arrow' markerWidth='10' markerHeight='10' refX='9' refY='3' orient='auto' markerUnits='strokeWidth'><path d='M0,0 L0,6 L9,3 z' fill='#555'/></marker></defs>",
+    ]
+    for edge in important_edges:
+        source = positions.get(str(edge["source_id"]))
+        target = positions.get(str(edge["target_id"]))
+        if not source or not target:
+            continue
+        x1, y1 = source[0] + node_width / 2, source[1] + node_height / 2
+        x2, y2 = target[0] + node_width / 2, target[1] + node_height / 2
+        color = _edge_color(str(edge["relation_type"]))
+        is_path = _edge_key(edge) in method_path_edges
+        stroke_width = 3.0 if is_path else 1.2
+        opacity = 0.88 if is_path else 0.24
+        svg_parts.append(
+            f"<line class='edge-click' onclick='showEdge({edge['index']})' x1='{x1}' y1='{y1}' x2='{x2}' y2='{y2}' stroke='{color}' stroke-width='{stroke_width}' marker-end='url(#arrow)' opacity='{opacity}'/>"
+        )
+    for node in ordered_nodes:
+        x, y = positions[str(node["id"])]
+        fill = "#fff2bd" if node["is_supporting"] else "#e6f2ff"
+        stroke = "#d92d20" if str(node["id"]) in hit_ids else ("#bd7b00" if node["is_supporting"] else "#2f75a8")
+        stroke_width = 3 if str(node["id"]) in hit_ids else 2
+        title = html.escape(_short_title(str(node["title"]), 36))
+        role = "supporting" if node["is_supporting"] else "candidate"
+        selected = "selected" if str(node["id"]) in hit_ids else ""
+        svg_parts.append(
+            f"<rect class='clickable' onclick='showNode(\"{html.escape(str(node['id']))}\")' x='{x}' y='{y}' width='{node_width}' height='{node_height}' rx='8' fill='{fill}' stroke='{stroke}' stroke-width='{stroke_width}'/>"
+        )
+        svg_parts.append(
+            f"<foreignObject x='{x + 8}' y='{y + 8}' width='{node_width - 16}' height='28'><div xmlns='http://www.w3.org/1999/xhtml' style='font-size:12px;font-weight:700;line-height:14px;text-align:center;color:#102a43;'>{title}</div></foreignObject>"
+        )
+        svg_parts.append(
+            f"<text x='{x + node_width / 2}' y='{y + 47}' text-anchor='middle' font-size='11'>{role} {selected}</text>"
+        )
+    svg_parts.append("</svg>")
+    return "".join(svg_parts)
+
+
+def _method_path_edge_keys(case: dict[str, object] | None, method: str) -> set[tuple[str, str]]:
+    keys: set[tuple[str, str]] = set()
+    if not case:
+        return keys
+    for hit in case.get(method, []):
+        path = [str(node_id) for node_id in hit.get("path", [])]
+        for left, right in zip(path, path[1:], strict=False):
+            keys.add((left, right))
+            keys.add((right, left))
+    return keys
+
+
+def _method_answer_html(case: dict[str, object], method: str) -> str:
+    answer_key = f"{method}_final_answer"
+    support_key = f"{method}_support_hits"
+    answer = case.get(answer_key, {})
+    status = answer.get("status") if isinstance(answer, dict) else None
+    value = answer.get("answer") if isinstance(answer, dict) else ""
+    evidence = answer.get("evidence_title") if isinstance(answer, dict) else None
+    status_text = "找到标准答案字符串" if status == "found_in_retrieved_context" else "未找到标准答案字符串"
+    return (
+        '<div class="answer-card">'
+        f"<b>方法最终答案：</b>{html.escape(str(value))}<br>"
+        f"<b>答案状态：</b>{html.escape(status_text)}<br>"
+        f"<b>命中 gold 支持证据：</b>{html.escape(str(case.get(support_key, 0)))}<br>"
+        f"<b>答案来源节点：</b>{html.escape(str(evidence or '无'))}"
+        "</div>"
+    )
+
+
+def _case_index(case: dict[str, object]) -> object:
+    query_id = str(case.get("query_id", ""))
+    for part in query_id.split("_"):
+        if part.isdigit():
+            return part
+    # HotpotQA 的原始 index 不总在 query_id 中；旧数据则回退显示 query_id 尾部。
+    return query_id.split("_")[-1]
 
 
 def _path_edge_keys(case: dict[str, object] | None) -> set[tuple[str, str]]:

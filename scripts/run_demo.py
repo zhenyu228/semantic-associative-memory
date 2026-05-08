@@ -32,6 +32,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--dataset-file", default="data/processed/hotpotqa_sam_sample.json", help="SAM 统一数据格式文件")
     parser.add_argument("--sample-size", type=int, default=8, help="真实数据集抽样数量")
     parser.add_argument("--max-scan", type=int, default=800, help="真实数据集最大扫描样本数")
+    parser.add_argument("--case-index", type=int, default=None, help="HTML 页面默认聚焦的 HotpotQA 原始 index")
+    parser.add_argument("--rebuild-dataset", action="store_true", help="重新生成 SAM 统一数据格式文件")
     parser.add_argument("--embedding-provider", default=None, help="local 或 openai")
     parser.add_argument("--top-k", type=int, default=4, help="最终返回文档数")
     parser.add_argument("--seed-k", type=int, default=1, help="联想检索种子节点数")
@@ -43,6 +45,24 @@ def parse_args() -> argparse.Namespace:
         help="尝试下载公开数据集元信息；失败后自动使用内置小样本",
     )
     return parser.parse_args()
+
+
+def _query_id_for_case_index(
+    dataset_payload,
+    queries,
+    case_index: int,
+) -> str:
+    selected_examples = dataset_payload.get("processing", {}).get("manifest", {}).get("selected_examples", [])
+    for position, example in enumerate(selected_examples):
+        if int(example.get("index")) == case_index:
+            query_id = example.get("query_id")
+            if query_id:
+                return str(query_id)
+            if position < len(queries):
+                return str(queries[position].id)
+            break
+    available = ", ".join(str(example.get("index")) for example in selected_examples)
+    raise ValueError(f"没有找到 case-index={case_index}。可用 index: {available}")
 
 
 def main() -> None:
@@ -66,7 +86,7 @@ def main() -> None:
 
     if args.dataset == "hotpotqa":
         dataset_path = ROOT / args.dataset_file
-        if not dataset_path.exists():
+        if args.rebuild_dataset or not dataset_path.exists():
             raw_path = download_hotpotqa_dev(ROOT / "data/raw/hotpot_dev_distractor_v1.json")
             documents, queries, manifest = load_hotpotqa_real_sample(
                 raw_path=raw_path,
@@ -88,6 +108,9 @@ def main() -> None:
                 },
             )
         documents, queries, dataset_payload = load_sam_dataset(dataset_path)
+        focus_query_id = None
+        if args.case_index is not None:
+            focus_query_id = _query_id_for_case_index(dataset_payload, queries, args.case_index)
         manifest = dataset_payload["processing"].get("manifest", {})
         (report_dir / "hotpotqa_sample_manifest.json").write_text(
             json.dumps(manifest, ensure_ascii=False, indent=2),
@@ -95,8 +118,11 @@ def main() -> None:
         )
         print(f"使用 SAM 数据格式文件：{dataset_path}")
         print(json.dumps(summarize_sam_dataset(dataset_path), ensure_ascii=False, indent=2))
+        if args.case_index is not None:
+            print(f"HTML 页面将默认聚焦 HotpotQA 原始 index={args.case_index} 对应的样本")
     else:
         documents, queries = load_builtin_benchmark_sample()
+        focus_query_id = None
         print(f"使用内置兜底样本：{len(queries)} 条")
 
     nodes = evaluator.ingest(documents)
@@ -113,6 +139,7 @@ def main() -> None:
         queries=queries,
         output_dir=report_dir,
         retrieval_cases=result.cases,
+        focus_query_id=focus_query_id,
     )
 
     print("SAM demo 已完成")
