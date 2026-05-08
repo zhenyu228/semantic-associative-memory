@@ -1,0 +1,20 @@
+{
+  "raptor": {
+    "display_name": "RAPTOR",
+    "official_repo": "https://github.com/parthsarthi03/raptor.git",
+    "paper": "https://arxiv.org/abs/2401.18059",
+    "notes": "官方实现提供 RetrievalAugmentation，用递归聚类、摘要和树检索进行 QA。"
+  },
+  "graphrag": {
+    "display_name": "Microsoft GraphRAG",
+    "official_repo": "https://github.com/microsoft/graphrag.git",
+    "docs": "https://microsoft.github.io/graphrag/",
+    "notes": "官方实现提供索引管线、实体关系抽取、社区摘要和 local/global/drift 查询。"
+  },
+  "hipporag": {
+    "display_name": "HippoRAG",
+    "official_repo": "https://github.com/OSU-NLP-Group/HippoRAG.git",
+    "paper": "https://arxiv.org/abs/2405.14831",
+    "notes": "官方实现提供 HippoRAG 类，支持 index、retrieve、rag_qa 以及论文格式数据集。"
+  }
+}

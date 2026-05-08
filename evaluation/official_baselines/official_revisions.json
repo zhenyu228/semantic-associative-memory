@@ -1,0 +1,14 @@
+{
+  "raptor": {
+    "repo": "https://github.com/parthsarthi03/raptor.git",
+    "downloaded_revision": "7da1d48a7e1d7dec61a63c9d9aae84e2dfaa5767"
+  },
+  "graphrag": {
+    "repo": "https://github.com/microsoft/graphrag.git",
+    "downloaded_revision": "0da2a4dd3e1402bd97a7ddd4e6cace8c87a55c8b"
+  },
+  "hipporag": {
+    "repo": "https://github.com/OSU-NLP-Group/HippoRAG.git",
+    "downloaded_revision": "d437bfb1805278b81e20c82357ed3f7d90f14901"
+  }
+}
