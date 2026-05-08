@@ -83,6 +83,7 @@ SAM/
 所有命令都基于本地 conda 环境 `sam`：
 
 ```bash
+conda run -n sam python scripts/prepare_hotpotqa.py --sample-size 8 --max-scan 800
 conda run -n sam python scripts/run_demo.py --reset --dataset hotpotqa
 ```
 
@@ -94,6 +95,7 @@ conda run -n sam python scripts/run_demo.py --reset --dataset hotpotqa
 - `reports/graph_view.html`：可以直接打开查看的图谱 HTML/SVG 产物。
 - `reports/graph_artifact.json`：图谱节点、边、检索案例的结构化产物。
 - `reports/graph_mermaid.md`：Mermaid 版本图谱。
+- `data/processed/hotpotqa_sam_sample.json`：HotpotQA 被转换后的 SAM 项目统一数据格式。
 - `data/raw/hotpot_dev_distractor_v1.json`：HotpotQA 原始数据，已被 `.gitignore` 排除。
 - `data/sam_demo.sqlite`：本地运行数据库，已被 `.gitignore` 排除。
 
@@ -125,6 +127,73 @@ http://curtis.ml.cmu.edu/datasets/hotpot/hotpot_dev_distractor_v1.json
 | Gold 支持证据总数 | 16 |
 
 抽样细节记录在 `reports/hotpotqa_sample_manifest.json`，可以检查每条样本的原始 HotpotQA ID、问题、答案、支持文档标题和抽样原因。
+
+## SAM 项目统一数据格式
+
+外部数据集不能直接进入记忆系统，必须先由专门脚本转换成 SAM 统一格式。当前 HotpotQA 的转换脚本是：
+
+```bash
+conda run -n sam python scripts/prepare_hotpotqa.py --sample-size 8 --max-scan 800
+```
+
+输出文件：
+
+```text
+data/processed/hotpotqa_sam_sample.json
+```
+
+统一格式顶层结构：
+
+```json
+{
+  "schema_version": "sam-dataset-v1",
+  "dataset_info": {
+    "name": "HotpotQA dev distractor",
+    "homepage": "https://hotpotqa.github.io/"
+  },
+  "processing": {
+    "source_script": "scripts/prepare_hotpotqa.py",
+    "selection_policy": "选择 supporting paragraph 之间存在标题提及的 bridge-style 样本"
+  },
+  "documents": [],
+  "queries": []
+}
+```
+
+其中 `documents` 是待写入记忆系统的文档节点原料：
+
+```json
+{
+  "id": "hotpotqa_xxx_doc_0",
+  "dataset": "hotpotqa_real",
+  "title": "Wikipedia 段落标题",
+  "text": "段落完整文本",
+  "source": "HotpotQA dev distractor",
+  "tags": ["hotpotqa_real", "bridge", "hard"],
+  "keywords": ["关键词"],
+  "metadata": {
+    "query_id": "hotpotqa_xxx",
+    "hotpotqa_id": "原始样本 ID",
+    "is_supporting": true,
+    "entities": ["实体"]
+  }
+}
+```
+
+`queries` 是评测查询：
+
+```json
+{
+  "id": "hotpotqa_xxx",
+  "dataset": "hotpotqa_real",
+  "question": "问题",
+  "answer": "答案",
+  "supporting_doc_ids": ["gold 支持文档 ID"],
+  "candidate_doc_ids": ["候选文档 ID"]
+}
+```
+
+后续接入 MultiHop-RAG、MuSiQue、2WikiMultiHopQA 时，应分别新增 `scripts/prepare_multihop_rag.py`、`scripts/prepare_musique.py`、`scripts/prepare_2wiki.py`，但它们都输出同一个 `sam-dataset-v1` 格式。`run_demo.py` 和核心记忆系统不再关心原始数据集长什么样。
 
 ## 实验方法与指标
 
@@ -172,6 +241,11 @@ reports/graph_view.html
 ```
 
 黄色节点表示 HotpotQA 的 gold supporting paragraph，蓝色节点表示候选干扰段落，箭头表示系统实际创建的语义边。这个页面不是手工画图，而是由 `reports/graph_artifact.json` 自动渲染得到。
+
+图谱页面支持交互：
+
+- 点击节点：右侧详情面板会显示完整 `MemoryNode`，包括标题、完整段落文本、summary、keywords、tags、confidence 和 metadata。
+- 点击边：右侧详情面板会显示这两个节点为什么可以连起来，包括关系类型、边权和建边原因。
 
 如果只想看图数据，可以查看：
 

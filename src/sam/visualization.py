@@ -24,6 +24,8 @@ def export_graph_artifacts(
 
     node_payload = [_node_payload(node) for node in nodes]
     edge_payload = [_edge_payload(edge) for edge in edges]
+    for index, edge in enumerate(edge_payload):
+        edge["index"] = index
     query_payload = [
         {
             "id": query.id,
@@ -63,8 +65,14 @@ def _node_payload(node: MemoryNode) -> dict[str, object]:
         "usage_count": node.usage_count,
         "keywords": node.keywords,
         "entities": node.metadata.get("entities", []),
+        "text": node.text,
+        "summary": node.summary,
+        "tags": node.tags,
+        "created_at": node.created_at,
+        "confidence": node.confidence,
         "snippet": node.text[:240],
         "source": node.source,
+        "metadata": node.metadata,
     }
 
 
@@ -106,6 +114,13 @@ def _to_html(
     for node in nodes:
         by_query.setdefault(str(node["query_id"]), []).append(node)
     cases_by_query = {str(case["query_id"]): case for case in retrieval_cases}
+    graph_data_json = json.dumps(
+        {
+            "nodes": {str(node["id"]): node for node in nodes},
+            "edges": {str(edge["index"]): edge for edge in edges},
+        },
+        ensure_ascii=False,
+    ).replace("</", "<\\/")
     graph_blocks = "\n".join(
         _query_graph_html(
             query_id=query_id,
@@ -150,6 +165,9 @@ def _to_html(
   <title>SAM 图谱运行产物</title>
   <style>
     body {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; margin: 24px; color: #1f2933; background: #f7f9fc; }}
+    .layout {{ display: grid; grid-template-columns: minmax(0, 1fr) 420px; gap: 18px; align-items: start; }}
+    .side-panel {{ position: sticky; top: 16px; background: white; border: 1px solid #d7dde5; border-radius: 8px; padding: 16px; max-height: 88vh; overflow: auto; }}
+    .side-panel pre {{ white-space: pre-wrap; word-break: break-word; background: #f5f7fa; padding: 10px; border-radius: 6px; font-size: 12px; }}
     h1, h2, h3 {{ margin: 18px 0 10px; }}
     .hint {{ color: #52606d; line-height: 1.6; }}
     .legend span {{ display: inline-block; margin-right: 18px; }}
@@ -163,20 +181,84 @@ def _to_html(
     code {{ background: #eef2f7; padding: 2px 4px; }}
     .support-pill {{ color: #8a5a00; font-weight: 700; }}
     .candidate-pill {{ color: #1f5f8b; font-weight: 700; }}
+    .clickable, .edge-click {{ cursor: pointer; }}
+    .clickable:hover {{ filter: brightness(0.95); }}
+    .edge-click:hover {{ opacity: 1; stroke-width: 3.2; }}
+    @media (max-width: 1100px) {{ .layout {{ display: block; }} .side-panel {{ position: static; margin-bottom: 16px; }} }}
   </style>
 </head>
 <body>
   <h1>SAM 图谱运行产物</h1>
   <p class="hint">黄色节点是真实 HotpotQA supporting paragraph，蓝色节点是候选干扰段落。箭头表示系统实际创建的关键语义边。这个文件由代码自动生成，不是手绘示意图。</p>
   <p class="legend"><span>黄色：支持证据</span><span>蓝色：候选文档</span><span>橙色边：共享实体</span><span>蓝色边：关键词重叠</span><span>紫色边：embedding 相似</span></p>
-  <h2>按问题拆分的图谱</h2>
-  {graph_blocks}
-  <h2>检索案例</h2>
-  {case_blocks}
-  <h2>节点明细</h2>
-  <table><thead><tr><th>标题</th><th>问题 ID</th><th>支持证据</th><th>实体</th><th>文本片段</th></tr></thead><tbody>{node_rows}</tbody></table>
-  <h2>语义边明细</h2>
-  <table><thead><tr><th>起点</th><th>终点</th><th>关系</th><th>权重</th><th>原因</th></tr></thead><tbody>{edge_rows}</tbody></table>
+  <div class="layout">
+    <main>
+      <h2>按问题拆分的图谱</h2>
+      {graph_blocks}
+      <h2>检索案例</h2>
+      {case_blocks}
+      <h2>节点明细</h2>
+      <table><thead><tr><th>标题</th><th>问题 ID</th><th>支持证据</th><th>实体</th><th>文本片段</th></tr></thead><tbody>{node_rows}</tbody></table>
+      <h2>语义边明细</h2>
+      <table><thead><tr><th>起点</th><th>终点</th><th>关系</th><th>权重</th><th>原因</th></tr></thead><tbody>{edge_rows}</tbody></table>
+    </main>
+    <aside class="side-panel" id="detail-panel">
+      <h2>详情面板</h2>
+      <p>点击图中的节点查看完整 MemoryNode；点击边查看建边原因。</p>
+    </aside>
+  </div>
+  <script>
+    const graphData = {graph_data_json};
+    function escapeHtml(value) {{
+      return String(value ?? "")
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;");
+    }}
+    function showNode(nodeId) {{
+      const node = graphData.nodes[nodeId];
+      const panel = document.getElementById("detail-panel");
+      panel.innerHTML = `
+        <h2>节点详情</h2>
+        <p><b>标题：</b>${{escapeHtml(node.title)}}</p>
+        <p><b>节点 ID：</b><code>${{escapeHtml(node.id)}}</code></p>
+        <p><b>是否支持证据：</b>${{node.is_supporting ? "是" : "否"}}</p>
+        <p><b>来源：</b>${{escapeHtml(node.source)}}</p>
+        <p><b>Query ID：</b><code>${{escapeHtml(node.query_id)}}</code></p>
+        <p><b>关键词：</b>${{escapeHtml((node.keywords || []).join(", "))}}</p>
+        <p><b>实体：</b>${{escapeHtml((node.entities || []).join(", "))}}</p>
+        <p><b>MemoryNode 内容：</b></p>
+        <pre>${{escapeHtml(JSON.stringify({{
+          id: node.id,
+          title: node.title,
+          summary: node.summary,
+          text: node.text,
+          tags: node.tags,
+          usage_count: node.usage_count,
+          confidence: node.confidence,
+          created_at: node.created_at,
+          metadata: node.metadata
+        }}, null, 2))}}</pre>
+      `;
+    }}
+    function showEdge(edgeIndex) {{
+      const edge = graphData.edges[String(edgeIndex)];
+      const source = graphData.nodes[edge.source_id] || {{}};
+      const target = graphData.nodes[edge.target_id] || {{}};
+      const panel = document.getElementById("detail-panel");
+      panel.innerHTML = `
+        <h2>边详情</h2>
+        <p><b>起点：</b>${{escapeHtml(source.title || edge.source_id)}}</p>
+        <p><b>终点：</b>${{escapeHtml(target.title || edge.target_id)}}</p>
+        <p><b>关系类型：</b><code>${{escapeHtml(edge.relation_type)}}</code></p>
+        <p><b>边权：</b>${{Number(edge.weight).toFixed(3)}}</p>
+        <p><b>为什么可以连起来：</b>${{escapeHtml(edge.reason)}}</p>
+        <p><b>完整 MemoryEdge 内容：</b></p>
+        <pre>${{escapeHtml(JSON.stringify(edge, null, 2))}}</pre>
+      `;
+    }}
+  </script>
 </body>
 </html>
 """
@@ -219,7 +301,7 @@ def _query_graph_html(
         color = _edge_color(str(edge["relation_type"]))
         stroke_width = 2.2 if _edge_key(edge) in path_edges else 1.4
         svg_parts.append(
-            f"<line x1='{x1}' y1='{y1}' x2='{x2}' y2='{y2}' stroke='{color}' stroke-width='{stroke_width}' marker-end='url(#arrow)' opacity='0.68'/>"
+            f"<line class='edge-click' onclick='showEdge({edge['index']})' x1='{x1}' y1='{y1}' x2='{x2}' y2='{y2}' stroke='{color}' stroke-width='{stroke_width}' marker-end='url(#arrow)' opacity='0.68'/>"
         )
     for node in ordered_nodes:
         x, y = positions[str(node["id"])]
@@ -228,7 +310,7 @@ def _query_graph_html(
         title = html.escape(_short_title(str(node["title"]), 36))
         role = "supporting" if node["is_supporting"] else "candidate"
         svg_parts.append(
-            f"<rect x='{x}' y='{y}' width='{node_width}' height='{node_height}' rx='8' fill='{fill}' stroke='{stroke}' stroke-width='2'/>"
+            f"<rect class='clickable' onclick='showNode(\"{html.escape(str(node['id']))}\")' x='{x}' y='{y}' width='{node_width}' height='{node_height}' rx='8' fill='{fill}' stroke='{stroke}' stroke-width='2'/>"
         )
         svg_parts.append(
             f"<foreignObject x='{x + 8}' y='{y + 8}' width='{node_width - 16}' height='28'><div xmlns='http://www.w3.org/1999/xhtml' style='font-size:12px;font-weight:700;line-height:14px;text-align:center;color:#102a43;'>{title}</div></foreignObject>"

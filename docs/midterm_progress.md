@@ -28,9 +28,10 @@
 
 5. 完成真实公开数据集初步实验。
    - 当前主实验使用真实 HotpotQA dev distractor 小样本。
+   - 已将 HotpotQA 原始格式转换为项目统一数据格式 `sam-dataset-v1`，后续其它数据集只需新增各自的 prepare 脚本。
    - 已实现纯向量检索和联想图检索对比。
    - 已生成实验报告 `reports/experiment_results.md`。
-   - 已生成图谱运行产物 `reports/graph_view.html`、`reports/graph_artifact.json`、`reports/graph_mermaid.md`。
+   - 已生成可交互图谱运行产物 `reports/graph_view.html`、`reports/graph_artifact.json`、`reports/graph_mermaid.md`。
 
 ## 初步实验结果
 
@@ -41,7 +42,7 @@
 | 支持证据召回率 | 0.500 | 0.625 |
 | 命中支持证据数 | 8 | 10 |
 
-联想图检索相比纯向量检索新增命中 2 条有效支持证据。运行产物包括 `reports/experiment_results.md`、`reports/hotpotqa_sample_manifest.json`、`reports/graph_artifact.json` 和可直接打开查看的 `reports/graph_view.html`。这些文件记录了真实样本 ID、supporting facts、节点、边和检索路径，便于复核系统不是手工编造结果。
+联想图检索相比纯向量检索新增命中 2 条有效支持证据。运行产物包括 `reports/experiment_results.md`、`reports/hotpotqa_sample_manifest.json`、`reports/graph_artifact.json` 和可直接打开查看的 `reports/graph_view.html`。其中 HTML 支持点击节点查看完整 MemoryNode，点击边查看建边原因；这些文件记录了真实样本 ID、supporting facts、节点、边和检索路径，便于复核系统不是手工编造结果。
 
 ## 阶段性结论
 

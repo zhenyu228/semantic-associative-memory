@@ -11,6 +11,7 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from sam.datasets import load_builtin_benchmark_sample
+from sam.dataset_format import load_sam_dataset, save_sam_dataset, summarize_sam_dataset
 from sam.embedding import LocalHashEmbeddingProvider
 from sam.evaluator import Evaluator
 from sam.graph import GraphBuilder
@@ -69,6 +70,23 @@ class SamCoreTest(unittest.TestCase):
         result = self.evaluator.evaluate(self.queries, top_k=2, seed_k=1, hops=2)
         self.assertGreaterEqual(result.associative_recall, result.vector_recall)
         self.assertGreaterEqual(result.associative_gain, 1)
+
+    def test_sam_dataset_format_round_trip(self) -> None:
+        documents, queries = load_builtin_benchmark_sample()
+        output_path = Path(self.temp_dir.name) / "sample_sam_dataset.json"
+        save_sam_dataset(
+            output_path,
+            documents=documents,
+            queries=queries,
+            dataset_info={"name": "unit-test"},
+            processing={"source_script": "tests/test_core.py"},
+        )
+        loaded_documents, loaded_queries, payload = load_sam_dataset(output_path)
+        summary = summarize_sam_dataset(output_path)
+        self.assertEqual(payload["schema_version"], "sam-dataset-v1")
+        self.assertEqual(len(loaded_documents), len(documents))
+        self.assertEqual(len(loaded_queries), len(queries))
+        self.assertEqual(summary["query_count"], len(queries))
 
 
 if __name__ == "__main__":

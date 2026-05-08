@@ -9,7 +9,8 @@ venv/
 
 # Data and generated outputs
 data/raw/
-data/processed/
+data/processed/*
+!data/processed/.gitkeep
 data/*.sqlite
 outputs/
 reports/generated/

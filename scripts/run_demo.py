@@ -11,12 +11,12 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from sam.datasets import (  # noqa: E402
-    download_hotpotqa_dev,
-    load_hotpotqa_real_sample,
     load_builtin_benchmark_sample,
     load_multihop_rag_from_huggingface,
     write_dataset_manifest,
 )
+from sam.dataset_format import load_sam_dataset, save_sam_dataset, summarize_sam_dataset  # noqa: E402
+from sam.datasets import DATASET_REFERENCES, download_hotpotqa_dev, load_hotpotqa_real_sample  # noqa: E402
 from sam.embedding import create_embedding_provider  # noqa: E402
 from sam.evaluator import Evaluator  # noqa: E402
 from sam.graph import GraphBuilder  # noqa: E402
@@ -29,6 +29,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--db", default="data/sam_demo.sqlite", help="SQLite 数据库路径")
     parser.add_argument("--report-dir", default="reports", help="实验报告输出目录")
     parser.add_argument("--dataset", default="hotpotqa", choices=["hotpotqa", "builtin"], help="实验数据来源")
+    parser.add_argument("--dataset-file", default="data/processed/hotpotqa_sam_sample.json", help="SAM 统一数据格式文件")
     parser.add_argument("--sample-size", type=int, default=8, help="真实数据集抽样数量")
     parser.add_argument("--max-scan", type=int, default=800, help="真实数据集最大扫描样本数")
     parser.add_argument("--embedding-provider", default=None, help="local 或 openai")
@@ -64,17 +65,36 @@ def main() -> None:
     evaluator = Evaluator(store, embedding_provider, graph_builder)
 
     if args.dataset == "hotpotqa":
-        raw_path = download_hotpotqa_dev(ROOT / "data/raw/hotpot_dev_distractor_v1.json")
-        documents, queries, manifest = load_hotpotqa_real_sample(
-            raw_path=raw_path,
-            sample_size=args.sample_size,
-            max_scan=args.max_scan,
-        )
+        dataset_path = ROOT / args.dataset_file
+        if not dataset_path.exists():
+            raw_path = download_hotpotqa_dev(ROOT / "data/raw/hotpot_dev_distractor_v1.json")
+            documents, queries, manifest = load_hotpotqa_real_sample(
+                raw_path=raw_path,
+                sample_size=args.sample_size,
+                max_scan=args.max_scan,
+            )
+            save_sam_dataset(
+                path=dataset_path,
+                documents=documents,
+                queries=queries,
+                dataset_info=DATASET_REFERENCES["hotpotqa_real"],
+                processing={
+                    "source_script": "scripts/run_demo.py",
+                    "raw_path": str(raw_path),
+                    "sample_size": args.sample_size,
+                    "max_scan": args.max_scan,
+                    "selection_policy": "选择 supporting paragraph 之间存在标题提及的 bridge-style 样本",
+                    "manifest": manifest,
+                },
+            )
+        documents, queries, dataset_payload = load_sam_dataset(dataset_path)
+        manifest = dataset_payload["processing"].get("manifest", {})
         (report_dir / "hotpotqa_sample_manifest.json").write_text(
             json.dumps(manifest, ensure_ascii=False, indent=2),
             encoding="utf-8",
         )
-        print(f"使用真实 HotpotQA dev distractor 样本：{len(queries)} 条")
+        print(f"使用 SAM 数据格式文件：{dataset_path}")
+        print(json.dumps(summarize_sam_dataset(dataset_path), ensure_ascii=False, indent=2))
     else:
         documents, queries = load_builtin_benchmark_sample()
         print(f"使用内置兜底样本：{len(queries)} 条")
