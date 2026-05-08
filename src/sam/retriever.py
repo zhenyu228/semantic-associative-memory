@@ -48,30 +48,26 @@ class Retriever:
         vector_hits = self._vector_hits(query_embedding, candidates, top_k=max(top_k, seed_k))
         if mode == "embedding_topk":
             hits = vector_hits[:top_k]
-            self.store.increment_usage([hit.node.id for hit in hits])
-            self.store.log_retrieval(query, mode, hits, {"top_k": top_k})
+            self._finalize_retrieval(query, mode, hits, {"top_k": top_k})
             return hits
 
         if mode == "raptor_style":
             hits = self._raptor_style_hits(query, query_embedding, candidates, top_k)
-            self.store.increment_usage([hit.node.id for hit in hits])
-            self.store.log_retrieval(query, mode, hits, {"top_k": top_k})
+            self._finalize_retrieval(query, mode, hits, {"top_k": top_k})
             return hits
 
         if mode == "graphrag_style":
             seed_nodes = [hit.node for hit in vector_hits[: max(seed_k, 2)]]
             self.graph_builder.build_edges_on_demand(seed_nodes)
             hits = self._graphrag_style_hits(query, query_embedding, candidates, top_k)
-            self.store.increment_usage([hit.node.id for hit in hits])
-            self.store.log_retrieval(query, mode, hits, {"top_k": top_k, "seed_k": max(seed_k, 2)})
+            self._finalize_retrieval(query, mode, hits, {"top_k": top_k, "seed_k": max(seed_k, 2)})
             return hits
 
         if mode == "hipporag_style":
             seed_nodes = [hit.node for hit in vector_hits[: max(seed_k, 2)]]
             self.graph_builder.build_edges_on_demand(seed_nodes)
             hits = self._hipporag_style_hits(query_embedding, candidates, top_k)
-            self.store.increment_usage([hit.node.id for hit in hits])
-            self.store.log_retrieval(query, mode, hits, {"top_k": top_k, "seed_k": max(seed_k, 2)})
+            self._finalize_retrieval(query, mode, hits, {"top_k": top_k, "seed_k": max(seed_k, 2)})
             return hits
 
         seed_nodes = [hit.node for hit in vector_hits[:seed_k]]
@@ -84,8 +80,7 @@ class Retriever:
             top_k=top_k,
             hops=hops,
         )
-        self.store.increment_usage([hit.node.id for hit in hits])
-        self.store.log_retrieval(query, mode, hits, {"top_k": top_k, "seed_k": seed_k, "hops": hops})
+        self._finalize_retrieval(query, mode, hits, {"top_k": top_k, "seed_k": seed_k, "hops": hops})
         return hits
 
     def explain_retrieval(
@@ -359,6 +354,64 @@ class Retriever:
         # 否则图扩展会变成替代检索，而不是开题报告中的“种子激活 + 语义扩散”。
         return [*seed_results, *other_results][:top_k]
 
+    def _finalize_retrieval(
+        self,
+        query: str,
+        mode: str,
+        hits: list[RetrievalHit],
+        metadata: dict[str, object],
+    ) -> None:
+        accessed_at = _now()
+        hit_node_ids = [hit.node.id for hit in hits]
+        activated_edges = self._activated_edges_from_paths(hits)
+        self.store.increment_usage(hit_node_ids, accessed_at=accessed_at)
+        self.store.activate_edges(activated_edges, activated_at=accessed_at)
+
+        refreshed_nodes = {node.id: node for node in self.store.get_nodes(hit_node_ids)}
+        for hit in hits:
+            if hit.node.id in refreshed_nodes:
+                hit.node = refreshed_nodes[hit.node.id]
+
+        dynamic_metadata = {
+            **metadata,
+            "dynamic_update": {
+                "accessed_at": accessed_at,
+                "updated_node_ids": hit_node_ids,
+                "activated_edges": [
+                    {
+                        "source_id": source_id,
+                        "target_id": target_id,
+                        "relation_type": relation_type,
+                    }
+                    for source_id, target_id, relation_type in activated_edges
+                ],
+            },
+        }
+        self.store.log_retrieval(query, mode, hits, dynamic_metadata)
+
+    def _activated_edges_from_paths(self, hits: list[RetrievalHit]) -> list[tuple[str, str, str]]:
+        path_pairs: set[tuple[str, str]] = set()
+        for hit in hits:
+            path = [str(node_id) for node_id in hit.path]
+            for left, right in zip(path, path[1:], strict=False):
+                path_pairs.add((left, right))
+        if not path_pairs:
+            return []
+
+        edge_by_pair: dict[tuple[str, str], tuple[str, str, str, float]] = {}
+        involved_node_ids = {node_id for pair in path_pairs for node_id in pair}
+        for edge in self.store.get_edges_for(involved_node_ids):
+            pair = (edge.source_id, edge.target_id)
+            if pair not in path_pairs:
+                continue
+            previous = edge_by_pair.get(pair)
+            if previous is None or edge.weight > previous[3]:
+                edge_by_pair[pair] = (edge.source_id, edge.target_id, edge.relation_type, edge.weight)
+        return [
+            (source_id, target_id, relation_type)
+            for source_id, target_id, relation_type, _ in edge_by_pair.values()
+        ]
+
     def _semantic_clusters(self, nodes: list[MemoryNode]) -> dict[str, list[MemoryNode]]:
         clusters: dict[str, list[MemoryNode]] = {}
         for node in nodes:
@@ -387,3 +440,9 @@ def _overlap_ratio(left: set[str], right: set[str]) -> float:
     if not left or not right:
         return 0.0
     return len(left & right) / max(1, len(left))
+
+
+def _now() -> str:
+    from sam.models import utc_now_iso
+
+    return utc_now_iso()

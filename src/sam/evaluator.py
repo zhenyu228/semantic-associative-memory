@@ -216,6 +216,10 @@ class Evaluator:
                 "score": round(hit.score, 4),
                 "similarity_score": round(hit.similarity_score, 4),
                 "graph_score": round(hit.graph_score, 4),
+                "usage_score": round(hit.usage_score, 4),
+                "confidence_score": round(hit.confidence_score, 4),
+                "usage_count": hit.node.usage_count,
+                "last_accessed_at": hit.node.last_accessed_at,
                 "path": hit.path,
                 "reason": hit.reason,
             }

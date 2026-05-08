@@ -80,6 +80,7 @@ def _node_payload(node: MemoryNode) -> dict[str, object]:
         "summary": node.summary,
         "tags": node.tags,
         "created_at": node.created_at,
+        "last_accessed_at": node.last_accessed_at,
         "confidence": node.confidence,
         "snippet": node.text[:240],
         "source": node.source,
@@ -94,6 +95,10 @@ def _edge_payload(edge: MemoryEdge) -> dict[str, object]:
         "relation_type": edge.relation_type,
         "weight": edge.weight,
         "reason": edge.reason,
+        "created_at": edge.created_at,
+        "updated_at": edge.updated_at,
+        "activation_count": edge.activation_count,
+        "last_activated_at": edge.last_activated_at,
         "metadata": edge.metadata,
     }
 
@@ -243,6 +248,7 @@ def _to_html(
           text: node.text,
           tags: node.tags,
           usage_count: node.usage_count,
+          last_accessed_at: node.last_accessed_at,
           confidence: node.confidence,
           created_at: node.created_at,
           metadata: node.metadata
@@ -260,6 +266,8 @@ def _to_html(
         <p><b>终点：</b>${{escapeHtml(target.title || edge.target_id)}}</p>
         <p><b>关系类型：</b><code>${{escapeHtml(edge.relation_type)}}</code></p>
         <p><b>边权：</b>${{Number(edge.weight).toFixed(3)}}</p>
+        <p><b>激活次数：</b>${{escapeHtml(edge.activation_count ?? 0)}}</p>
+        <p><b>最近激活：</b>${{escapeHtml(edge.last_activated_at || "未激活")}}</p>
         <p><b>为什么可以连起来：</b>${{escapeHtml(edge.reason)}}</p>
         <p><b>完整 MemoryEdge 内容：</b></p>
         <pre>${{escapeHtml(JSON.stringify(edge, null, 2))}}</pre>
@@ -459,6 +467,8 @@ def _method_svg(
         title = html.escape(_short_title(str(node["title"]), 36))
         role = "supporting" if node["is_supporting"] else "candidate"
         selected = "selected" if str(node["id"]) in hit_ids else ""
+        usage_count = int(node.get("usage_count") or 0)
+        usage_text = f"used {usage_count}" if usage_count else "unused"
         svg_parts.append(
             f"<rect class='clickable' onclick='showNode(\"{html.escape(str(node['id']))}\")' x='{x}' y='{y}' width='{node_width}' height='{node_height}' rx='8' fill='{fill}' stroke='{stroke}' stroke-width='{stroke_width}'/>"
         )
@@ -466,7 +476,7 @@ def _method_svg(
             f"<foreignObject x='{x + 8}' y='{y + 8}' width='{node_width - 16}' height='28'><div xmlns='http://www.w3.org/1999/xhtml' style='font-size:12px;font-weight:700;line-height:14px;text-align:center;color:#102a43;'>{title}</div></foreignObject>"
         )
         svg_parts.append(
-            f"<text x='{x + node_width / 2}' y='{y + 47}' text-anchor='middle' font-size='11'>{role} {selected}</text>"
+            f"<text x='{x + node_width / 2}' y='{y + 47}' text-anchor='middle' font-size='11'>{role} {selected} {usage_text}</text>"
         )
     svg_parts.append("</svg>")
     return "".join(svg_parts)

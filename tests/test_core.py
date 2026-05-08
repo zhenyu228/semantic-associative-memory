@@ -67,6 +67,33 @@ class SamCoreTest(unittest.TestCase):
         self.assertEqual(len(associative_hits), 2)
         self.assertTrue(any(len(hit.path) > 1 for hit in associative_hits))
 
+    def test_retrieval_updates_dynamic_memory_state(self) -> None:
+        query = self.queries[0]
+        retriever = Retriever(self.store, self.embedding, self.graph)
+        candidate_ids = [
+            node.id
+            for node in self.store.get_nodes()
+            if node.metadata["original_doc_id"] in query.candidate_doc_ids
+        ]
+        hits = retriever.retrieve(
+            query.question,
+            "associative",
+            top_k=3,
+            seed_k=1,
+            hops=2,
+            candidate_doc_ids=candidate_ids,
+        )
+        updated_nodes = self.store.get_nodes([hit.node.id for hit in hits])
+        self.assertTrue(all(node.usage_count >= 1 for node in updated_nodes))
+        self.assertTrue(all(node.last_accessed_at for node in updated_nodes))
+        activated_edges = [edge for edge in self.store.get_edges() if edge.activation_count > 0]
+        self.assertTrue(activated_edges)
+        self.assertTrue(all(edge.last_activated_at for edge in activated_edges))
+        logs = self.store.get_retrieval_logs(limit=1)
+        self.assertEqual(logs[0]["mode"], "sam")
+        self.assertIn("dynamic_update", logs[0]["metadata"])
+        self.assertTrue(logs[0]["metadata"]["dynamic_update"]["updated_node_ids"])
+
     def test_evaluation_produces_gain(self) -> None:
         result = self.evaluator.evaluate(self.queries, top_k=2, seed_k=1, hops=2)
         self.assertGreaterEqual(result.associative_recall, result.vector_recall)

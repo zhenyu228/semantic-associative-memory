@@ -29,6 +29,7 @@ class MemoryStore:
                 tags TEXT NOT NULL,
                 source TEXT NOT NULL,
                 created_at TEXT NOT NULL,
+                last_accessed_at TEXT,
                 usage_count INTEGER NOT NULL,
                 confidence REAL NOT NULL,
                 embedding TEXT NOT NULL,
@@ -43,6 +44,8 @@ class MemoryStore:
                 reason TEXT NOT NULL,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL,
+                activation_count INTEGER NOT NULL DEFAULT 0,
+                last_activated_at TEXT,
                 metadata TEXT NOT NULL,
                 PRIMARY KEY (source_id, target_id, relation_type)
             );
@@ -57,7 +60,18 @@ class MemoryStore:
             );
             """
         )
+        self._ensure_column("memory_nodes", "last_accessed_at", "TEXT")
+        self._ensure_column("memory_edges", "activation_count", "INTEGER NOT NULL DEFAULT 0")
+        self._ensure_column("memory_edges", "last_activated_at", "TEXT")
         self.connection.commit()
+
+    def _ensure_column(self, table: str, column: str, definition: str) -> None:
+        columns = {
+            str(row["name"])
+            for row in self.connection.execute(f"PRAGMA table_info({table})").fetchall()
+        }
+        if column not in columns:
+            self.connection.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
 
     def reset(self) -> None:
         self.connection.executescript(
@@ -77,15 +91,16 @@ class MemoryStore:
             """
             INSERT INTO memory_nodes (
                 id, text, summary, keywords, tags, source, created_at,
-                usage_count, confidence, embedding, metadata
+                last_accessed_at, usage_count, confidence, embedding, metadata
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(id) DO UPDATE SET
                 text=excluded.text,
                 summary=excluded.summary,
                 keywords=excluded.keywords,
                 tags=excluded.tags,
                 source=excluded.source,
+                last_accessed_at=COALESCE(memory_nodes.last_accessed_at, excluded.last_accessed_at),
                 confidence=excluded.confidence,
                 embedding=excluded.embedding,
                 metadata=excluded.metadata
@@ -98,6 +113,7 @@ class MemoryStore:
                 json.dumps(node.tags, ensure_ascii=False),
                 node.source,
                 node.created_at,
+                node.last_accessed_at,
                 node.usage_count,
                 node.confidence,
                 json.dumps(node.embedding),
@@ -128,11 +144,17 @@ class MemoryStore:
         nodes = {row["id"]: self._row_to_node(row) for row in rows}
         return [nodes[node_id] for node_id in node_ids if node_id in nodes]
 
-    def increment_usage(self, node_ids: Iterable[str]) -> None:
+    def increment_usage(self, node_ids: Iterable[str], accessed_at: str | None = None) -> None:
+        accessed_at = accessed_at or utc_now_iso()
         for node_id in node_ids:
             self.connection.execute(
-                "UPDATE memory_nodes SET usage_count = usage_count + 1 WHERE id = ?",
-                (node_id,),
+                """
+                UPDATE memory_nodes
+                SET usage_count = usage_count + 1,
+                    last_accessed_at = ?
+                WHERE id = ?
+                """,
+                (accessed_at, node_id),
             )
         self.connection.commit()
 
@@ -141,13 +163,15 @@ class MemoryStore:
             """
             INSERT INTO memory_edges (
                 source_id, target_id, relation_type, weight, reason,
-                created_at, updated_at, metadata
+                created_at, updated_at, activation_count, last_activated_at, metadata
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(source_id, target_id, relation_type) DO UPDATE SET
                 weight=max(memory_edges.weight, excluded.weight),
                 reason=excluded.reason,
                 updated_at=excluded.updated_at,
+                activation_count=memory_edges.activation_count,
+                last_activated_at=memory_edges.last_activated_at,
                 metadata=excluded.metadata
             """,
             (
@@ -158,9 +182,33 @@ class MemoryStore:
                 edge.reason,
                 edge.created_at,
                 edge.updated_at,
+                edge.activation_count,
+                edge.last_activated_at,
                 json.dumps(edge.metadata, ensure_ascii=False),
             ),
         )
+        self.connection.commit()
+
+    def activate_edges(
+        self,
+        edge_keys: Iterable[tuple[str, str, str]],
+        activated_at: str | None = None,
+    ) -> None:
+        """记录本次检索真正走过的边。"""
+
+        activated_at = activated_at or utc_now_iso()
+        for source_id, target_id, relation_type in edge_keys:
+            self.connection.execute(
+                """
+                UPDATE memory_edges
+                SET activation_count = activation_count + 1,
+                    last_activated_at = ?,
+                    updated_at = ?,
+                    weight = min(1.0, weight + 0.015)
+                WHERE source_id = ? AND target_id = ? AND relation_type = ?
+                """,
+                (activated_at, activated_at, source_id, target_id, relation_type),
+            )
         self.connection.commit()
 
     def get_edges_for(self, node_ids: Iterable[str]) -> list[MemoryEdge]:
@@ -180,6 +228,25 @@ class MemoryStore:
     def get_edges(self) -> list[MemoryEdge]:
         rows = self.connection.execute("SELECT * FROM memory_edges").fetchall()
         return [self._row_to_edge(row) for row in rows]
+
+    def get_retrieval_logs(self, limit: int | None = None) -> list[dict[str, object]]:
+        sql = "SELECT * FROM retrieval_logs ORDER BY id DESC"
+        params: tuple[object, ...] = ()
+        if limit is not None:
+            sql += " LIMIT ?"
+            params = (limit,)
+        rows = self.connection.execute(sql, params).fetchall()
+        return [
+            {
+                "id": int(row["id"]),
+                "query": row["query"],
+                "mode": row["mode"],
+                "created_at": row["created_at"],
+                "hits": json.loads(row["hits"]),
+                "metadata": json.loads(row["metadata"]),
+            }
+            for row in rows
+        ]
 
     def log_retrieval(
         self,
@@ -212,6 +279,7 @@ class MemoryStore:
             tags=json.loads(row["tags"]),
             source=row["source"],
             created_at=row["created_at"],
+            last_accessed_at=row["last_accessed_at"],
             usage_count=int(row["usage_count"]),
             confidence=float(row["confidence"]),
             embedding=[float(value) for value in json.loads(row["embedding"])],
@@ -227,5 +295,7 @@ class MemoryStore:
             reason=row["reason"],
             created_at=row["created_at"],
             updated_at=row["updated_at"],
+            activation_count=int(row["activation_count"]),
+            last_activated_at=row["last_activated_at"],
             metadata=json.loads(row["metadata"]),
         )

@@ -65,6 +65,8 @@ class GraphBuilder:
                         reason=edge.reason,
                         created_at=edge.created_at,
                         updated_at=edge.updated_at,
+                        activation_count=edge.activation_count,
+                        last_activated_at=edge.last_activated_at,
                         metadata=edge.metadata,
                     )
                     candidates[reverse.key] = reverse
@@ -92,6 +94,8 @@ class GraphBuilder:
                 reason="同一公开多跳问答样本中的候选上下文，保留跨文档推理的候选关系",
                 created_at=now,
                 updated_at=now,
+                activation_count=0,
+                last_activated_at=None,
                 metadata={"query_id": left.metadata.get("query_id")},
             )
             reverse = MemoryEdge(
@@ -102,6 +106,8 @@ class GraphBuilder:
                 reason=edge.reason,
                 created_at=now,
                 updated_at=now,
+                activation_count=0,
+                last_activated_at=None,
                 metadata=edge.metadata,
             )
             self.store.upsert_edge(edge)
@@ -150,5 +156,7 @@ class GraphBuilder:
             reason=reason,
             created_at=now,
             updated_at=now,
+            activation_count=0,
+            last_activated_at=None,
             metadata=metadata,
         )

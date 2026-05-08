@@ -488,6 +488,7 @@ def documents_to_nodes(
                 tags=document.tags,
                 source=document.source,
                 created_at=utc_now_iso(),
+                last_accessed_at=None,
                 usage_count=0,
                 confidence=0.86,
                 embedding=embedding_provider.embed(text),

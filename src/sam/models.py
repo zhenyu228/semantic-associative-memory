@@ -22,6 +22,7 @@ class MemoryNode:
     tags: list[str]
     source: str
     created_at: str
+    last_accessed_at: str | None
     usage_count: int
     confidence: float
     embedding: list[float]
@@ -36,6 +37,7 @@ class MemoryNode:
             "tags": self.tags,
             "source": self.source,
             "created_at": self.created_at,
+            "last_accessed_at": self.last_accessed_at,
             "usage_count": self.usage_count,
             "confidence": self.confidence,
             "embedding": self.embedding,
@@ -54,6 +56,8 @@ class MemoryEdge:
     reason: str
     created_at: str
     updated_at: str
+    activation_count: int
+    last_activated_at: str | None
     metadata: dict[str, Any] = field(default_factory=dict)
 
     @property
@@ -69,6 +73,8 @@ class MemoryEdge:
             "reason": self.reason,
             "created_at": self.created_at,
             "updated_at": self.updated_at,
+            "activation_count": self.activation_count,
+            "last_activated_at": self.last_activated_at,
             "metadata": self.metadata,
         }
 
