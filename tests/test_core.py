@@ -127,6 +127,51 @@ class SamCoreTest(unittest.TestCase):
         self.assertEqual(queries[0].metadata["options"]["A"], "White Rabbit")
         self.assertEqual(manifest["selected_books"][0]["book_id"], "B00")
 
+    def test_novelqa_demonstration_maps_evidence_to_chunks(self) -> None:
+        source_root = Path(self.temp_dir.name) / "NovelQA"
+        (source_root / "Demonstration").mkdir(parents=True)
+        (source_root / "Demonstration" / "Frankenstein.txt").write_text(
+            "Victor studies natural philosophy. The creature speaks with Victor near the mountain. "
+            "Elizabeth waits for news from Geneva.",
+            encoding="utf-8",
+        )
+        (source_root / "Demonstration" / "Frankenstein.json").write_text(
+            json.dumps(
+                [
+                    {
+                        "QID": "Q0147",
+                        "Aspect": "plot",
+                        "Complexity": "mh",
+                        "Question": "Who speaks with Victor?",
+                        "Answer": "The creature",
+                        "Gold": "A",
+                        "Options": {"A": "The creature", "B": "Elizabeth"},
+                        "Evidences": [
+                            {
+                                "EID": "E0001",
+                                "Evidence": "The creature speaks with Victor near the mountain.",
+                            }
+                        ],
+                    }
+                ],
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+        documents, queries, manifest = load_novelqa_sample(
+            source_root,
+            sample_size=1,
+            max_books=1,
+            chunk_chars=80,
+            chunk_overlap=10,
+            max_chunks_per_book=3,
+            split="demonstration",
+        )
+        self.assertEqual(len(documents), 2)
+        self.assertEqual(queries[0].answer, "The creature")
+        self.assertEqual(len(queries[0].supporting_doc_ids), 1)
+        self.assertEqual(manifest["split"], "demonstration")
+
 
 if __name__ == "__main__":
     unittest.main()

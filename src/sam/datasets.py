@@ -349,6 +349,7 @@ def load_novelqa_sample(
     chunk_chars: int = 1800,
     chunk_overlap: int = 180,
     max_chunks_per_book: int = 80,
+    split: str = "data",
 ) -> tuple[list[DatasetDocument], list[EvaluationQuery], dict[str, Any]]:
     """把本地 NovelQA zip 或目录转换成 SAM 统一数据结构。
 
@@ -356,9 +357,14 @@ def load_novelqa_sample(
     """
 
     reader = _NovelQAReader(Path(source_path))
-    qa_files = reader.list_files("Data/", ".json")
-    if not qa_files:
+    if split not in {"data", "demonstration"}:
+        raise ValueError("NovelQA split 只能是 data 或 demonstration")
+    if split == "demonstration":
         qa_files = reader.list_files("Demonstration/", ".json")
+    else:
+        qa_files = reader.list_files("Data/", ".json")
+        if not qa_files:
+            qa_files = reader.list_files("Demonstration/", ".json")
     selected_books: list[dict[str, Any]] = []
     documents: list[DatasetDocument] = []
     queries: list[EvaluationQuery] = []
@@ -367,7 +373,7 @@ def load_novelqa_sample(
         if len(selected_books) >= max_books or len(queries) >= sample_size:
             break
         book_id = Path(qa_file).stem
-        book_file = reader.find_book_file(book_id)
+        book_file = reader.find_book_file(book_id, split=split)
         if not book_file:
             continue
         book_text = reader.read_text(book_file)
@@ -378,9 +384,11 @@ def load_novelqa_sample(
 
         chunks = _chunk_text(book_text, chunk_chars=chunk_chars, overlap=chunk_overlap)[:max_chunks_per_book]
         candidate_doc_ids: list[str] = []
+        chunk_by_doc_id: dict[str, str] = {}
         for chunk_index, chunk in enumerate(chunks):
             doc_id = f"novelqa_{book_id}_chunk_{chunk_index:04d}"
             candidate_doc_ids.append(doc_id)
+            chunk_by_doc_id[doc_id] = chunk
             title = f"{book_id} chunk {chunk_index:04d}"
             documents.append(
                 DatasetDocument(
@@ -409,13 +417,14 @@ def load_novelqa_sample(
             qid = str(item.get("QID") or item.get("qid") or f"Q{len(queries):04d}")
             options = dict(item.get("Options") or item.get("options") or {})
             answer = _extract_novelqa_answer(item)
+            supporting_doc_ids = _match_evidence_chunks(item.get("Evidences"), chunk_by_doc_id)
             queries.append(
                 EvaluationQuery(
                     id=f"novelqa_{book_id}_{qid}",
                     dataset="novelqa",
                     question=str(item["Question"]),
                     answer=answer,
-                    supporting_doc_ids=[],
+                    supporting_doc_ids=supporting_doc_ids,
                     candidate_doc_ids=list(candidate_doc_ids),
                     metadata={
                         "book_id": book_id,
@@ -423,6 +432,8 @@ def load_novelqa_sample(
                         "aspect": item.get("Aspect") or item.get("aspect"),
                         "complexity": item.get("Complexity") or item.get("Complex") or item.get("complexity"),
                         "options": options,
+                        "gold": item.get("Gold") or item.get("gold"),
+                        "evidence_count": len(item.get("Evidences") or []),
                         "raw_answer": item.get("Answer") or item.get("answer"),
                         "source_file": qa_file,
                         "book_file": book_file,
@@ -453,6 +464,7 @@ def load_novelqa_sample(
         "chunk_chars": chunk_chars,
         "chunk_overlap": chunk_overlap,
         "max_chunks_per_book": max_chunks_per_book,
+        "split": split,
         "selected_books": selected_books,
     }
     return documents, queries, manifest
@@ -527,8 +539,8 @@ class _NovelQAReader:
             if prefix.rstrip("/") in str(path.relative_to(self.source_path))
         )
 
-    def find_book_file(self, book_id: str) -> str | None:
-        candidates = self.list_files("Books/", ".txt")
+    def find_book_file(self, book_id: str, split: str = "data") -> str | None:
+        candidates = self.list_files("Demonstration/", ".txt") if split == "demonstration" else self.list_files("Books/", ".txt")
         for candidate in candidates:
             if Path(candidate).stem == book_id:
                 return candidate
@@ -580,3 +592,39 @@ def _normalize_novelqa_items(payload: Any) -> list[dict[str, Any]]:
             normalized.append(item)
         return normalized
     return []
+
+
+def _match_evidence_chunks(evidences: Any, chunk_by_doc_id: dict[str, str]) -> list[str]:
+    if not isinstance(evidences, list):
+        return []
+    matched: list[str] = []
+    for evidence in evidences:
+        if not isinstance(evidence, dict):
+            continue
+        evidence_text = str(evidence.get("Evidence") or evidence.get("evidence") or "")
+        if not evidence_text.strip():
+            continue
+        doc_id = _best_evidence_chunk(evidence_text, chunk_by_doc_id)
+        if doc_id and doc_id not in matched:
+            matched.append(doc_id)
+    return matched
+
+
+def _best_evidence_chunk(evidence_text: str, chunk_by_doc_id: dict[str, str]) -> str | None:
+    normalized_evidence = " ".join(evidence_text.lower().split())
+    if not normalized_evidence:
+        return None
+    for doc_id, chunk in chunk_by_doc_id.items():
+        if normalized_evidence in " ".join(chunk.lower().split()):
+            return doc_id
+
+    evidence_keywords = set(extract_keywords(evidence_text, limit=24))
+    best_doc_id: str | None = None
+    best_score = 0.0
+    for doc_id, chunk in chunk_by_doc_id.items():
+        chunk_keywords = set(extract_keywords(chunk, limit=80))
+        score = len(evidence_keywords & chunk_keywords) / max(1, len(evidence_keywords))
+        if score > best_score:
+            best_score = score
+            best_doc_id = doc_id
+    return best_doc_id if best_score >= 0.35 else None

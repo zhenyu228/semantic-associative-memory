@@ -41,6 +41,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--chunk-chars", type=int, default=1800, help="NovelQA 小说切块字符数")
     parser.add_argument("--chunk-overlap", type=int, default=180, help="NovelQA 小说切块重叠字符数")
     parser.add_argument("--max-chunks-per-book", type=int, default=80, help="NovelQA 每本小说最多保留 chunk 数")
+    parser.add_argument("--novelqa-split", choices=["data", "demonstration"], default="data", help="NovelQA 子集；data 通常没有公开答案，demonstration 带答案和证据")
     parser.add_argument("--case-index", type=int, default=None, help="HTML 页面默认聚焦的 HotpotQA 原始 index")
     parser.add_argument("--rebuild-dataset", action="store_true", help="重新生成 SAM 统一数据格式文件")
     parser.add_argument("--embedding-provider", default=None, help="local 或 openai")
@@ -164,6 +165,7 @@ def main() -> None:
                 chunk_chars=args.chunk_chars,
                 chunk_overlap=args.chunk_overlap,
                 max_chunks_per_book=args.max_chunks_per_book,
+                split=args.novelqa_split,
             )
             save_sam_dataset(
                 path=dataset_path,
@@ -178,6 +180,7 @@ def main() -> None:
                     "chunk_chars": args.chunk_chars,
                     "chunk_overlap": args.chunk_overlap,
                     "max_chunks_per_book": args.max_chunks_per_book,
+                    "split": args.novelqa_split,
                     "selection_policy": "按 NovelQA 本地文件顺序读取小说与 QA，小说正文切分为固定窗口 chunk",
                     "manifest": manifest,
                 },

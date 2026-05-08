@@ -146,6 +146,23 @@ NovelQA 适配策略：
 - 每个问题的候选文档来自同一本小说的 chunk 集合。
 - 如果样本没有可映射到 chunk 的 gold evidence 或 gold answer，则不计算 evidence recall，答案命中率也不会把选项 A 之类的占位值误当成标准答案。
 
+如果你需要在 NovelQA 上看到真实分数，应优先使用 zip 中自带的 demonstration 子集，因为 `Demonstration/Frankenstein.json` 包含 `Answer`、`Gold` 和 `Evidences`：
+
+```bash
+conda run -n sam python scripts/prepare_novelqa.py \
+  --source data/raw/NovelQA.zip \
+  --output data/processed/novelqa_demo_sam_sample.json \
+  --split demonstration \
+  --sample-size 8
+
+conda run -n sam python scripts/run_demo.py \
+  --reset \
+  --dataset novelqa \
+  --dataset-file data/processed/novelqa_demo_sam_sample.json \
+  --novelqa-source data/raw/NovelQA.zip \
+  --novelqa-split demonstration
+```
+
 ## SAM 项目统一数据格式
 
 外部数据集不能直接进入记忆系统，必须先由专门脚本转换成 SAM 统一格式。统一格式顶层结构：

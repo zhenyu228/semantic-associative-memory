@@ -23,6 +23,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--chunk-chars", type=int, default=1800, help="小说切块字符数")
     parser.add_argument("--chunk-overlap", type=int, default=180, help="相邻 chunk 的重叠字符数")
     parser.add_argument("--max-chunks-per-book", type=int, default=80, help="每本小说最多保留 chunk 数")
+    parser.add_argument("--split", choices=["data", "demonstration"], default="data", help="NovelQA 子集；data 通常没有公开答案，demonstration 带答案和证据")
     return parser.parse_args()
 
 
@@ -35,6 +36,7 @@ def main() -> None:
         chunk_chars=args.chunk_chars,
         chunk_overlap=args.chunk_overlap,
         max_chunks_per_book=args.max_chunks_per_book,
+        split=args.split,
     )
     output_path = save_sam_dataset(
         path=ROOT / args.output,
@@ -49,6 +51,7 @@ def main() -> None:
             "chunk_chars": args.chunk_chars,
             "chunk_overlap": args.chunk_overlap,
             "max_chunks_per_book": args.max_chunks_per_book,
+            "split": args.split,
             "selection_policy": "按 NovelQA 本地文件顺序读取小说与 QA，小说正文切分为固定窗口 chunk",
             "manifest": manifest,
         },
