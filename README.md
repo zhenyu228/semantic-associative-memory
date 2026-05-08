@@ -142,8 +142,9 @@ NovelQA 适配策略：
 
 - 小说正文按固定窗口切成 memory document。
 - 每个 QA 样本保留 `QID`、`Aspect`、`Complexity`、`Question`、`Options` 和原始答案字段。
+- 真实 `NovelQA.zip` 中的 `Data/PublicDomain/*.json` 通常是 `{QID: {...}}` 字典结构，适配器已经兼容这种格式。
 - 每个问题的候选文档来自同一本小说的 chunk 集合。
-- 如果样本没有可映射到 chunk 的 gold evidence，则不计算 evidence recall，只计算答案/选项覆盖。
+- 如果样本没有可映射到 chunk 的 gold evidence 或 gold answer，则不计算 evidence recall，答案命中率也不会把选项 A 之类的占位值误当成标准答案。
 
 ## SAM 项目统一数据格式
 

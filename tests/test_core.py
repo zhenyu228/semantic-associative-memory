@@ -100,8 +100,8 @@ class SamCoreTest(unittest.TestCase):
         )
         (source_root / "Data" / "PublicDomain" / "B00.json").write_text(
             json.dumps(
-                [
-                    {
+                {
+                    "Q0001": {
                         "QID": "Q0001",
                         "Aspect": "plot",
                         "Complexity": "mh",
@@ -109,7 +109,7 @@ class SamCoreTest(unittest.TestCase):
                         "Options": {"A": "White Rabbit", "B": "Mad Hatter"},
                         "Answer": "A",
                     }
-                ],
+                },
                 ensure_ascii=False,
             ),
             encoding="utf-8",

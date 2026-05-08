@@ -371,8 +371,9 @@ def load_novelqa_sample(
         if not book_file:
             continue
         book_text = reader.read_text(book_file)
-        qa_items = reader.read_json(qa_file)
-        if not isinstance(qa_items, list):
+        qa_payload = reader.read_json(qa_file)
+        qa_items = _normalize_novelqa_items(qa_payload)
+        if not qa_items:
             continue
 
         chunks = _chunk_text(book_text, chunk_chars=chunk_chars, overlap=chunk_overlap)[:max_chunks_per_book]
@@ -563,7 +564,19 @@ def _extract_novelqa_answer(item: dict[str, Any]) -> str:
         value = item.get(key)
         if value is not None:
             return str(value)
-    options = item.get("Options") or item.get("options") or {}
-    if isinstance(options, dict) and options:
-        return str(next(iter(options)))
     return ""
+
+
+def _normalize_novelqa_items(payload: Any) -> list[dict[str, Any]]:
+    if isinstance(payload, list):
+        return [item for item in payload if isinstance(item, dict)]
+    if isinstance(payload, dict):
+        normalized: list[dict[str, Any]] = []
+        for key, value in payload.items():
+            if not isinstance(value, dict):
+                continue
+            item = dict(value)
+            item.setdefault("QID", key)
+            normalized.append(item)
+        return normalized
+    return []
