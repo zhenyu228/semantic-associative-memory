@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import shutil
 import subprocess
 from pathlib import Path
@@ -23,6 +24,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--work-dir", default=None, help="GraphRAG 官方工作目录")
     parser.add_argument("--cli", default="evaluation/.venvs/graphrag/bin/graphrag", help="GraphRAG 官方 CLI 命令")
     parser.add_argument("--query-method", default="local", choices=["local", "global", "drift"], help="GraphRAG 查询模式")
+    parser.add_argument("--model-provider", default=None, help="模型 provider，默认读取 GRAPHRAG_MODEL_PROVIDER 或 openai")
+    parser.add_argument("--api-base", default=None, help="公司 OpenAI-compatible base url，默认读取 GRAPHRAG_API_BASE 或 OPENAI_BASE_URL")
+    parser.add_argument("--chat-model", default=None, help="chat/completion 模型名，默认读取 GRAPHRAG_CHAT_MODEL")
+    parser.add_argument("--embedding-model", default=None, help="embedding 模型名，默认读取 GRAPHRAG_EMBEDDING_MODEL")
     parser.add_argument("--limit", type=int, default=None, help="最多评测多少个问题")
     parser.add_argument("--skip-index", action="store_true", help="跳过 graphrag index，仅运行 query")
     parser.add_argument("--output", default=None, help="结果 JSON 路径")
@@ -46,6 +51,7 @@ def main() -> None:
 
     if not (work_dir / "settings.yaml").exists():
         subprocess.run([args.cli, "init", "--root", str(work_dir), "--force"], check=True)
+    _configure_graphrag_settings(work_dir, args)
     if not args.skip_index:
         subprocess.run([args.cli, "index", "--root", str(work_dir)], check=True)
 
@@ -93,6 +99,39 @@ def main() -> None:
         },
     )
     print(f"GraphRAG 官方评测结果：{output}")
+
+
+def _configure_graphrag_settings(work_dir: Path, args: argparse.Namespace) -> None:
+    import yaml
+
+    settings_path = work_dir / "settings.yaml"
+    settings = yaml.safe_load(settings_path.read_text(encoding="utf-8"))
+    model_provider = args.model_provider or os.getenv("GRAPHRAG_MODEL_PROVIDER") or "openai"
+    api_base = args.api_base or os.getenv("GRAPHRAG_API_BASE") or os.getenv("OPENAI_BASE_URL")
+    chat_model = args.chat_model or os.getenv("GRAPHRAG_CHAT_MODEL") or "gpt-4o-mini"
+    embedding_model = args.embedding_model or os.getenv("GRAPHRAG_EMBEDDING_MODEL") or "text-embedding-3-small"
+
+    for model_config in settings.get("completion_models", {}).values():
+        model_config["model_provider"] = model_provider
+        model_config["model"] = chat_model
+        model_config["api_key"] = "${GRAPHRAG_API_KEY}"
+        if api_base:
+            model_config["api_base"] = api_base
+
+    for model_config in settings.get("embedding_models", {}).values():
+        model_config["model_provider"] = model_provider
+        model_config["model"] = embedding_model
+        model_config["api_key"] = "${GRAPHRAG_API_KEY}"
+        if api_base:
+            model_config["api_base"] = api_base
+
+    settings_path.write_text(yaml.safe_dump(settings, allow_unicode=True, sort_keys=False), encoding="utf-8")
+
+    dotenv_path = work_dir / ".env"
+    dotenv_lines = [f"GRAPHRAG_API_KEY={os.getenv('GRAPHRAG_API_KEY', '<API_KEY>')}"]
+    if api_base:
+        dotenv_lines.append(f"GRAPHRAG_API_BASE={api_base}")
+    dotenv_path.write_text("\n".join(dotenv_lines) + "\n", encoding="utf-8")
 
 
 if __name__ == "__main__":

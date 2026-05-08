@@ -65,8 +65,18 @@ cp evaluation/official_baselines/env.template evaluation/official_baselines/.env
 编辑 `.env.local`，填入真实 key：
 
 ```bash
-export OPENAI_API_KEY="sk-your-openai-api-key"
+export OPENAI_API_KEY="your-company-api-key"
+export OPENAI_BASE_URL="https://your-company-openai-compatible-base-url/v1"
+
+export RAPTOR_QA_MODEL="your-chat-model"
+export RAPTOR_SUMMARY_MODEL="$RAPTOR_QA_MODEL"
+export RAPTOR_EMBEDDING_MODEL="your-embedding-model"
+
 export GRAPHRAG_API_KEY="$OPENAI_API_KEY"
+export GRAPHRAG_API_BASE="$OPENAI_BASE_URL"
+export GRAPHRAG_MODEL_PROVIDER="openai"
+export GRAPHRAG_CHAT_MODEL="$RAPTOR_QA_MODEL"
+export GRAPHRAG_EMBEDDING_MODEL="$RAPTOR_EMBEDDING_MODEL"
 ```
 
 每次运行官方 baseline 前，在同一个终端执行：
@@ -78,9 +88,11 @@ source evaluation/official_baselines/.env.local
 说明：
 
 - RAPTOR 官方代码读取 `OPENAI_API_KEY`。
-- GraphRAG 官方配置读取 `GRAPHRAG_API_KEY`。
+- RAPTOR 使用 OpenAI Python SDK，SDK 会读取 `OPENAI_BASE_URL`；如果公司网关的模型名不同，必须设置 `RAPTOR_QA_MODEL` 和 `RAPTOR_EMBEDDING_MODEL`。
+- GraphRAG 官方配置读取 `GRAPHRAG_API_KEY`，本仓库 runner 会把 `GRAPHRAG_API_BASE`、`GRAPHRAG_CHAT_MODEL`、`GRAPHRAG_EMBEDDING_MODEL` 自动写入该次运行的 `settings.yaml`。
 - `.env.local` 不会提交到 Git。
-- 如果使用 OpenAI-compatible 代理，GraphRAG 可以在它生成的 `settings.yaml` 中改模型 provider/base url；RAPTOR 官方代码当前主要按 OpenAI 官方 SDK 直连方式写，base url 支持不如 GraphRAG 清晰。
+- `OPENAI_BASE_URL` / `GRAPHRAG_API_BASE` 通常需要带 `/v1`。如果公司网关地址已经内置 `/v1`，不要重复写成 `/v1/v1`。
+- 如果公司网关要求额外 header、AK/SK 签名或非 OpenAI-compatible 路径，需要额外写适配层；只改 base url 不够。
 
 ## 2. 导出 SAM 数据为官方评测格式
 
@@ -123,6 +135,9 @@ evaluation/runs/novelqa_demo/prepared/
 source evaluation/official_baselines/.env.local
 evaluation/.venvs/raptor/bin/python evaluation/official_baselines/run_raptor_official.py \
   --prepared-dir evaluation/runs/novelqa_demo/prepared \
+  --qa-model "$RAPTOR_QA_MODEL" \
+  --summary-model "$RAPTOR_SUMMARY_MODEL" \
+  --embedding-model "$RAPTOR_EMBEDDING_MODEL" \
   --limit 8
 ```
 
@@ -142,6 +157,9 @@ source evaluation/official_baselines/.env.local
 evaluation/.venvs/graphrag/bin/python evaluation/official_baselines/run_graphrag_official.py \
   --prepared-dir evaluation/runs/novelqa_demo/prepared \
   --query-method local \
+  --api-base "$GRAPHRAG_API_BASE" \
+  --chat-model "$GRAPHRAG_CHAT_MODEL" \
+  --embedding-model "$GRAPHRAG_EMBEDDING_MODEL" \
   --limit 8
 ```
 
