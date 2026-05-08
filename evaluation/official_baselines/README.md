@@ -79,17 +79,58 @@ export GRAPHRAG_CHAT_MODEL="$RAPTOR_QA_MODEL"
 export GRAPHRAG_EMBEDDING_MODEL="$RAPTOR_EMBEDDING_MODEL"
 ```
 
+如果公司网关不是普通 `/v1/chat/completions`，而是 Azure-style deployment 路径，例如：
+
+```text
+{base_url}/openai/deployments/{deployment}/chat/completions?api-version=2024-02-01
+```
+
+则建议这样配置：
+
+```bash
+export GPT54_API_KEY="your-company-api-key"
+export GPT54_BASE_URL="https://your-company-gateway.example.com/path"
+export GPT54_API_VERSION="2024-02-01"
+export GPT54_MODEL="your-chat-deployment"
+
+export OPENAI_API_KEY="$GPT54_API_KEY"
+export RAPTOR_CLIENT_TYPE="azure"
+export RAPTOR_AZURE_ENDPOINT="$GPT54_BASE_URL"
+export RAPTOR_API_VERSION="$GPT54_API_VERSION"
+export RAPTOR_QA_MODEL="$GPT54_MODEL"
+export RAPTOR_SUMMARY_MODEL="$GPT54_MODEL"
+export RAPTOR_EMBEDDING_MODEL="your-embedding-deployment"
+
+export GRAPHRAG_API_KEY="$GPT54_API_KEY"
+export GRAPHRAG_API_BASE="$GPT54_BASE_URL"
+export GRAPHRAG_API_VERSION="$GPT54_API_VERSION"
+export GRAPHRAG_MODEL_PROVIDER="azure"
+export GRAPHRAG_CHAT_MODEL="$GPT54_MODEL"
+export GRAPHRAG_CHAT_DEPLOYMENT="$GPT54_MODEL"
+export GRAPHRAG_EMBEDDING_MODEL="your-embedding-model"
+export GRAPHRAG_EMBEDDING_DEPLOYMENT="your-embedding-deployment"
+```
+
 每次运行官方 baseline 前，在同一个终端执行：
 
 ```bash
 source evaluation/official_baselines/.env.local
 ```
 
+可以先做一次不泄露 key 的连通性测试：
+
+```bash
+source evaluation/official_baselines/.env.local
+conda run -n sam python evaluation/official_baselines/test_company_api.py
+```
+
+如果暂时没有 embedding deployment，脚本会只测试 chat，然后提示 `embedding_ok=skipped`。RAPTOR 和 GraphRAG 的正式检索/建索引都需要 embedding 模型；只有 GPT-5.4 这类 chat 模型还不够。
+
 说明：
 
-- RAPTOR 官方代码读取 `OPENAI_API_KEY`。
-- RAPTOR 使用 OpenAI Python SDK，SDK 会读取 `OPENAI_BASE_URL`；如果公司网关的模型名不同，必须设置 `RAPTOR_QA_MODEL` 和 `RAPTOR_EMBEDDING_MODEL`。
-- GraphRAG 官方配置读取 `GRAPHRAG_API_KEY`，本仓库 runner 会把 `GRAPHRAG_API_BASE`、`GRAPHRAG_CHAT_MODEL`、`GRAPHRAG_EMBEDDING_MODEL` 自动写入该次运行的 `settings.yaml`。
+- RAPTOR 普通模式读取 `OPENAI_API_KEY` 和 `OPENAI_BASE_URL`；Azure-style 模式由本仓库 runner 显式使用 `AzureOpenAI`。
+- RAPTOR 需要 chat/summary 模型和 embedding 模型。没有 embedding deployment 时，不能完整构建 RAPTOR 摘要树。
+- GraphRAG 官方配置读取 `GRAPHRAG_API_KEY`，本仓库 runner 会把 `GRAPHRAG_API_BASE`、`GRAPHRAG_API_VERSION`、`GRAPHRAG_CHAT_MODEL`、`GRAPHRAG_EMBEDDING_MODEL`、deployment 信息自动写入该次运行的 `settings.yaml`。
 - `.env.local` 不会提交到 Git。
 - `OPENAI_BASE_URL` / `GRAPHRAG_API_BASE` 通常需要带 `/v1`。如果公司网关地址已经内置 `/v1`，不要重复写成 `/v1/v1`。
 - 如果公司网关要求额外 header、AK/SK 签名或非 OpenAI-compatible 路径，需要额外写适配层；只改 base url 不够。
@@ -135,6 +176,7 @@ evaluation/runs/novelqa_demo/prepared/
 source evaluation/official_baselines/.env.local
 evaluation/.venvs/raptor/bin/python evaluation/official_baselines/run_raptor_official.py \
   --prepared-dir evaluation/runs/novelqa_demo/prepared \
+  --client-type "$RAPTOR_CLIENT_TYPE" \
   --qa-model "$RAPTOR_QA_MODEL" \
   --summary-model "$RAPTOR_SUMMARY_MODEL" \
   --embedding-model "$RAPTOR_EMBEDDING_MODEL" \
@@ -157,7 +199,9 @@ source evaluation/official_baselines/.env.local
 evaluation/.venvs/graphrag/bin/python evaluation/official_baselines/run_graphrag_official.py \
   --prepared-dir evaluation/runs/novelqa_demo/prepared \
   --query-method local \
+  --model-provider "$GRAPHRAG_MODEL_PROVIDER" \
   --api-base "$GRAPHRAG_API_BASE" \
+  --api-version "$GRAPHRAG_API_VERSION" \
   --chat-model "$GRAPHRAG_CHAT_MODEL" \
   --embedding-model "$GRAPHRAG_EMBEDDING_MODEL" \
   --limit 8
