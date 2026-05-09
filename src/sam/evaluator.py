@@ -70,8 +70,7 @@ class Evaluator:
 
     def ingest(self, documents: list[DatasetDocument]) -> list[MemoryNode]:
         nodes = documents_to_nodes(documents, self.embedding_provider)
-        for node in nodes:
-            self.store.upsert_node(node)
+        self.store.upsert_nodes(nodes)
         self.graph_builder.bootstrap_context_edges(nodes)
         return nodes
 

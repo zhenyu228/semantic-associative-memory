@@ -92,8 +92,7 @@ class GraphBuilder:
                     reverse_existing = self.store.get_edge(*reverse.key)
                     candidates[reverse.key] = reverse
                     self._record_edge_event(reverse, other, seed, "created" if reverse_existing is None else "updated")
-        for edge in candidates.values():
-            self.store.upsert_edge(edge)
+        self.store.upsert_edges(candidates.values())
         return list(candidates.values())
 
     def bootstrap_context_edges(self, nodes: list[MemoryNode]) -> list[MemoryEdge]:
@@ -132,9 +131,8 @@ class GraphBuilder:
                 last_activated_at=None,
                 metadata=edge.metadata,
             )
-            self.store.upsert_edge(edge)
-            self.store.upsert_edge(reverse)
             created.extend([edge, reverse])
+        self.store.upsert_edges(created)
         return created
 
     def _maybe_create_edge(self, seed: MemoryNode, other: MemoryNode) -> MemoryEdge | None:

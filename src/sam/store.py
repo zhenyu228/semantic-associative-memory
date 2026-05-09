@@ -88,38 +88,15 @@ class MemoryStore:
 
     def upsert_node(self, node: MemoryNode) -> None:
         self.connection.execute(
-            """
-            INSERT INTO memory_nodes (
-                id, text, summary, keywords, tags, source, created_at,
-                last_accessed_at, usage_count, confidence, embedding, metadata
-            )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(id) DO UPDATE SET
-                text=excluded.text,
-                summary=excluded.summary,
-                keywords=excluded.keywords,
-                tags=excluded.tags,
-                source=excluded.source,
-                last_accessed_at=COALESCE(memory_nodes.last_accessed_at, excluded.last_accessed_at),
-                confidence=excluded.confidence,
-                embedding=excluded.embedding,
-                metadata=excluded.metadata
-            """,
-            (
-                node.id,
-                node.text,
-                node.summary,
-                json.dumps(node.keywords, ensure_ascii=False),
-                json.dumps(node.tags, ensure_ascii=False),
-                node.source,
-                node.created_at,
-                node.last_accessed_at,
-                node.usage_count,
-                node.confidence,
-                json.dumps(node.embedding),
-                json.dumps(node.metadata, ensure_ascii=False),
-            ),
+            _UPSERT_NODE_SQL,
+            _node_params(node),
         )
+        self.connection.commit()
+
+    def upsert_nodes(self, nodes: Iterable[MemoryNode]) -> None:
+        """批量写入节点，避免大规模实验时每条节点单独提交。"""
+
+        self.connection.executemany(_UPSERT_NODE_SQL, [_node_params(node) for node in nodes])
         self.connection.commit()
 
     def get_node(self, node_id: str) -> MemoryNode | None:
@@ -160,33 +137,15 @@ class MemoryStore:
 
     def upsert_edge(self, edge: MemoryEdge) -> None:
         self.connection.execute(
-            """
-            INSERT INTO memory_edges (
-                source_id, target_id, relation_type, weight, reason,
-                created_at, updated_at, activation_count, last_activated_at, metadata
-            )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(source_id, target_id, relation_type) DO UPDATE SET
-                weight=max(memory_edges.weight, excluded.weight),
-                reason=excluded.reason,
-                updated_at=excluded.updated_at,
-                activation_count=memory_edges.activation_count,
-                last_activated_at=memory_edges.last_activated_at,
-                metadata=excluded.metadata
-            """,
-            (
-                edge.source_id,
-                edge.target_id,
-                edge.relation_type,
-                edge.weight,
-                edge.reason,
-                edge.created_at,
-                edge.updated_at,
-                edge.activation_count,
-                edge.last_activated_at,
-                json.dumps(edge.metadata, ensure_ascii=False),
-            ),
+            _UPSERT_EDGE_SQL,
+            _edge_params(edge),
         )
+        self.connection.commit()
+
+    def upsert_edges(self, edges: Iterable[MemoryEdge]) -> None:
+        """批量写入语义边，服务于中等规模实验。"""
+
+        self.connection.executemany(_UPSERT_EDGE_SQL, [_edge_params(edge) for edge in edges])
         self.connection.commit()
 
     def activate_edges(
@@ -309,3 +268,70 @@ class MemoryStore:
             last_activated_at=row["last_activated_at"],
             metadata=json.loads(row["metadata"]),
         )
+
+
+_UPSERT_NODE_SQL = """
+INSERT INTO memory_nodes (
+    id, text, summary, keywords, tags, source, created_at,
+    last_accessed_at, usage_count, confidence, embedding, metadata
+)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT(id) DO UPDATE SET
+    text=excluded.text,
+    summary=excluded.summary,
+    keywords=excluded.keywords,
+    tags=excluded.tags,
+    source=excluded.source,
+    last_accessed_at=COALESCE(memory_nodes.last_accessed_at, excluded.last_accessed_at),
+    confidence=excluded.confidence,
+    embedding=excluded.embedding,
+    metadata=excluded.metadata
+"""
+
+
+_UPSERT_EDGE_SQL = """
+INSERT INTO memory_edges (
+    source_id, target_id, relation_type, weight, reason,
+    created_at, updated_at, activation_count, last_activated_at, metadata
+)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT(source_id, target_id, relation_type) DO UPDATE SET
+    weight=max(memory_edges.weight, excluded.weight),
+    reason=excluded.reason,
+    updated_at=excluded.updated_at,
+    activation_count=memory_edges.activation_count,
+    last_activated_at=memory_edges.last_activated_at,
+    metadata=excluded.metadata
+"""
+
+
+def _node_params(node: MemoryNode) -> tuple[object, ...]:
+    return (
+        node.id,
+        node.text,
+        node.summary,
+        json.dumps(node.keywords, ensure_ascii=False),
+        json.dumps(node.tags, ensure_ascii=False),
+        node.source,
+        node.created_at,
+        node.last_accessed_at,
+        node.usage_count,
+        node.confidence,
+        json.dumps(node.embedding),
+        json.dumps(node.metadata, ensure_ascii=False),
+    )
+
+
+def _edge_params(edge: MemoryEdge) -> tuple[object, ...]:
+    return (
+        edge.source_id,
+        edge.target_id,
+        edge.relation_type,
+        edge.weight,
+        edge.reason,
+        edge.created_at,
+        edge.updated_at,
+        edge.activation_count,
+        edge.last_activated_at,
+        json.dumps(edge.metadata, ensure_ascii=False),
+    )
