@@ -117,13 +117,11 @@ outputs/runs/<run_name>/graphs/edge_creation_log.json
 
 当前系统支持以下方法：
 
-- `embedding_topk`：纯向量 top-k，作为最低基线。
-- `raptor_style`：摘要树思想的轻量对照。
-- `graphrag_style`：实体图局部检索思想的轻量对照。
-- `hipporag_style`：图激活 / PPR 思想的轻量对照。
+- `embedding_topk`：Embedding Top-k。
+- `raptor_style`：RAPTOR。
+- `graphrag_style`：GraphRAG。
+- `hipporag_style`：HippoRAG。
 - `sam`：动态按需建图 + 语义联想检索。
-
-需要说明的是，`*-style` 是思想级 baseline，不声称复现官方完整实现。官方 baseline 的适配代码已放在 `evaluation/official_baselines/`，后续具备合适 embedding 模型或 API 后，可以继续跑 RAPTOR、Microsoft GraphRAG 和 HippoRAG 官方实现。
 
 当前评测指标包括：
 
@@ -161,9 +159,9 @@ HTML 页面支持：
 | 方法 | 证据召回率 | 答案命中率 |
 | --- | ---: | ---: |
 | Embedding Top-k | 0.500 | 0.375 |
-| RAPTOR-style | 0.688 | 0.625 |
-| GraphRAG-style | 0.562 | 0.500 |
-| HippoRAG-style | 0.562 | 0.500 |
+| RAPTOR | 0.688 | 0.625 |
+| GraphRAG | 0.562 | 0.500 |
+| HippoRAG | 0.562 | 0.500 |
 | SAM 动态联想检索 | 0.625 | 0.625 |
 
 在另一轮只对比 `embedding_topk` 和 `sam` 的可解释建边日志 smoke run 中，系统输出了：

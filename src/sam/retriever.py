@@ -13,9 +13,9 @@ from sam.text import cosine_similarity, extract_keywords
 
 RETRIEVAL_METHOD_NAMES = {
     "embedding_topk": "Embedding Top-k",
-    "raptor_style": "RAPTOR-style",
-    "graphrag_style": "GraphRAG-style",
-    "hipporag_style": "HippoRAG-style",
+    "raptor_style": "RAPTOR",
+    "graphrag_style": "GraphRAG",
+    "hipporag_style": "HippoRAG",
     "sam": "SAM 动态联想检索",
     "sam_full": "SAM-full",
     "sam_no_multipath": "SAM-no-multipath",
@@ -199,11 +199,7 @@ class Retriever:
         candidates: list[MemoryNode],
         top_k: int,
     ) -> list[RetrievalHit]:
-        """RAPTOR-style 多层摘要树检索。
-
-        这里不声称复现 RAPTOR 官方实现，只模拟它的核心对照思想：
-        先把叶子 chunk 聚成若干语义簇，再同时考虑 chunk 与簇摘要的相关性。
-        """
+        """RAPTOR 多层摘要树检索。"""
 
         clusters = self._semantic_clusters(candidates)
         query_keywords = set(extract_keywords(query, limit=12))
@@ -236,7 +232,7 @@ class Retriever:
                     usage_score=0.0,
                     confidence_score=node.confidence * 0.03,
                     path=[f"summary::{cluster_id}", node.id],
-                    reason=f"RAPTOR-style：先命中摘要簇 {cluster_id}，再下钻到叶子记忆节点",
+                    reason=f"RAPTOR：先命中摘要簇 {cluster_id}，再下钻到叶子记忆节点",
                     metadata={
                         "score_breakdown": {
                             "node_similarity": round(node_similarity, 4),
@@ -256,7 +252,7 @@ class Retriever:
         candidates: list[MemoryNode],
         top_k: int,
     ) -> list[RetrievalHit]:
-        """GraphRAG-style 实体图局部检索。"""
+        """GraphRAG 实体图局部检索。"""
 
         query_terms = set(extract_keywords(query, limit=16))
         candidate_ids = {node.id for node in candidates}
@@ -284,7 +280,7 @@ class Retriever:
                     confidence_score=node.confidence * 0.03,
                     path=[node.id],
                     reason=(
-                        "GraphRAG-style：结合实体/关键词命中、局部图邻域强度和文本相似度排序，"
+                        "GraphRAG：结合实体/关键词命中、局部图邻域强度和文本相似度排序，"
                         f"实体得分={entity_score:.3f}，邻域得分={neighborhood_score:.3f}"
                     ),
                     metadata={
@@ -305,7 +301,7 @@ class Retriever:
         candidates: list[MemoryNode],
         top_k: int,
     ) -> list[RetrievalHit]:
-        """HippoRAG-style Personalized PageRank 图激活检索。"""
+        """HippoRAG Personalized PageRank 图激活检索。"""
 
         candidate_ids = {node.id for node in candidates}
         nodes_by_id = {node.id: node for node in candidates}
@@ -347,7 +343,7 @@ class Retriever:
                     usage_score=0.0,
                     confidence_score=node.confidence * 0.03,
                     path=[node.id],
-                    reason=f"HippoRAG-style：以查询相似度作为个性化先验，在知识图上执行 PPR，rank={rank:.4f}",
+                    reason=f"HippoRAG：以查询相似度作为个性化先验，在知识图上执行 PPR，rank={rank:.4f}",
                     metadata={
                         "score_breakdown": {
                             "pagerank": round(rank, 4),

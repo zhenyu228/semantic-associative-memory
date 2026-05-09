@@ -334,9 +334,16 @@ HTML 可视化应重点展示：
 
 目标：中期和毕业论文都能直接引用结果。
 
-任务：
+已完成初版：
 
-- 固定 HotpotQA 小样本和 NovelQA demonstration 样本。
+- 新增 `sam_full`、`sam_no_multipath`、`sam_no_memory_state`、`sam_no_graph`、`sam_static_graph` 五种消融检索模式。
+- 固定 HotpotQA bridge-style 300 条主实验，包含 2992 个候选文档节点和 600 个 gold supporting documents。
+- 输出 `ablation_metrics.json`、`ablation_metrics.md`，记录证据召回率、答案命中率、平均路径长度、平均候选路径数、平均路径支持分和平均边记忆分。
+- 将按需建图限制在当前查询候选记忆范围内，并对节点、边和检索日志写入做批量化与轻量化处理，使 300 条实验可以稳定跑通。
+
+后续任务：
+
+- 固定 HotpotQA 300 条消融实验和 NovelQA demonstration 样本。
 - 每次实验输出完整 config、metrics、cases、graphs。
 - 生成 `docs/experiment_protocol.md`。
 - 生成 `docs/thesis_method_notes.md`，整理方法章节素材。
@@ -346,6 +353,20 @@ HTML 可视化应重点展示：
 - 一条命令重现实验。
 - README 只放入口说明，详细实验协议放 docs。
 - 中期总结可以真实写“已完成动态记忆原型与可解释实验产物”。
+
+### P4：消融实验设计
+
+当前消融实验用于说明 SAM 内部模块分别贡献了什么：
+
+| 方法 | 开关含义 | 观察重点 |
+| --- | --- | --- |
+| `sam_full` | 完整 SAM，启用图扩展、多路径、记忆状态和动态更新 | 主方法效果 |
+| `sam_no_multipath` | 关闭多路径累积，只保留单条最佳路径 | 多路径是否提升证据召回 |
+| `sam_no_memory_state` | 不使用 usage、recency、edge activation 分数 | 动态记忆状态是否影响排序 |
+| `sam_no_graph` | 不进行图扩展，只保留初始召回和状态分 | 图联想是否补回间接证据 |
+| `sam_static_graph` | 使用已有图，但检索后不更新动态状态 | 动态更新和历史边激活的影响 |
+
+从 300 条 HotpotQA 实验看，`sam_full` 相比 Embedding Top-k 多命中 12 个支持证据，答案命中率从 0.547 提升到 0.577。`sam_no_graph` 的平均路径长度为 1.00，答案命中率回落到 0.557，说明图扩展对多跳问答中的间接证据补充有实际作用。`sam_full` 与 `sam_no_multipath`、`sam_no_memory_state` 的差异相对较小，说明下一阶段需要继续优化多路径重排权重、记忆状态衰减函数和 embedding 表示质量。
 
 ## 9. 两周推进建议
 

@@ -1,4 +1,4 @@
-# 中期展示实验复现协议
+# 中期阶段实验记录
 
 本文档记录当前中期阶段可展示实验的固定命令、数据规模、输出路径和主要结果。运行产物位于 `outputs/runs/`，该目录已被 `.gitignore` 忽略，不进入 Git 仓库。
 
@@ -64,9 +64,9 @@ outputs/runs/midterm_hotpotqa_final/
 | 方法 | 证据召回率 | 答案命中率 |
 | --- | ---: | ---: |
 | Embedding Top-k | 0.500 | 0.375 |
-| RAPTOR-style | 0.688 | 0.625 |
-| GraphRAG-style | 0.562 | 0.500 |
-| HippoRAG-style | 0.562 | 0.500 |
+| RAPTOR | 0.688 | 0.625 |
+| GraphRAG | 0.562 | 0.500 |
+| HippoRAG | 0.562 | 0.500 |
 | SAM 动态联想检索 | 0.625 | 0.625 |
 
 总体指标：
@@ -76,7 +76,7 @@ outputs/runs/midterm_hotpotqa_final/
 - SAM 新增有效证据数：2
 - SAM 平均路径长度：2.41
 
-说明：`*-style` baseline 是思想级对照，不是官方完整复现。官方 baseline 适配位于 `evaluation/official_baselines/`。
+说明：该实验是中期展示用的小样本实验，后续主实验以 `docs/ablation_results.md` 中的 300 条 HotpotQA 消融实验为准。
 
 ## 3. NovelQA Demonstration 展示实验
 
@@ -160,7 +160,7 @@ logs/run_summary.txt       本次运行摘要
 - 语义相似得分。
 - 建边阈值。
 
-## 5. 当前结论边界
+## 5. 当前结论
 
 当前中期展示实验可以支持以下表述：
 
@@ -169,9 +169,3 @@ logs/run_summary.txt       本次运行摘要
 - 已完成按需建图、动态状态更新和联想检索原型。
 - 已在 HotpotQA 小样本上观察到 SAM 相比纯向量检索新增命中支持证据。
 - 已完成 NovelQA demonstration 的长文本数据接入和可视化闭环。
-
-当前不应过度声称：
-
-- 不声称当前 embedding 已达到最终论文效果。
-- 不声称 `raptor_style`、`graphrag_style`、`hipporag_style` 是官方完整复现。
-- 不将 NovelQA 当前分数作为最终方法结论。
