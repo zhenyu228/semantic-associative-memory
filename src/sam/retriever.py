@@ -261,7 +261,7 @@ class Retriever:
         query_terms = set(extract_keywords(query, limit=16))
         candidate_ids = {node.id for node in candidates}
         edges_by_node: dict[str, list[float]] = {node.id: [] for node in candidates}
-        for edge in self.store.get_edges():
+        for edge in self.store.get_edges_for(candidate_ids):
             if edge.source_id in candidate_ids and edge.target_id in candidate_ids:
                 edges_by_node.setdefault(edge.source_id, []).append(edge.weight)
                 edges_by_node.setdefault(edge.target_id, []).append(edge.weight)
@@ -317,7 +317,7 @@ class Retriever:
         priors = {node_id: value / prior_sum for node_id, value in priors.items()}
 
         adjacency: dict[str, list[tuple[str, float]]] = {node.id: [] for node in candidates}
-        for edge in self.store.get_edges():
+        for edge in self.store.get_edges_for(candidate_ids):
             if edge.source_id in candidate_ids and edge.target_id in candidate_ids:
                 adjacency[edge.source_id].append((edge.target_id, edge.weight))
 
