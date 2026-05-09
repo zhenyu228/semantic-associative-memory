@@ -24,6 +24,7 @@ RETRIEVAL_METHOD_NAMES = {
     "sam_static_graph": "SAM-static-graph",
     "sam_no_summary": "SAM-no-summary",
     "sam_with_summary": "SAM-with-summary",
+    "sam_no_feedback": "SAM-no-feedback",
 }
 
 
@@ -51,6 +52,7 @@ SAM_RETRIEVAL_CONFIGS = {
     ),
     "sam_no_summary": SamRetrievalConfig(use_summary_nodes=False),
     "sam_with_summary": SamRetrievalConfig(use_summary_nodes=True),
+    "sam_no_feedback": SamRetrievalConfig(),
 }
 
 

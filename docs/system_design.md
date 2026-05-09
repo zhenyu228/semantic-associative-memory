@@ -350,7 +350,7 @@ HTML 可视化应重点展示：
 - 输出 `ablation_metrics.json`、`ablation_metrics.md`，记录证据召回率、答案命中率、平均路径长度、平均候选路径数、平均路径支持分和平均边记忆分。
 - 将按需建图限制在当前查询候选记忆范围内，并对节点、边和检索日志写入做批量化与轻量化处理，使 300 条实验可以稳定跑通。
 - 新增 query summary memory node，并提供 `sam_with_summary` 实验开关。当前稳定主方法暂不默认启用摘要节点，因为 30 条隔离 smoke run 显示摘要层级会带来过宽跳转噪声；但该模块已经可用于后续消融和重排优化。
-- 修正多方法评测协议：每个方法从同一份初始记忆库快照开始运行，避免前一个方法的动态状态更新污染后一个方法的结果。
+- 修正多方法评测协议：每个方法从同一份初始记忆库快照开始运行，避免前一个方法的动态状态更新污染后一个方法的结果。当前实现会先保存 baseline sqlite 快照，再为每种方法复制独立临时库。
 
 后续任务：
 
@@ -378,8 +378,11 @@ HTML 可视化应重点展示：
 | `sam_static_graph` | 使用已有图，但检索后不更新动态状态 | 动态更新和历史边激活的影响 |
 | `sam_no_summary` | 保留 SAM 其他机制，但移除 query summary memory node | 摘要记忆节点是否带来增益 |
 | `sam_with_summary` | 在 SAM 中启用 query summary memory node | 摘要层级是否能帮助或干扰图扩展 |
+| `sam_no_feedback` | 检索逻辑同 SAM-full，但不执行反馈强化/抑制 | FeedbackUpdater 是否带来跨查询记忆收益 |
 
 隔离评测 300 条实验中，SAM-full 的证据召回率为 0.603，答案命中率为 0.597；Embedding Top-k 为 0.572 / 0.547；`sam_no_graph` 为 0.578 / 0.553。该结果说明图扩展是当前 SAM 的主要有效模块。`sam_with_summary` 为 0.592 / 0.570，低于 SAM-full，说明摘要记忆节点需要更细粒度构造和更强路径重排，不能简单作为中心节点连接所有候选文档。`sam_full` 与 `sam_no_multipath`、`sam_no_memory_state` 的差异相对较小，说明下一阶段需要继续优化多路径重排权重、记忆状态衰减函数和 feedback 更新机制。
+
+反馈机制专门消融实验位于 `outputs/runs/feedback_ablation_hotpotqa_300_isolated/`。该 run 中 `sam_full` 和 `sam_no_feedback` 的证据召回率均为 0.603，答案命中率均为 0.597，说明在 HotpotQA 这种“每个问题只问一次、候选集按问题隔离”的单轮评测中，反馈强化还没有机会形成跨查询复用收益；但 `sam_full` 额外产生了 362 条 `support_hit`、179 条 `answer_hit` 和 705 条 `path_rejected` 反馈事件，系统已经具备将检索结果写回记忆图的机制。下一步应设计共享实体或重复主题的多轮实验，专门验证反馈边权是否能在后续查询中改变排序。
 
 ### P5：事件化动态记忆与路径重排
 
@@ -410,15 +413,15 @@ final_score = semantic_score + graph_score + path_quality + memory_state + feedb
 - 新增 `FeedbackUpdater`，当路径命中支持证据时强化路径边权，扩展路径未命中支持证据时轻微抑制边权。
 - 每次 run 输出 `memory_events.json` 和 `memory_events.md`，可以直接检查记忆演化过程。
 
-30 条 HotpotQA smoke run 中，事件统计如下：
+300 条 HotpotQA 反馈消融 run 中，事件统计如下：
 
 | 事件类型 | 数量 |
 | --- | ---: |
-| `node_retrieved` | 120 |
-| `edge_traversed` | 90 |
-| `support_hit` | 31 |
-| `answer_hit` | 12 |
-| `path_rejected` | 72 |
+| `node_retrieved` | 1198 |
+| `edge_traversed` | 898 |
+| `support_hit` | 362 |
+| `answer_hit` | 179 |
+| `path_rejected` | 705 |
 
 这一步让 SAM 的动态性从“字段值变化”推进到“可追踪事件流”：系统不只是返回结果，还能记录哪些节点被访问、哪些边被走过、哪些路径被证明有效或无效，并据此调整边权。
 

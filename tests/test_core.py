@@ -177,6 +177,7 @@ class SamCoreTest(unittest.TestCase):
             "sam_static_graph",
             "sam_no_summary",
             "sam_with_summary",
+            "sam_no_feedback",
         ]:
             hits = retriever.retrieve(
                 query.question,
@@ -323,6 +324,21 @@ class SamCoreTest(unittest.TestCase):
         event_types = {event["event_type"] for event in events}
         self.assertIn("support_hit", event_types)
         self.assertTrue({"answer_hit", "path_rejected"} & event_types)
+
+    def test_no_feedback_mode_skips_feedback_events(self) -> None:
+        self.evaluator.evaluate(
+            self.queries,
+            top_k=3,
+            seed_k=1,
+            hops=2,
+            methods=["sam_no_feedback"],
+        )
+        events = self.store.get_memory_events(limit=200)
+        event_types = {event["event_type"] for event in events}
+        self.assertIn("node_retrieved", event_types)
+        self.assertNotIn("support_hit", event_types)
+        self.assertNotIn("answer_hit", event_types)
+        self.assertNotIn("path_rejected", event_types)
 
     def test_sam_dataset_format_round_trip(self) -> None:
         documents, queries = load_builtin_benchmark_sample()

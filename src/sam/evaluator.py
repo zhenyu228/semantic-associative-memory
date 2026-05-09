@@ -147,68 +147,42 @@ class Evaluator:
             }
 
         display_method = _display_method(active_methods)
-        for method in active_methods:
-            temp_dir = tempfile.TemporaryDirectory()
-            method_store = MemoryStore(Path(temp_dir.name) / f"{method}.sqlite")
-            self.store.connection.backup(method_store.connection)
-            method_graph_builder = GraphBuilder(method_store)
-            retriever = Retriever(method_store, self.embedding_provider, method_graph_builder)
-            try:
-                for context in query_contexts:
-                    query = context["query"]
-                    support_node_ids = context["support_node_ids"]
-                    candidate_ids = (
-                        context["sam_candidate_node_ids"]
-                        if method.startswith("sam")
-                        else context["candidate_node_ids"]
-                    )
-                    assert isinstance(query, EvaluationQuery)
-                    assert isinstance(support_node_ids, set)
-                    assert isinstance(candidate_ids, list)
-
-                    hits = retriever.retrieve(
-                        query=query.question,
-                        mode=method,
+        baseline_temp_dir = tempfile.TemporaryDirectory()
+        baseline_store = MemoryStore(Path(baseline_temp_dir.name) / "baseline.sqlite")
+        self.store.connection.backup(baseline_store.connection)
+        try:
+            for method in active_methods:
+                temp_dir = tempfile.TemporaryDirectory()
+                method_store = MemoryStore(Path(temp_dir.name) / f"{method}.sqlite")
+                baseline_store.connection.backup(method_store.connection)
+                method_graph_builder = GraphBuilder(method_store)
+                retriever = Retriever(method_store, self.embedding_provider, method_graph_builder)
+                try:
+                    self._evaluate_method(
+                        method=method,
+                        method_store=method_store,
+                        retriever=retriever,
+                        query_contexts=query_contexts,
+                        cases_by_query=cases_by_query,
+                        method_support_hits=method_support_hits,
+                        method_answer_hits=method_answer_hits,
+                        method_path_lengths=method_path_lengths,
+                        method_candidate_path_counts=method_candidate_path_counts,
+                        method_path_support_scores=method_path_support_scores,
+                        method_edge_memory_scores=method_edge_memory_scores,
                         top_k=top_k,
                         seed_k=seed_k,
                         hops=hops,
-                        candidate_doc_ids=candidate_ids,
                     )
-                    hit_ids = {hit.node.id for hit in hits}
-                    case_support_hits = len(hit_ids & support_node_ids)
-                    extracted_answer = self._extract_answer(query.answer, hits, query.metadata)
-                    if _feedback_enabled(method):
-                        FeedbackUpdater(method_store).apply(
-                            query=query,
-                            mode=method,
-                            hits=hits,
-                            support_node_ids=support_node_ids,
-                            answer_status=str(extracted_answer["status"]),
-                        )
-                    method_support_hits[method] += case_support_hits
-                    if extracted_answer["status"] in {"found_in_retrieved_context", "matched_option"}:
-                        method_answer_hits[method] += 1
-                    method_path_lengths[method].extend(len(hit.path) for hit in hits)
-                    method_candidate_path_counts[method].extend(
-                        int(hit.metadata.get("candidate_path_count", 1)) for hit in hits
-                    )
-                    method_path_support_scores[method].extend(
-                        float(hit.metadata.get("path_support_score", 0.0)) for hit in hits
-                    )
-                    method_edge_memory_scores[method].extend(
-                        float(hit.metadata.get("edge_memory_score", 0.0)) for hit in hits
-                    )
-                    case_payload = cases_by_query[query.id]
-                    case_payload["methods"][method] = self._serialize_hits(hits, support_node_ids)
-                    case_payload["final_answers"][method] = extracted_answer
-                    case_payload["support_hits_by_method"][method] = case_support_hits
-
-                if method == display_method:
-                    method_store.connection.backup(self.store.connection)
-                    self.graph_builder.edge_creation_log = method_graph_builder.edge_creation_log
-            finally:
-                method_store.close()
-                temp_dir.cleanup()
+                    if method == display_method:
+                        method_store.connection.backup(self.store.connection)
+                        self.graph_builder.edge_creation_log = method_graph_builder.edge_creation_log
+                finally:
+                    method_store.close()
+                    temp_dir.cleanup()
+        finally:
+            baseline_store.close()
+            baseline_temp_dir.cleanup()
 
         cases: list[dict[str, object]] = []
         for context in query_contexts:
@@ -227,7 +201,6 @@ class Evaluator:
             sam_case_hits = support_hits_by_method.get("sam", support_hits_by_method.get("sam_full", 0))
             case_payload.update(
                 {
-                    # 兼容旧 HTML/报告字段。
                     "vector": vector_hits,
                     "associative": sam_hits,
                     "vector_final_answer": final_answers.get("embedding_topk", {}),
@@ -243,13 +216,13 @@ class Evaluator:
         associative_support_hits = method_support_hits.get("sam", method_support_hits.get("sam_full", 0))
         vector_recall = vector_support_hits / total_support if total_support else 0.0
         associative_recall = associative_support_hits / total_support if total_support else 0.0
-        sam_path_lengths = method_path_lengths.get("sam") or method_path_lengths.get("sam_full") or []
-        average_path_length = _average(sam_path_lengths)
+        associative_lengths = method_path_lengths.get("sam") or method_path_lengths.get("sam_full") or []
+        avg_path_length = _average(associative_lengths)
         method_metrics = {
             method: {
                 "display_name": RETRIEVAL_METHOD_NAMES.get(method, method),
                 "support_hits": method_support_hits[method],
-                "evidence_recall": method_support_hits[method] / total_support if total_support else None,
+                "evidence_recall": method_support_hits[method] / total_support if total_support else 0.0,
                 "answer_hit_count": method_answer_hits[method],
                 "answer_hit_rate": method_answer_hits[method] / len(queries) if queries else 0.0,
                 "average_path_length": _average(method_path_lengths[method]),
@@ -262,7 +235,7 @@ class Evaluator:
         ablation_metrics = {
             method: metric
             for method, metric in method_metrics.items()
-            if method.startswith("sam")
+            if method.startswith("sam_") or method in {"sam"}
         }
         return ExperimentResult(
             dataset_count=len({query.dataset for query in queries}),
@@ -274,11 +247,77 @@ class Evaluator:
             vector_support_hits=vector_support_hits,
             associative_support_hits=associative_support_hits,
             associative_gain=associative_support_hits - vector_support_hits,
-            average_path_length=average_path_length,
+            average_path_length=avg_path_length,
             method_metrics=method_metrics,
             ablation_metrics=ablation_metrics,
             cases=cases,
         )
+
+    def _evaluate_method(
+        self,
+        method: str,
+        method_store: MemoryStore,
+        retriever: Retriever,
+        query_contexts: list[dict[str, object]],
+        cases_by_query: dict[str, dict[str, object]],
+        method_support_hits: dict[str, int],
+        method_answer_hits: dict[str, int],
+        method_path_lengths: dict[str, list[int]],
+        method_candidate_path_counts: dict[str, list[int]],
+        method_path_support_scores: dict[str, list[float]],
+        method_edge_memory_scores: dict[str, list[float]],
+        top_k: int,
+        seed_k: int,
+        hops: int,
+    ) -> None:
+        for context in query_contexts:
+            query = context["query"]
+            support_node_ids = context["support_node_ids"]
+            candidate_ids = (
+                context["sam_candidate_node_ids"]
+                if method.startswith("sam")
+                else context["candidate_node_ids"]
+            )
+            assert isinstance(query, EvaluationQuery)
+            assert isinstance(support_node_ids, set)
+            assert isinstance(candidate_ids, list)
+
+            hits = retriever.retrieve(
+                query=query.question,
+                mode=method,
+                top_k=top_k,
+                seed_k=seed_k,
+                hops=hops,
+                candidate_doc_ids=candidate_ids,
+            )
+            hit_ids = {hit.node.id for hit in hits}
+            case_support_hits = len(hit_ids & support_node_ids)
+            extracted_answer = self._extract_answer(query.answer, hits, query.metadata)
+            if _feedback_enabled(method):
+                FeedbackUpdater(method_store).apply(
+                    query=query,
+                    mode=method,
+                    hits=hits,
+                    support_node_ids=support_node_ids,
+                    answer_status=str(extracted_answer["status"]),
+                )
+            method_support_hits[method] += case_support_hits
+            if extracted_answer["status"] in {"found_in_retrieved_context", "matched_option"}:
+                method_answer_hits[method] += 1
+            method_path_lengths[method].extend(len(hit.path) for hit in hits)
+            method_candidate_path_counts[method].extend(
+                int(hit.metadata.get("candidate_path_count", 1)) for hit in hits
+            )
+            method_path_support_scores[method].extend(
+                float(hit.metadata.get("path_support_score", 0.0)) for hit in hits
+            )
+            method_edge_memory_scores[method].extend(
+                float(hit.metadata.get("edge_memory_score", 0.0)) for hit in hits
+            )
+            case_payload = cases_by_query[query.id]
+            case_payload["methods"][method] = self._serialize_hits(hits, support_node_ids)
+            case_payload["final_answers"][method] = extracted_answer
+            case_payload["support_hits_by_method"][method] = case_support_hits
 
     def write_reports(self, result: ExperimentResult, report_dir: str | Path) -> tuple[Path, Path]:
         output_dir = Path(report_dir)
