@@ -222,6 +222,12 @@ class Evaluator:
                 "last_accessed_at": hit.node.last_accessed_at,
                 "path": hit.path,
                 "reason": hit.reason,
+                "score_breakdown": hit.metadata.get("score_breakdown", {}),
+                "path_support_score": hit.metadata.get("path_support_score", 0.0),
+                "edge_memory_score": hit.metadata.get("edge_memory_score", 0.0),
+                "recency_score": hit.metadata.get("recency_score", 0.0),
+                "candidate_path_count": hit.metadata.get("candidate_path_count", 1),
+                "candidate_paths": hit.metadata.get("candidate_paths", []),
             }
             for hit in hits
         ]

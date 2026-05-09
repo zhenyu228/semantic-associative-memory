@@ -91,6 +91,7 @@ class RetrievalHit:
     confidence_score: float
     path: list[str]
     reason: str
+    metadata: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -102,6 +103,7 @@ class RetrievalHit:
             "confidence_score": self.confidence_score,
             "path": self.path,
             "reason": self.reason,
+            "metadata": self.metadata,
         }
 
 

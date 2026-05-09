@@ -79,6 +79,8 @@ class SamCoreTest(unittest.TestCase):
         self.assertEqual(len(vector_hits), 2)
         self.assertEqual(len(associative_hits), 2)
         self.assertTrue(any(len(hit.path) > 1 for hit in associative_hits))
+        self.assertTrue(any("score_breakdown" in hit.metadata for hit in associative_hits))
+        self.assertTrue(any(hit.metadata.get("candidate_path_count", 0) >= 1 for hit in associative_hits))
 
     def test_retrieval_updates_dynamic_memory_state(self) -> None:
         query = self.queries[0]
@@ -106,6 +108,37 @@ class SamCoreTest(unittest.TestCase):
         self.assertEqual(logs[0]["mode"], "sam")
         self.assertIn("dynamic_update", logs[0]["metadata"])
         self.assertTrue(logs[0]["metadata"]["dynamic_update"]["updated_node_ids"])
+
+    def test_repeated_retrieval_uses_memory_state_in_scoring(self) -> None:
+        query = self.queries[0]
+        retriever = Retriever(self.store, self.embedding, self.graph)
+        candidate_ids = [
+            node.id
+            for node in self.store.get_nodes()
+            if node.metadata["original_doc_id"] in query.candidate_doc_ids
+        ]
+        retriever.retrieve(
+            query.question,
+            "associative",
+            top_k=3,
+            seed_k=1,
+            hops=2,
+            candidate_doc_ids=candidate_ids,
+        )
+        second_hits = retriever.retrieve(
+            query.question,
+            "associative",
+            top_k=3,
+            seed_k=1,
+            hops=2,
+            candidate_doc_ids=candidate_ids,
+        )
+        self.assertTrue(
+            any(hit.metadata.get("edge_memory_score", 0.0) > 0 for hit in second_hits)
+        )
+        self.assertTrue(
+            any(hit.metadata.get("recency_score", 0.0) > 0 for hit in second_hits)
+        )
 
     def test_evaluation_produces_gain(self) -> None:
         result = self.evaluator.evaluate(self.queries, top_k=2, seed_k=1, hops=2)
