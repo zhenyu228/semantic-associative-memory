@@ -104,7 +104,7 @@ class Retriever:
         sam_config = SAM_RETRIEVAL_CONFIGS[mode]
         seed_nodes = [hit.node for hit in vector_hits[:seed_k]]
         if sam_config.use_graph and sam_config.build_graph_on_demand:
-            self.graph_builder.build_edges_on_demand(seed_nodes)
+            self.graph_builder.build_edges_on_demand(seed_nodes, candidates)
         hits = self._associative_hits(
             query_embedding=query_embedding,
             candidates=candidates,

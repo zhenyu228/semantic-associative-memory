@@ -59,10 +59,14 @@ class GraphBuilder:
         self.keyword_overlap_threshold = keyword_overlap_threshold
         self.edge_creation_log: list[dict[str, object]] = []
 
-    def build_edges_on_demand(self, seed_nodes: list[MemoryNode]) -> list[MemoryEdge]:
+    def build_edges_on_demand(
+        self,
+        seed_nodes: list[MemoryNode],
+        candidate_nodes: list[MemoryNode] | None = None,
+    ) -> list[MemoryEdge]:
         """只围绕被检索激活的种子节点补边。"""
 
-        all_nodes = self.store.get_nodes()
+        all_nodes = candidate_nodes if candidate_nodes is not None else self.store.get_nodes()
         candidates: dict[tuple[str, str, str], MemoryEdge] = {}
         for seed in seed_nodes:
             for other in all_nodes:
