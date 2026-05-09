@@ -233,7 +233,7 @@ class MemoryStore:
                 query,
                 mode,
                 utc_now_iso(),
-                json.dumps([hit.to_dict() for hit in hits], ensure_ascii=False),
+                json.dumps([_retrieval_log_hit(hit) for hit in hits], ensure_ascii=False),
                 json.dumps(metadata or {}, ensure_ascii=False),
             ),
         )
@@ -335,3 +335,19 @@ def _edge_params(edge: MemoryEdge) -> tuple[object, ...]:
         edge.last_activated_at,
         json.dumps(edge.metadata, ensure_ascii=False),
     )
+
+
+def _retrieval_log_hit(hit: RetrievalHit) -> dict[str, object]:
+    return {
+        "node_id": hit.node.id,
+        "original_doc_id": hit.node.metadata.get("original_doc_id"),
+        "title": hit.node.metadata.get("title"),
+        "score": round(hit.score, 4),
+        "similarity_score": round(hit.similarity_score, 4),
+        "graph_score": round(hit.graph_score, 4),
+        "usage_score": round(hit.usage_score, 4),
+        "confidence_score": round(hit.confidence_score, 4),
+        "path": hit.path,
+        "reason": hit.reason,
+        "metadata": hit.metadata,
+    }
