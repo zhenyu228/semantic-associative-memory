@@ -11,6 +11,7 @@ from sam.graph import GraphBuilder
 from sam.models import DatasetDocument, EvaluationQuery, MemoryNode, RetrievalHit
 from sam.retriever import RETRIEVAL_METHOD_NAMES, Retriever
 from sam.store import MemoryStore
+from sam.feedback import FeedbackUpdater
 
 
 DEFAULT_EVALUATION_METHODS = [
@@ -176,6 +177,14 @@ class Evaluator:
                     hit_ids = {hit.node.id for hit in hits}
                     case_support_hits = len(hit_ids & support_node_ids)
                     extracted_answer = self._extract_answer(query.answer, hits, query.metadata)
+                    if _feedback_enabled(method):
+                        FeedbackUpdater(method_store).apply(
+                            query=query,
+                            mode=method,
+                            hits=hits,
+                            support_node_ids=support_node_ids,
+                            answer_status=str(extracted_answer["status"]),
+                        )
                     method_support_hits[method] += case_support_hits
                     if extracted_answer["status"] in {"found_in_retrieved_context", "matched_option"}:
                         method_answer_hits[method] += 1
@@ -290,6 +299,15 @@ class Evaluator:
         )
         (output_dir / "ablation_metrics.md").write_text(
             self._ablation_to_markdown(result),
+            encoding="utf-8",
+        )
+        memory_events = self.store.get_memory_events()
+        (output_dir / "memory_events.json").write_text(
+            json.dumps(memory_events, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+        (output_dir / "memory_events.md").write_text(
+            _memory_events_to_markdown(memory_events),
             encoding="utf-8",
         )
         markdown_path.write_text(self._to_markdown(result), encoding="utf-8")
@@ -494,3 +512,47 @@ def _display_method(methods: list[str]) -> str | None:
         if method.startswith("sam"):
             return method
     return methods[0] if methods else None
+
+
+def _feedback_enabled(method: str) -> bool:
+    return method in {"sam", "sam_full", "sam_with_summary"}
+
+
+def _memory_events_to_markdown(events: list[dict[str, object]]) -> str:
+    counts: dict[str, int] = {}
+    for event in events:
+        event_type = str(event.get("event_type", "unknown"))
+        counts[event_type] = counts.get(event_type, 0) + 1
+    lines = [
+        "# SAM 记忆事件摘要",
+        "",
+        "| 事件类型 | 数量 |",
+        "| --- | ---: |",
+    ]
+    for event_type, count in sorted(counts.items()):
+        lines.append(f"| {event_type} | {count} |")
+    lines.append("")
+    lines.extend(
+        [
+            "## 最近事件",
+            "",
+            "| 时间 | 类型 | 方法 | 节点 | 分数 |",
+            "| --- | --- | --- | --- | ---: |",
+        ]
+    )
+    for event in events[:20]:
+        lines.append(
+            "| "
+            + " | ".join(
+                [
+                    str(event.get("created_at", "")),
+                    str(event.get("event_type", "")),
+                    str(event.get("mode", "")),
+                    str(event.get("node_id") or ""),
+                    f"{float(event.get('score', 0.0)):.3f}",
+                ]
+            )
+            + " |"
+        )
+    lines.append("")
+    return "\n".join(lines)

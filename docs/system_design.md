@@ -401,6 +401,27 @@ final_score = semantic_score + graph_score + path_quality + memory_state + feedb
 
 这样后续论文中可以更清楚地说明 SAM 如何从“检索结果”学习到“记忆结构调整”。
 
+当前已完成 P5 初版：
+
+- 新增 `MemoryEvent` 数据模型和 `memory_events` 表。
+- 检索阶段写入 `node_retrieved`、`edge_traversed` 事件。
+- 评测反馈阶段写入 `support_hit`、`answer_hit`、`path_rejected` 事件。
+- 新增 `PathReranker`，将相似度、图分、路径支持、边历史、usage、recency 和 confidence 拆成独立评分模块。
+- 新增 `FeedbackUpdater`，当路径命中支持证据时强化路径边权，扩展路径未命中支持证据时轻微抑制边权。
+- 每次 run 输出 `memory_events.json` 和 `memory_events.md`，可以直接检查记忆演化过程。
+
+30 条 HotpotQA smoke run 中，事件统计如下：
+
+| 事件类型 | 数量 |
+| --- | ---: |
+| `node_retrieved` | 120 |
+| `edge_traversed` | 90 |
+| `support_hit` | 31 |
+| `answer_hit` | 12 |
+| `path_rejected` | 72 |
+
+这一步让 SAM 的动态性从“字段值变化”推进到“可追踪事件流”：系统不只是返回结果，还能记录哪些节点被访问、哪些边被走过、哪些路径被证明有效或无效，并据此调整边权。
+
 ## 9. 两周推进建议
 
 ```text

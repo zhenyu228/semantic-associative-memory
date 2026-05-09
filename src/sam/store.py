@@ -5,7 +5,7 @@ import sqlite3
 from pathlib import Path
 from typing import Iterable
 
-from sam.models import MemoryEdge, MemoryNode, RetrievalHit, utc_now_iso
+from sam.models import MemoryEdge, MemoryEvent, MemoryNode, RetrievalHit, utc_now_iso
 
 
 class MemoryStore:
@@ -58,6 +58,20 @@ class MemoryStore:
                 hits TEXT NOT NULL,
                 metadata TEXT NOT NULL
             );
+
+            CREATE TABLE IF NOT EXISTS memory_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                event_type TEXT NOT NULL,
+                query_id TEXT,
+                query TEXT NOT NULL,
+                mode TEXT NOT NULL,
+                node_id TEXT,
+                edge_key TEXT,
+                path TEXT NOT NULL,
+                score REAL NOT NULL,
+                created_at TEXT NOT NULL,
+                metadata TEXT NOT NULL
+            );
             """
         )
         self._ensure_column("memory_nodes", "last_accessed_at", "TEXT")
@@ -77,6 +91,7 @@ class MemoryStore:
         self.connection.executescript(
             """
             DELETE FROM retrieval_logs;
+            DELETE FROM memory_events;
             DELETE FROM memory_edges;
             DELETE FROM memory_nodes;
             """
@@ -170,6 +185,27 @@ class MemoryStore:
             )
         self.connection.commit()
 
+    def adjust_edges(
+        self,
+        edge_keys: Iterable[tuple[str, str, str]],
+        delta: float,
+        updated_at: str | None = None,
+    ) -> None:
+        """根据反馈强化或抑制边权。"""
+
+        updated_at = updated_at or utc_now_iso()
+        for source_id, target_id, relation_type in edge_keys:
+            self.connection.execute(
+                """
+                UPDATE memory_edges
+                SET weight = min(1.0, max(0.01, weight + ?)),
+                    updated_at = ?
+                WHERE source_id = ? AND target_id = ? AND relation_type = ?
+                """,
+                (delta, updated_at, source_id, target_id, relation_type),
+            )
+        self.connection.commit()
+
     def get_edges_for(self, node_ids: Iterable[str]) -> list[MemoryEdge]:
         ids = list(node_ids)
         if not ids:
@@ -212,6 +248,54 @@ class MemoryStore:
                 "mode": row["mode"],
                 "created_at": row["created_at"],
                 "hits": json.loads(row["hits"]),
+                "metadata": json.loads(row["metadata"]),
+            }
+            for row in rows
+        ]
+
+    def log_memory_events(self, events: Iterable[MemoryEvent]) -> None:
+        event_list = list(events)
+        if not event_list:
+            return
+        self.connection.executemany(
+            """
+            INSERT INTO memory_events (
+                event_type, query_id, query, mode, node_id, edge_key,
+                path, score, created_at, metadata
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            [_memory_event_params(event) for event in event_list],
+        )
+        self.connection.commit()
+
+    def get_memory_events(
+        self,
+        limit: int | None = None,
+        event_type: str | None = None,
+    ) -> list[dict[str, object]]:
+        sql = "SELECT * FROM memory_events"
+        params: list[object] = []
+        if event_type:
+            sql += " WHERE event_type = ?"
+            params.append(event_type)
+        sql += " ORDER BY id DESC"
+        if limit is not None:
+            sql += " LIMIT ?"
+            params.append(limit)
+        rows = self.connection.execute(sql, params).fetchall()
+        return [
+            {
+                "id": int(row["id"]),
+                "event_type": row["event_type"],
+                "query_id": row["query_id"],
+                "query": row["query"],
+                "mode": row["mode"],
+                "node_id": row["node_id"],
+                "edge_key": json.loads(row["edge_key"]) if row["edge_key"] else None,
+                "path": json.loads(row["path"]),
+                "score": float(row["score"]),
+                "created_at": row["created_at"],
                 "metadata": json.loads(row["metadata"]),
             }
             for row in rows
@@ -334,6 +418,21 @@ def _edge_params(edge: MemoryEdge) -> tuple[object, ...]:
         edge.activation_count,
         edge.last_activated_at,
         json.dumps(edge.metadata, ensure_ascii=False),
+    )
+
+
+def _memory_event_params(event: MemoryEvent) -> tuple[object, ...]:
+    return (
+        event.event_type,
+        event.query_id,
+        event.query,
+        event.mode,
+        event.node_id,
+        json.dumps(event.edge_key, ensure_ascii=False) if event.edge_key else None,
+        json.dumps(event.path, ensure_ascii=False),
+        event.score,
+        event.created_at,
+        json.dumps(event.metadata, ensure_ascii=False),
     )
 
 

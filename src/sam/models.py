@@ -80,6 +80,36 @@ class MemoryEdge:
 
 
 @dataclass(slots=True)
+class MemoryEvent:
+    """记忆演化事件，用于追踪一次检索如何改变系统状态。"""
+
+    event_type: str
+    query_id: str | None
+    query: str
+    mode: str
+    created_at: str
+    node_id: str | None = None
+    edge_key: tuple[str, str, str] | None = None
+    path: list[str] = field(default_factory=list)
+    score: float = 0.0
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "event_type": self.event_type,
+            "query_id": self.query_id,
+            "query": self.query,
+            "mode": self.mode,
+            "created_at": self.created_at,
+            "node_id": self.node_id,
+            "edge_key": list(self.edge_key) if self.edge_key else None,
+            "path": self.path,
+            "score": self.score,
+            "metadata": self.metadata,
+        }
+
+
+@dataclass(slots=True)
 class RetrievalHit:
     """检索结果，包含可解释排序信号和联想路径。"""
 

@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-import math
 from collections import deque
 from dataclasses import dataclass
 
 from sam.embedding import EmbeddingProvider
 from sam.graph import GraphBuilder
-from sam.models import MemoryNode, RetrievalHit
+from sam.models import MemoryEvent, MemoryNode, RetrievalHit, utc_now_iso
+from sam.reranker import PathReranker
 from sam.store import MemoryStore
 from sam.text import cosine_similarity, extract_keywords
 
@@ -66,6 +66,7 @@ class Retriever:
         self.store = store
         self.embedding_provider = embedding_provider
         self.graph_builder = graph_builder
+        self.path_reranker = PathReranker()
 
     def retrieve(
         self,
@@ -456,50 +457,32 @@ class Retriever:
             node = nodes_by_id[node_id]
             similarity = cosine_similarity(query_embedding, node.embedding)
             signals = path_signals.get(node_id, [])
-            path_support_score = _path_support_score(signals) if config.use_multipath else 0.0
-            edge_memory_score = _edge_memory_score(signals) if config.use_memory_state else 0.0
-            usage_score = min(0.14, math.log1p(node.usage_count) * 0.045) if config.use_memory_state else 0.0
-            recency_score = _recency_score(node.last_accessed_at) if config.use_memory_state else 0.0
-            confidence_score = node.confidence * 0.04
-            score_breakdown = {
-                "similarity_component": round(0.56 * similarity, 4),
-                "graph_component": round(0.21 * graph_score, 4),
-                "confidence_component": round(confidence_score, 4),
-            }
-            if config.use_multipath:
-                score_breakdown["path_support_component"] = round(0.09 * path_support_score, 4)
-            if config.use_memory_state:
-                score_breakdown["edge_memory_component"] = round(0.05 * edge_memory_score, 4)
-                score_breakdown["usage_component"] = round(usage_score, 4)
-                score_breakdown["recency_component"] = round(recency_score, 4)
-            # 联想节点允许相似度较低，但需要由路径、历史激活和记忆状态共同补足。
-            score = (
-                0.56 * similarity
-                + 0.21 * graph_score
-                + 0.09 * path_support_score
-                + 0.05 * edge_memory_score
-                + usage_score
-                + recency_score
-                + confidence_score
+            path_score = self.path_reranker.score(
+                similarity=similarity,
+                graph_score=graph_score,
+                signals=signals,
+                node=node,
+                use_multipath=config.use_multipath,
+                use_memory_state=config.use_memory_state,
             )
             hits.append(
                 RetrievalHit(
                     node=node,
-                    score=score,
+                    score=path_score.total,
                     similarity_score=similarity,
                     graph_score=graph_score,
-                    usage_score=usage_score,
-                    confidence_score=confidence_score,
+                    usage_score=path_score.usage_score,
+                    confidence_score=path_score.confidence_score,
                     path=path,
                     reason=(
-                        f"{reason}；多路径支持={path_support_score:.3f}，"
-                        f"历史边激活={edge_memory_score:.3f}，近期访问={recency_score:.3f}"
+                        f"{reason}；多路径支持={path_score.path_support_score:.3f}，"
+                        f"历史边激活={path_score.edge_memory_score:.3f}，近期访问={path_score.recency_score:.3f}"
                     ),
                     metadata={
-                        "score_breakdown": score_breakdown,
-                        "path_support_score": round(path_support_score, 4),
-                        "edge_memory_score": round(edge_memory_score, 4),
-                        "recency_score": round(recency_score, 4),
+                        "score_breakdown": path_score.breakdown,
+                        "path_support_score": round(path_score.path_support_score, 4),
+                        "edge_memory_score": round(path_score.edge_memory_score, 4),
+                        "recency_score": round(path_score.recency_score, 4),
                         "candidate_path_count": len(signals),
                         "candidate_paths": _top_path_signals(signals),
                         "ablation_config": _sam_config_payload(config),
@@ -556,6 +539,15 @@ class Retriever:
             },
         }
         self.store.log_retrieval(query, mode, hits, dynamic_metadata)
+        self.store.log_memory_events(
+            _retrieval_events(
+                query=query,
+                mode=mode,
+                hits=hits,
+                activated_edges=activated_edges,
+                metadata=metadata,
+            )
+        )
 
     def _activated_edges_from_paths(self, hits: list[RetrievalHit]) -> list[tuple[str, str, str]]:
         path_pairs: set[tuple[str, str]] = set()
@@ -621,37 +613,6 @@ def _overlap_ratio(left: set[str], right: set[str]) -> float:
     return len(left & right) / max(1, len(left))
 
 
-def _path_support_score(signals: list[dict[str, object]]) -> float:
-    non_seed_paths = [
-        signal for signal in signals
-        if len(signal.get("path", [])) > 1
-    ]
-    if not non_seed_paths:
-        return 0.0
-    weighted = 0.0
-    for signal in non_seed_paths:
-        depth = max(1, int(signal.get("depth", 1)))
-        weighted += float(signal.get("graph_score", 0.0)) / depth
-    return min(1.0, math.log1p(weighted + len(non_seed_paths) * 0.2))
-
-
-def _edge_memory_score(signals: list[dict[str, object]]) -> float:
-    activations = [
-        int(signal.get("edge_activation_count", 0))
-        for signal in signals
-        if int(signal.get("edge_activation_count", 0)) > 0
-    ]
-    if not activations:
-        return 0.0
-    return min(1.0, math.log1p(sum(activations)) / 3.0)
-
-
-def _recency_score(last_accessed_at: str | None) -> float:
-    if not last_accessed_at:
-        return 0.0
-    return 0.015
-
-
 def _top_path_signals(signals: list[dict[str, object]], limit: int = 4) -> list[dict[str, object]]:
     ordered = sorted(signals, key=lambda signal: float(signal.get("graph_score", 0.0)), reverse=True)
     return [
@@ -667,6 +628,47 @@ def _top_path_signals(signals: list[dict[str, object]], limit: int = 4) -> list[
 
 
 def _now() -> str:
-    from sam.models import utc_now_iso
-
     return utc_now_iso()
+
+
+def _retrieval_events(
+    query: str,
+    mode: str,
+    hits: list[RetrievalHit],
+    activated_edges: list[tuple[str, str, str]],
+    metadata: dict[str, object],
+) -> list[MemoryEvent]:
+    created_at = utc_now_iso()
+    query_id = str(metadata.get("query_id")) if metadata.get("query_id") else None
+    events: list[MemoryEvent] = []
+    for rank, hit in enumerate(hits, start=1):
+        events.append(
+            MemoryEvent(
+                event_type="node_retrieved",
+                query_id=query_id,
+                query=query,
+                mode=mode,
+                node_id=hit.node.id,
+                path=[str(node_id) for node_id in hit.path],
+                score=hit.score,
+                created_at=created_at,
+                metadata={
+                    "rank": rank,
+                    "title": hit.node.metadata.get("title"),
+                    "score_breakdown": hit.metadata.get("score_breakdown", {}),
+                },
+            )
+        )
+    for edge_key in activated_edges:
+        events.append(
+            MemoryEvent(
+                event_type="edge_traversed",
+                query_id=query_id,
+                query=query,
+                mode=mode,
+                edge_key=edge_key,
+                created_at=created_at,
+                metadata={"source_id": edge_key[0], "target_id": edge_key[1], "relation_type": edge_key[2]},
+            )
+        )
+    return events

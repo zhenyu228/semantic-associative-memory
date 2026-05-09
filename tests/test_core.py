@@ -125,6 +125,10 @@ class SamCoreTest(unittest.TestCase):
         self.assertEqual(logs[0]["mode"], "sam")
         self.assertIn("dynamic_update", logs[0]["metadata"])
         self.assertTrue(logs[0]["metadata"]["dynamic_update"]["updated_node_ids"])
+        events = self.store.get_memory_events(limit=20)
+        event_types = {event["event_type"] for event in events}
+        self.assertIn("node_retrieved", event_types)
+        self.assertIn("edge_traversed", event_types)
 
     def test_repeated_retrieval_uses_memory_state_in_scoring(self) -> None:
         query = self.queries[0]
@@ -306,6 +310,19 @@ class SamCoreTest(unittest.TestCase):
             first.method_metrics["sam_no_graph"]["answer_hit_count"],
             second.method_metrics["sam_no_graph"]["answer_hit_count"],
         )
+
+    def test_feedback_events_are_written(self) -> None:
+        self.evaluator.evaluate(
+            self.queries,
+            top_k=3,
+            seed_k=1,
+            hops=2,
+            methods=["sam_full"],
+        )
+        events = self.store.get_memory_events(limit=200)
+        event_types = {event["event_type"] for event in events}
+        self.assertIn("support_hit", event_types)
+        self.assertTrue({"answer_hit", "path_rejected"} & event_types)
 
     def test_sam_dataset_format_round_trip(self) -> None:
         documents, queries = load_builtin_benchmark_sample()
