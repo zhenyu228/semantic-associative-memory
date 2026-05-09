@@ -379,7 +379,27 @@ HTML 可视化应重点展示：
 | `sam_no_summary` | 保留 SAM 其他机制，但移除 query summary memory node | 摘要记忆节点是否带来增益 |
 | `sam_with_summary` | 在 SAM 中启用 query summary memory node | 摘要层级是否能帮助或干扰图扩展 |
 
-从 300 条 HotpotQA 实验看，`sam_full` 相比 Embedding Top-k 多命中 12 个支持证据，答案命中率从 0.547 提升到 0.577。`sam_no_graph` 的平均路径长度为 1.00，答案命中率回落到 0.557，说明图扩展对多跳问答中的间接证据补充有实际作用。`sam_full` 与 `sam_no_multipath`、`sam_no_memory_state` 的差异相对较小，说明下一阶段需要继续优化多路径重排权重、记忆状态衰减函数和 embedding 表示质量。
+隔离评测 300 条实验中，SAM-full 的证据召回率为 0.603，答案命中率为 0.597；Embedding Top-k 为 0.572 / 0.547；`sam_no_graph` 为 0.578 / 0.553。该结果说明图扩展是当前 SAM 的主要有效模块。`sam_with_summary` 为 0.592 / 0.570，低于 SAM-full，说明摘要记忆节点需要更细粒度构造和更强路径重排，不能简单作为中心节点连接所有候选文档。`sam_full` 与 `sam_no_multipath`、`sam_no_memory_state` 的差异相对较小，说明下一阶段需要继续优化多路径重排权重、记忆状态衰减函数和 feedback 更新机制。
+
+### P5：事件化动态记忆与路径重排
+
+接下来需要把“动态记忆”从状态字段推进到事件机制。当前系统已经有 usage、recency 和 edge activation，但它们还只是结果状态。下一步应增加 MemoryEvent：
+
+| 事件类型 | 含义 | 用途 |
+| --- | --- | --- |
+| `node_retrieved` | 节点进入最终 top-k | 统计被反复使用的核心记忆 |
+| `edge_traversed` | 检索路径经过某条边 | 识别有效推理路径 |
+| `support_hit` | 命中 gold supporting document | 反向强化相关节点和边 |
+| `answer_hit` | 当前上下文可支持答案 | 作为任务级反馈 |
+| `path_rejected` | 路径扩展后未贡献证据 | 降低噪声边权 |
+
+同时引入 PathReranker，把当前经验加权拆成独立模块：
+
+```text
+final_score = semantic_score + graph_score + path_quality + memory_state + feedback_score
+```
+
+这样后续论文中可以更清楚地说明 SAM 如何从“检索结果”学习到“记忆结构调整”。
 
 ## 9. 两周推进建议
 
