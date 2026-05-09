@@ -140,6 +140,102 @@ class SamCoreTest(unittest.TestCase):
             any(hit.metadata.get("recency_score", 0.0) > 0 for hit in second_hits)
         )
 
+    def test_sam_ablation_modes_return_expected_shapes(self) -> None:
+        query = self.queries[0]
+        retriever = Retriever(self.store, self.embedding, self.graph)
+        candidate_ids = [
+            node.id
+            for node in self.store.get_nodes()
+            if node.metadata["original_doc_id"] in query.candidate_doc_ids
+        ]
+        for mode in [
+            "sam_full",
+            "sam_no_multipath",
+            "sam_no_memory_state",
+            "sam_no_graph",
+            "sam_static_graph",
+        ]:
+            hits = retriever.retrieve(
+                query.question,
+                mode,
+                top_k=3,
+                seed_k=1,
+                hops=2,
+                candidate_doc_ids=candidate_ids,
+            )
+            self.assertEqual(len(hits), 3, mode)
+            self.assertTrue(all(hit.metadata.get("score_breakdown") for hit in hits), mode)
+
+        no_graph_hits = retriever.retrieve(
+            query.question,
+            "sam_no_graph",
+            top_k=3,
+            seed_k=1,
+            hops=2,
+            candidate_doc_ids=candidate_ids,
+        )
+        self.assertTrue(all(len(hit.path) == 1 for hit in no_graph_hits))
+
+        no_multipath_hits = retriever.retrieve(
+            query.question,
+            "sam_no_multipath",
+            top_k=3,
+            seed_k=1,
+            hops=2,
+            candidate_doc_ids=candidate_ids,
+        )
+        self.assertTrue(all(hit.metadata.get("candidate_path_count") == 1 for hit in no_multipath_hits))
+
+        no_memory_hits = retriever.retrieve(
+            query.question,
+            "sam_no_memory_state",
+            top_k=3,
+            seed_k=1,
+            hops=2,
+            candidate_doc_ids=candidate_ids,
+        )
+        for hit in no_memory_hits:
+            breakdown = hit.metadata["score_breakdown"]
+            self.assertNotIn("usage_component", breakdown)
+            self.assertNotIn("recency_component", breakdown)
+            self.assertNotIn("edge_memory_component", breakdown)
+
+    def test_sam_static_graph_does_not_update_dynamic_state(self) -> None:
+        query = self.queries[0]
+        retriever = Retriever(self.store, self.embedding, self.graph)
+        candidate_ids = [
+            node.id
+            for node in self.store.get_nodes()
+            if node.metadata["original_doc_id"] in query.candidate_doc_ids
+        ]
+        before_usage = {
+            node.id: node.usage_count
+            for node in self.store.get_nodes(candidate_ids)
+        }
+        before_activations = {
+            edge.key: edge.activation_count
+            for edge in self.store.get_edges()
+        }
+        retriever.retrieve(
+            query.question,
+            "sam_static_graph",
+            top_k=3,
+            seed_k=1,
+            hops=2,
+            candidate_doc_ids=candidate_ids,
+        )
+        after_usage = {
+            node.id: node.usage_count
+            for node in self.store.get_nodes(candidate_ids)
+        }
+        after_activations = {
+            edge.key: edge.activation_count
+            for edge in self.store.get_edges()
+        }
+        self.assertEqual(before_usage, after_usage)
+        for key, activation_count in before_activations.items():
+            self.assertEqual(activation_count, after_activations.get(key, activation_count))
+
     def test_evaluation_produces_gain(self) -> None:
         result = self.evaluator.evaluate(self.queries, top_k=2, seed_k=1, hops=2)
         self.assertGreaterEqual(result.associative_recall, result.vector_recall)

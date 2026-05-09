@@ -34,6 +34,7 @@ class ExperimentResult:
     associative_gain: int
     average_path_length: float
     method_metrics: dict[str, dict[str, object]]
+    ablation_metrics: dict[str, dict[str, object]]
     cases: list[dict[str, object]]
 
     def to_dict(self) -> dict[str, object]:
@@ -49,6 +50,7 @@ class ExperimentResult:
             "associative_gain": self.associative_gain,
             "average_path_length": self.average_path_length,
             "method_metrics": self.method_metrics,
+            "ablation_metrics": self.ablation_metrics,
             "cases": self.cases,
         }
 
@@ -86,7 +88,10 @@ class Evaluator:
         total_support = 0
         method_support_hits = {method: 0 for method in active_methods}
         method_answer_hits = {method: 0 for method in active_methods}
-        path_lengths: list[int] = []
+        method_path_lengths = {method: [] for method in active_methods}
+        method_candidate_path_counts = {method: [] for method in active_methods}
+        method_path_support_scores = {method: [] for method in active_methods}
+        method_edge_memory_scores = {method: [] for method in active_methods}
         cases: list[dict[str, object]] = []
 
         original_to_node = {
@@ -125,8 +130,16 @@ class Evaluator:
                 method_support_hits[method] += case_support_hits
                 if extracted_answer["status"] in {"found_in_retrieved_context", "matched_option"}:
                     method_answer_hits[method] += 1
-                if method == "sam":
-                    path_lengths.extend(len(hit.path) for hit in hits)
+                method_path_lengths[method].extend(len(hit.path) for hit in hits)
+                method_candidate_path_counts[method].extend(
+                    int(hit.metadata.get("candidate_path_count", 1)) for hit in hits
+                )
+                method_path_support_scores[method].extend(
+                    float(hit.metadata.get("path_support_score", 0.0)) for hit in hits
+                )
+                method_edge_memory_scores[method].extend(
+                    float(hit.metadata.get("edge_memory_score", 0.0)) for hit in hits
+                )
                 serialized_methods[method] = self._serialize_hits(hits, support_node_ids)
                 final_answers[method] = extracted_answer
                 support_hits_by_method[method] = case_support_hits
@@ -157,10 +170,11 @@ class Evaluator:
             cases.append(case_payload)
 
         vector_support_hits = method_support_hits.get("embedding_topk", 0)
-        associative_support_hits = method_support_hits.get("sam", 0)
+        associative_support_hits = method_support_hits.get("sam", method_support_hits.get("sam_full", 0))
         vector_recall = vector_support_hits / total_support if total_support else 0.0
         associative_recall = associative_support_hits / total_support if total_support else 0.0
-        average_path_length = sum(path_lengths) / len(path_lengths) if path_lengths else 0.0
+        sam_path_lengths = method_path_lengths.get("sam") or method_path_lengths.get("sam_full") or []
+        average_path_length = _average(sam_path_lengths)
         method_metrics = {
             method: {
                 "display_name": RETRIEVAL_METHOD_NAMES.get(method, method),
@@ -168,8 +182,17 @@ class Evaluator:
                 "evidence_recall": method_support_hits[method] / total_support if total_support else None,
                 "answer_hit_count": method_answer_hits[method],
                 "answer_hit_rate": method_answer_hits[method] / len(queries) if queries else 0.0,
+                "average_path_length": _average(method_path_lengths[method]),
+                "average_candidate_path_count": _average(method_candidate_path_counts[method]),
+                "average_path_support_score": _average(method_path_support_scores[method]),
+                "average_edge_memory_score": _average(method_edge_memory_scores[method]),
             }
             for method in active_methods
+        }
+        ablation_metrics = {
+            method: metric
+            for method, metric in method_metrics.items()
+            if method.startswith("sam")
         }
         return ExperimentResult(
             dataset_count=len({query.dataset for query in queries}),
@@ -183,6 +206,7 @@ class Evaluator:
             associative_gain=associative_support_hits - vector_support_hits,
             average_path_length=average_path_length,
             method_metrics=method_metrics,
+            ablation_metrics=ablation_metrics,
             cases=cases,
         )
 
@@ -197,6 +221,14 @@ class Evaluator:
         )
         (output_dir / "cases.json").write_text(
             json.dumps(result.cases, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+        (output_dir / "ablation_metrics.json").write_text(
+            json.dumps(result.ablation_metrics, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+        (output_dir / "ablation_metrics.md").write_text(
+            self._ablation_to_markdown(result),
             encoding="utf-8",
         )
         markdown_path.write_text(self._to_markdown(result), encoding="utf-8")
@@ -358,3 +390,36 @@ class Evaluator:
                     )
             lines.append("")
         return "\n".join(lines)
+
+    def _ablation_to_markdown(self, result: ExperimentResult) -> str:
+        lines = [
+            "# SAM 消融实验结果",
+            "",
+            "| 方法 | 证据命中数 | 证据召回率 | 答案命中率 | 平均路径长度 | 平均候选路径数 | 平均路径支持分 | 平均边记忆分 |",
+            "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
+        ]
+        for metric in result.ablation_metrics.values():
+            recall = metric["evidence_recall"]
+            recall_text = "N/A" if recall is None else f"{float(recall):.3f}"
+            lines.append(
+                "| "
+                + " | ".join(
+                    [
+                        str(metric["display_name"]),
+                        str(metric["support_hits"]),
+                        recall_text,
+                        f"{float(metric['answer_hit_rate']):.3f}",
+                        f"{float(metric['average_path_length']):.2f}",
+                        f"{float(metric['average_candidate_path_count']):.2f}",
+                        f"{float(metric['average_path_support_score']):.3f}",
+                        f"{float(metric['average_edge_memory_score']):.3f}",
+                    ]
+                )
+                + " |"
+            )
+        lines.append("")
+        return "\n".join(lines)
+
+
+def _average(values: list[float] | list[int]) -> float:
+    return sum(values) / len(values) if values else 0.0

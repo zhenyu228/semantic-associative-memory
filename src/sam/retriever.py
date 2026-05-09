@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import math
 from collections import deque
+from dataclasses import dataclass
 
 from sam.embedding import EmbeddingProvider
 from sam.graph import GraphBuilder
@@ -16,6 +17,35 @@ RETRIEVAL_METHOD_NAMES = {
     "graphrag_style": "GraphRAG-style",
     "hipporag_style": "HippoRAG-style",
     "sam": "SAM 动态联想检索",
+    "sam_full": "SAM-full",
+    "sam_no_multipath": "SAM-no-multipath",
+    "sam_no_memory_state": "SAM-no-memory-state",
+    "sam_no_graph": "SAM-no-graph",
+    "sam_static_graph": "SAM-static-graph",
+}
+
+
+@dataclass(frozen=True, slots=True)
+class SamRetrievalConfig:
+    """SAM 消融实验开关。"""
+
+    use_graph: bool = True
+    build_graph_on_demand: bool = True
+    use_multipath: bool = True
+    use_memory_state: bool = True
+    update_dynamic_state: bool = True
+
+
+SAM_RETRIEVAL_CONFIGS = {
+    "sam": SamRetrievalConfig(),
+    "sam_full": SamRetrievalConfig(),
+    "sam_no_multipath": SamRetrievalConfig(use_multipath=False),
+    "sam_no_memory_state": SamRetrievalConfig(use_memory_state=False),
+    "sam_no_graph": SamRetrievalConfig(use_graph=False, build_graph_on_demand=False),
+    "sam_static_graph": SamRetrievalConfig(
+        build_graph_on_demand=False,
+        update_dynamic_state=False,
+    ),
 }
 
 
@@ -71,8 +101,10 @@ class Retriever:
             self._finalize_retrieval(query, mode, hits, {"top_k": top_k, "seed_k": max(seed_k, 2)})
             return hits
 
+        sam_config = SAM_RETRIEVAL_CONFIGS[mode]
         seed_nodes = [hit.node for hit in vector_hits[:seed_k]]
-        self.graph_builder.build_edges_on_demand(seed_nodes)
+        if sam_config.use_graph and sam_config.build_graph_on_demand:
+            self.graph_builder.build_edges_on_demand(seed_nodes)
         hits = self._associative_hits(
             query_embedding=query_embedding,
             candidates=candidates,
@@ -80,8 +112,20 @@ class Retriever:
             seed_hits=vector_hits[:seed_k],
             top_k=top_k,
             hops=hops,
+            config=sam_config,
         )
-        self._finalize_retrieval(query, mode, hits, {"top_k": top_k, "seed_k": seed_k, "hops": hops})
+        self._finalize_retrieval(
+            query,
+            mode,
+            hits,
+            {
+                "top_k": top_k,
+                "seed_k": seed_k,
+                "hops": hops,
+                "sam_config": _sam_config_payload(sam_config),
+            },
+            update_dynamic_state=sam_config.update_dynamic_state,
+        )
         return hits
 
     def explain_retrieval(
@@ -323,6 +367,7 @@ class Retriever:
         seed_hits: list[RetrievalHit],
         top_k: int,
         hops: int,
+        config: SamRetrievalConfig,
     ) -> list[RetrievalHit]:
         candidate_ids = {node.id for node in candidates}
         nodes_by_id = {node.id: node for node in candidates}
@@ -352,7 +397,7 @@ class Retriever:
                 }
             )
 
-        while queue:
+        while config.use_graph and queue:
             current_id, path, graph_score, depth, reason = queue.popleft()
             if depth >= hops:
                 continue
@@ -366,32 +411,57 @@ class Retriever:
                 next_graph_score = graph_score + edge.weight / (depth + 1)
                 next_path = [*path, next_id]
                 next_reason = f"{reason} -> {edge.relation_type}({edge.reason})"
-                path_signals.setdefault(next_id, []).append(
-                    {
-                        "path": next_path,
-                        "graph_score": next_graph_score,
-                        "edge_weight": edge.weight,
-                        "edge_activation_count": edge.activation_count,
-                        "relation_type": edge.relation_type,
-                        "reason": next_reason,
-                        "depth": depth + 1,
-                    }
-                )
+                if config.use_multipath or next_id not in path_signals:
+                    path_signals.setdefault(next_id, []).append(
+                        {
+                            "path": next_path,
+                            "graph_score": next_graph_score,
+                            "edge_weight": edge.weight,
+                            "edge_activation_count": edge.activation_count,
+                            "relation_type": edge.relation_type,
+                            "reason": next_reason,
+                            "depth": depth + 1,
+                        }
+                    )
                 previous = best_paths.get(next_id)
                 if previous is None or next_graph_score > previous[1]:
                     best_paths[next_id] = (next_path, next_graph_score, next_reason)
                     queue.append((next_id, next_path, next_graph_score, depth + 1, next_reason))
+
+        if not config.use_multipath:
+            path_signals = {
+                node_id: [
+                    {
+                        "path": path,
+                        "graph_score": graph_score,
+                        "reason": reason,
+                        "depth": max(0, len(path) - 1),
+                    }
+                ]
+                for node_id, (path, graph_score, reason) in best_paths.items()
+            }
 
         hits: list[RetrievalHit] = []
         for node_id, (path, graph_score, reason) in best_paths.items():
             node = nodes_by_id[node_id]
             similarity = cosine_similarity(query_embedding, node.embedding)
             signals = path_signals.get(node_id, [])
-            path_support_score = _path_support_score(signals)
-            edge_memory_score = _edge_memory_score(signals)
-            usage_score = min(0.14, math.log1p(node.usage_count) * 0.045)
-            recency_score = _recency_score(node.last_accessed_at)
+            path_support_score = _path_support_score(signals) if config.use_multipath else 0.0
+            edge_memory_score = _edge_memory_score(signals) if config.use_memory_state else 0.0
+            usage_score = min(0.14, math.log1p(node.usage_count) * 0.045) if config.use_memory_state else 0.0
+            recency_score = _recency_score(node.last_accessed_at) if config.use_memory_state else 0.0
             confidence_score = node.confidence * 0.04
+            score_breakdown = {
+                "similarity_component": round(0.56 * similarity, 4),
+                "graph_component": round(0.21 * graph_score, 4),
+                "confidence_component": round(confidence_score, 4),
+            }
+            if config.use_multipath:
+                score_breakdown["path_support_component"] = round(0.09 * path_support_score, 4)
+            if config.use_memory_state:
+                score_breakdown["edge_memory_component"] = round(0.05 * edge_memory_score, 4)
+                score_breakdown["usage_component"] = round(usage_score, 4)
+                score_breakdown["recency_component"] = round(recency_score, 4)
             # 联想节点允许相似度较低，但需要由路径、历史激活和记忆状态共同补足。
             score = (
                 0.56 * similarity
@@ -416,20 +486,13 @@ class Retriever:
                         f"历史边激活={edge_memory_score:.3f}，近期访问={recency_score:.3f}"
                     ),
                     metadata={
-                        "score_breakdown": {
-                            "similarity_component": round(0.56 * similarity, 4),
-                            "graph_component": round(0.21 * graph_score, 4),
-                            "path_support_component": round(0.09 * path_support_score, 4),
-                            "edge_memory_component": round(0.05 * edge_memory_score, 4),
-                            "usage_component": round(usage_score, 4),
-                            "recency_component": round(recency_score, 4),
-                            "confidence_component": round(confidence_score, 4),
-                        },
+                        "score_breakdown": score_breakdown,
                         "path_support_score": round(path_support_score, 4),
                         "edge_memory_score": round(edge_memory_score, 4),
                         "recency_score": round(recency_score, 4),
                         "candidate_path_count": len(signals),
                         "candidate_paths": _top_path_signals(signals),
+                        "ablation_config": _sam_config_payload(config),
                     },
                 )
             )
@@ -447,22 +510,25 @@ class Retriever:
         mode: str,
         hits: list[RetrievalHit],
         metadata: dict[str, object],
+        update_dynamic_state: bool = True,
     ) -> None:
         accessed_at = _now()
         hit_node_ids = [hit.node.id for hit in hits]
         activated_edges = self._activated_edges_from_paths(hits)
-        self.store.increment_usage(hit_node_ids, accessed_at=accessed_at)
-        self.store.activate_edges(activated_edges, activated_at=accessed_at)
+        if update_dynamic_state:
+            self.store.increment_usage(hit_node_ids, accessed_at=accessed_at)
+            self.store.activate_edges(activated_edges, activated_at=accessed_at)
 
-        refreshed_nodes = {node.id: node for node in self.store.get_nodes(hit_node_ids)}
-        for hit in hits:
-            if hit.node.id in refreshed_nodes:
-                hit.node = refreshed_nodes[hit.node.id]
+            refreshed_nodes = {node.id: node for node in self.store.get_nodes(hit_node_ids)}
+            for hit in hits:
+                if hit.node.id in refreshed_nodes:
+                    hit.node = refreshed_nodes[hit.node.id]
 
         dynamic_metadata = {
             **metadata,
             "dynamic_update": {
                 "accessed_at": accessed_at,
+                "enabled": update_dynamic_state,
                 "updated_node_ids": hit_node_ids,
                 "activated_edges": [
                     {
@@ -521,6 +587,16 @@ def _normalize_mode(mode: str) -> str:
         "associative": "sam",
     }
     return aliases.get(mode, mode)
+
+
+def _sam_config_payload(config: SamRetrievalConfig) -> dict[str, bool]:
+    return {
+        "use_graph": config.use_graph,
+        "build_graph_on_demand": config.build_graph_on_demand,
+        "use_multipath": config.use_multipath,
+        "use_memory_state": config.use_memory_state,
+        "update_dynamic_state": config.update_dynamic_state,
+    }
 
 
 def _overlap_ratio(left: set[str], right: set[str]) -> float:
