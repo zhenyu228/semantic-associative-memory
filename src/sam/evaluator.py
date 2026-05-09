@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import json
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
-from sam.datasets import documents_to_nodes
+from sam.datasets import build_query_summary_nodes, documents_to_nodes
 from sam.embedding import EmbeddingProvider
 from sam.graph import GraphBuilder
 from sam.models import DatasetDocument, EvaluationQuery, MemoryNode, RetrievalHit
@@ -70,9 +71,11 @@ class Evaluator:
 
     def ingest(self, documents: list[DatasetDocument]) -> list[MemoryNode]:
         nodes = documents_to_nodes(documents, self.embedding_provider)
-        self.store.upsert_nodes(nodes)
+        summary_nodes = build_query_summary_nodes(nodes, self.embedding_provider)
+        self.store.upsert_nodes([*nodes, *summary_nodes])
         self.graph_builder.bootstrap_context_edges(nodes)
-        return nodes
+        self.graph_builder.bootstrap_summary_edges(summary_nodes)
+        return [*nodes, *summary_nodes]
 
     def evaluate(
         self,
@@ -82,7 +85,6 @@ class Evaluator:
         hops: int = 2,
         methods: list[str] | None = None,
     ) -> ExperimentResult:
-        retriever = Retriever(self.store, self.embedding_provider, self.graph_builder)
         active_methods = methods or DEFAULT_EVALUATION_METHODS
         total_support = 0
         method_support_hits = {method: 0 for method in active_methods}
@@ -98,6 +100,13 @@ class Evaluator:
             for node in self.store.get_nodes()
             if "original_doc_id" in node.metadata
         }
+        summary_nodes_by_query = {
+            str(node.metadata["query_id"]): node.id
+            for node in self.store.get_nodes()
+            if node.metadata.get("node_type") == "query_summary" and "query_id" in node.metadata
+        }
+        query_contexts: list[dict[str, object]] = []
+        cases_by_query: dict[str, dict[str, object]] = {}
         for query in queries:
             support_node_ids = {
                 original_to_node[doc_id]
@@ -109,63 +118,116 @@ class Evaluator:
                 for doc_id in query.candidate_doc_ids
                 if doc_id in original_to_node
             ]
+            summary_node_id = summary_nodes_by_query.get(query.id)
+            sam_candidate_node_ids = (
+                [*candidate_node_ids, summary_node_id]
+                if summary_node_id
+                else candidate_node_ids
+            )
             total_support += len(support_node_ids)
-
-            serialized_methods: dict[str, list[dict[str, object]]] = {}
-            final_answers: dict[str, dict[str, object]] = {}
-            support_hits_by_method: dict[str, int] = {}
-            for method in active_methods:
-                hits = retriever.retrieve(
-                    query=query.question,
-                    mode=method,
-                    top_k=top_k,
-                    seed_k=seed_k,
-                    hops=hops,
-                    candidate_doc_ids=candidate_node_ids,
-                )
-                hit_ids = {hit.node.id for hit in hits}
-                case_support_hits = len(hit_ids & support_node_ids)
-                extracted_answer = self._extract_answer(query.answer, hits, query.metadata)
-                method_support_hits[method] += case_support_hits
-                if extracted_answer["status"] in {"found_in_retrieved_context", "matched_option"}:
-                    method_answer_hits[method] += 1
-                method_path_lengths[method].extend(len(hit.path) for hit in hits)
-                method_candidate_path_counts[method].extend(
-                    int(hit.metadata.get("candidate_path_count", 1)) for hit in hits
-                )
-                method_path_support_scores[method].extend(
-                    float(hit.metadata.get("path_support_score", 0.0)) for hit in hits
-                )
-                method_edge_memory_scores[method].extend(
-                    float(hit.metadata.get("edge_memory_score", 0.0)) for hit in hits
-                )
-                serialized_methods[method] = self._serialize_hits(hits, support_node_ids)
-                final_answers[method] = extracted_answer
-                support_hits_by_method[method] = case_support_hits
-
-            vector_hits = serialized_methods.get("embedding_topk", [])
-            sam_hits = serialized_methods.get("sam", [])
-            vector_case_hits = support_hits_by_method.get("embedding_topk", 0)
-            sam_case_hits = support_hits_by_method.get("sam", 0)
-            case_payload = {
+            query_contexts.append(
+                {
+                    "query": query,
+                    "support_node_ids": support_node_ids,
+                    "candidate_node_ids": candidate_node_ids,
+                    "sam_candidate_node_ids": sam_candidate_node_ids,
+                }
+            )
+            cases_by_query[query.id] = {
                 "query_id": query.id,
                 "dataset": query.dataset,
                 "question": query.question,
                 "answer": query.answer,
                 "query_metadata": query.metadata,
                 "supporting_doc_ids": query.supporting_doc_ids,
-                "methods": serialized_methods,
-                "final_answers": final_answers,
-                "support_hits_by_method": support_hits_by_method,
-                # 兼容旧 HTML/报告字段。
-                "vector": vector_hits,
-                "associative": sam_hits,
-                "vector_final_answer": final_answers.get("embedding_topk", {}),
-                "associative_final_answer": final_answers.get("sam", {}),
-                "vector_support_hits": vector_case_hits,
-                "associative_support_hits": sam_case_hits,
-                "gain": sam_case_hits - vector_case_hits,
+                "methods": {},
+                "final_answers": {},
+                "support_hits_by_method": {},
             }
+
+        display_method = _display_method(active_methods)
+        for method in active_methods:
+            temp_dir = tempfile.TemporaryDirectory()
+            method_store = MemoryStore(Path(temp_dir.name) / f"{method}.sqlite")
+            self.store.connection.backup(method_store.connection)
+            method_graph_builder = GraphBuilder(method_store)
+            retriever = Retriever(method_store, self.embedding_provider, method_graph_builder)
+            try:
+                for context in query_contexts:
+                    query = context["query"]
+                    support_node_ids = context["support_node_ids"]
+                    candidate_ids = (
+                        context["sam_candidate_node_ids"]
+                        if method.startswith("sam")
+                        else context["candidate_node_ids"]
+                    )
+                    assert isinstance(query, EvaluationQuery)
+                    assert isinstance(support_node_ids, set)
+                    assert isinstance(candidate_ids, list)
+
+                    hits = retriever.retrieve(
+                        query=query.question,
+                        mode=method,
+                        top_k=top_k,
+                        seed_k=seed_k,
+                        hops=hops,
+                        candidate_doc_ids=candidate_ids,
+                    )
+                    hit_ids = {hit.node.id for hit in hits}
+                    case_support_hits = len(hit_ids & support_node_ids)
+                    extracted_answer = self._extract_answer(query.answer, hits, query.metadata)
+                    method_support_hits[method] += case_support_hits
+                    if extracted_answer["status"] in {"found_in_retrieved_context", "matched_option"}:
+                        method_answer_hits[method] += 1
+                    method_path_lengths[method].extend(len(hit.path) for hit in hits)
+                    method_candidate_path_counts[method].extend(
+                        int(hit.metadata.get("candidate_path_count", 1)) for hit in hits
+                    )
+                    method_path_support_scores[method].extend(
+                        float(hit.metadata.get("path_support_score", 0.0)) for hit in hits
+                    )
+                    method_edge_memory_scores[method].extend(
+                        float(hit.metadata.get("edge_memory_score", 0.0)) for hit in hits
+                    )
+                    case_payload = cases_by_query[query.id]
+                    case_payload["methods"][method] = self._serialize_hits(hits, support_node_ids)
+                    case_payload["final_answers"][method] = extracted_answer
+                    case_payload["support_hits_by_method"][method] = case_support_hits
+
+                if method == display_method:
+                    method_store.connection.backup(self.store.connection)
+                    self.graph_builder.edge_creation_log = method_graph_builder.edge_creation_log
+            finally:
+                method_store.close()
+                temp_dir.cleanup()
+
+        cases: list[dict[str, object]] = []
+        for context in query_contexts:
+            query = context["query"]
+            assert isinstance(query, EvaluationQuery)
+            case_payload = cases_by_query[query.id]
+            serialized_methods = case_payload["methods"]
+            final_answers = case_payload["final_answers"]
+            support_hits_by_method = case_payload["support_hits_by_method"]
+            assert isinstance(serialized_methods, dict)
+            assert isinstance(final_answers, dict)
+            assert isinstance(support_hits_by_method, dict)
+            vector_hits = serialized_methods.get("embedding_topk", [])
+            sam_hits = serialized_methods.get("sam", serialized_methods.get("sam_full", []))
+            vector_case_hits = support_hits_by_method.get("embedding_topk", 0)
+            sam_case_hits = support_hits_by_method.get("sam", support_hits_by_method.get("sam_full", 0))
+            case_payload.update(
+                {
+                    # 兼容旧 HTML/报告字段。
+                    "vector": vector_hits,
+                    "associative": sam_hits,
+                    "vector_final_answer": final_answers.get("embedding_topk", {}),
+                    "associative_final_answer": final_answers.get("sam", final_answers.get("sam_full", {})),
+                    "vector_support_hits": vector_case_hits,
+                    "associative_support_hits": sam_case_hits,
+                    "gain": sam_case_hits - vector_case_hits,
+                }
+            )
             cases.append(case_payload)
 
         vector_support_hits = method_support_hits.get("embedding_topk", 0)
@@ -422,3 +484,13 @@ class Evaluator:
 
 def _average(values: list[float] | list[int]) -> float:
     return sum(values) / len(values) if values else 0.0
+
+
+def _display_method(methods: list[str]) -> str | None:
+    for method in ["sam_full", "sam"]:
+        if method in methods:
+            return method
+    for method in methods:
+        if method.startswith("sam"):
+            return method
+    return methods[0] if methods else None

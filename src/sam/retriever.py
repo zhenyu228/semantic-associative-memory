@@ -22,6 +22,8 @@ RETRIEVAL_METHOD_NAMES = {
     "sam_no_memory_state": "SAM-no-memory-state",
     "sam_no_graph": "SAM-no-graph",
     "sam_static_graph": "SAM-static-graph",
+    "sam_no_summary": "SAM-no-summary",
+    "sam_with_summary": "SAM-with-summary",
 }
 
 
@@ -34,6 +36,7 @@ class SamRetrievalConfig:
     use_multipath: bool = True
     use_memory_state: bool = True
     update_dynamic_state: bool = True
+    use_summary_nodes: bool = False
 
 
 SAM_RETRIEVAL_CONFIGS = {
@@ -46,6 +49,8 @@ SAM_RETRIEVAL_CONFIGS = {
         build_graph_on_demand=False,
         update_dynamic_state=False,
     ),
+    "sam_no_summary": SamRetrievalConfig(use_summary_nodes=False),
+    "sam_with_summary": SamRetrievalConfig(use_summary_nodes=True),
 }
 
 
@@ -76,7 +81,16 @@ class Retriever:
             raise ValueError(f"未知检索模式：{mode}")
         query_embedding = self.embedding_provider.embed(query)
         candidates = self.store.get_nodes(candidate_doc_ids)
-        vector_hits = self._vector_hits(query_embedding, candidates, top_k=max(top_k, seed_k))
+        if mode in SAM_RETRIEVAL_CONFIGS and not SAM_RETRIEVAL_CONFIGS[mode].use_summary_nodes:
+            candidates = [
+                node for node in candidates if node.metadata.get("node_type") != "query_summary"
+            ]
+        seed_candidates = (
+            [node for node in candidates if node.metadata.get("node_type") != "query_summary"]
+            if mode in SAM_RETRIEVAL_CONFIGS
+            else candidates
+        )
+        vector_hits = self._vector_hits(query_embedding, seed_candidates, top_k=max(top_k, seed_k))
         if mode == "embedding_topk":
             hits = vector_hits[:top_k]
             self._finalize_retrieval(query, mode, hits, {"top_k": top_k})
@@ -498,7 +512,12 @@ class Retriever:
         other_results = [hit for hit in hits if hit.node.id not in seed_ids]
         # 联想检索以向量种子作为“当前被激活记忆”，不能在扩展后把种子挤掉。
         # 否则图扩展会变成替代检索，而不是开题报告中的“种子激活 + 语义扩散”。
-        return [*seed_results, *other_results][:top_k]
+        ranked = [*seed_results, *other_results]
+        document_hits = [hit for hit in ranked if hit.node.metadata.get("node_type") != "query_summary"]
+        if len(document_hits) >= top_k:
+            return document_hits[:top_k]
+        summary_hits = [hit for hit in ranked if hit.node.metadata.get("node_type") == "query_summary"]
+        return [*document_hits, *summary_hits][:top_k]
 
     def _finalize_retrieval(
         self,
@@ -592,6 +611,7 @@ def _sam_config_payload(config: SamRetrievalConfig) -> dict[str, bool]:
         "use_multipath": config.use_multipath,
         "use_memory_state": config.use_memory_state,
         "update_dynamic_state": config.update_dynamic_state,
+        "use_summary_nodes": config.use_summary_nodes,
     }
 
 

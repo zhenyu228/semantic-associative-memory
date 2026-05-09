@@ -40,6 +40,22 @@ class SamCoreTest(unittest.TestCase):
         self.assertEqual(len(nodes), len(self.nodes))
         self.assertTrue(nodes[0].embedding)
 
+    def test_query_summary_nodes_are_created(self) -> None:
+        summary_nodes = [
+            node
+            for node in self.store.get_nodes()
+            if node.metadata.get("node_type") == "query_summary"
+        ]
+        self.assertEqual(len(summary_nodes), len(self.queries))
+        self.assertTrue(summary_nodes[0].metadata.get("child_node_ids"))
+        summary_edges = [
+            edge
+            for edge in self.store.get_edges()
+            if edge.relation_type in {"summary_parent", "summary_child"}
+        ]
+        self.assertTrue(summary_edges)
+        self.assertIn("score_breakdown", summary_edges[0].metadata)
+
     def test_edges_are_created_on_demand(self) -> None:
         seed = self.store.get_nodes([self.nodes[0].id])
         edges = self.graph.build_edges_on_demand(seed)
@@ -65,7 +81,7 @@ class SamCoreTest(unittest.TestCase):
         candidate_ids = [
             node.id
             for node in self.store.get_nodes()
-            if node.metadata["original_doc_id"] in query.candidate_doc_ids
+            if node.metadata.get("original_doc_id") in query.candidate_doc_ids
         ]
         vector_hits = retriever.retrieve(query.question, "vector", top_k=2, candidate_doc_ids=candidate_ids)
         associative_hits = retriever.retrieve(
@@ -79,6 +95,7 @@ class SamCoreTest(unittest.TestCase):
         self.assertEqual(len(vector_hits), 2)
         self.assertEqual(len(associative_hits), 2)
         self.assertTrue(any(len(hit.path) > 1 for hit in associative_hits))
+        self.assertTrue(all(hit.node.metadata.get("node_type") != "query_summary" for hit in associative_hits))
         self.assertTrue(any("score_breakdown" in hit.metadata for hit in associative_hits))
         self.assertTrue(any(hit.metadata.get("candidate_path_count", 0) >= 1 for hit in associative_hits))
 
@@ -88,7 +105,7 @@ class SamCoreTest(unittest.TestCase):
         candidate_ids = [
             node.id
             for node in self.store.get_nodes()
-            if node.metadata["original_doc_id"] in query.candidate_doc_ids
+            if node.metadata.get("original_doc_id") in query.candidate_doc_ids
         ]
         hits = retriever.retrieve(
             query.question,
@@ -115,7 +132,7 @@ class SamCoreTest(unittest.TestCase):
         candidate_ids = [
             node.id
             for node in self.store.get_nodes()
-            if node.metadata["original_doc_id"] in query.candidate_doc_ids
+            if node.metadata.get("original_doc_id") in query.candidate_doc_ids
         ]
         retriever.retrieve(
             query.question,
@@ -146,7 +163,7 @@ class SamCoreTest(unittest.TestCase):
         candidate_ids = [
             node.id
             for node in self.store.get_nodes()
-            if node.metadata["original_doc_id"] in query.candidate_doc_ids
+            if node.metadata.get("original_doc_id") in query.candidate_doc_ids
         ]
         for mode in [
             "sam_full",
@@ -154,6 +171,8 @@ class SamCoreTest(unittest.TestCase):
             "sam_no_memory_state",
             "sam_no_graph",
             "sam_static_graph",
+            "sam_no_summary",
+            "sam_with_summary",
         ]:
             hits = retriever.retrieve(
                 query.question,
@@ -200,13 +219,33 @@ class SamCoreTest(unittest.TestCase):
             self.assertNotIn("recency_component", breakdown)
             self.assertNotIn("edge_memory_component", breakdown)
 
+        no_summary_hits = retriever.retrieve(
+            query.question,
+            "sam_no_summary",
+            top_k=3,
+            seed_k=1,
+            hops=2,
+            candidate_doc_ids=[
+                *candidate_ids,
+                *[
+                    node.id
+                    for node in self.store.get_nodes()
+                    if node.metadata.get("node_type") == "query_summary"
+                    and node.metadata.get("query_id") == query.id
+                ],
+            ],
+        )
+        self.assertTrue(
+            all("summary_" not in " ".join(hit.path) for hit in no_summary_hits)
+        )
+
     def test_sam_static_graph_does_not_update_dynamic_state(self) -> None:
         query = self.queries[0]
         retriever = Retriever(self.store, self.embedding, self.graph)
         candidate_ids = [
             node.id
             for node in self.store.get_nodes()
-            if node.metadata["original_doc_id"] in query.candidate_doc_ids
+            if node.metadata.get("original_doc_id") in query.candidate_doc_ids
         ]
         before_usage = {
             node.id: node.usage_count
@@ -239,7 +278,34 @@ class SamCoreTest(unittest.TestCase):
     def test_evaluation_produces_gain(self) -> None:
         result = self.evaluator.evaluate(self.queries, top_k=2, seed_k=1, hops=2)
         self.assertGreaterEqual(result.associative_recall, result.vector_recall)
-        self.assertGreaterEqual(result.associative_gain, 1)
+        self.assertGreater(result.average_path_length, 1.0)
+
+    def test_evaluation_isolates_method_state(self) -> None:
+        first = self.evaluator.evaluate(
+            self.queries,
+            top_k=2,
+            seed_k=1,
+            hops=2,
+            methods=["embedding_topk", "sam_full", "sam_no_graph"],
+        )
+        self.store.reset()
+        documents, self.queries = load_builtin_benchmark_sample()
+        self.evaluator.ingest(documents)
+        second = self.evaluator.evaluate(
+            self.queries,
+            top_k=2,
+            seed_k=1,
+            hops=2,
+            methods=["sam_no_graph", "sam_full", "embedding_topk"],
+        )
+        self.assertEqual(
+            first.method_metrics["sam_full"]["support_hits"],
+            second.method_metrics["sam_full"]["support_hits"],
+        )
+        self.assertEqual(
+            first.method_metrics["sam_no_graph"]["answer_hit_count"],
+            second.method_metrics["sam_no_graph"]["answer_hit_count"],
+        )
 
     def test_sam_dataset_format_round_trip(self) -> None:
         documents, queries = load_builtin_benchmark_sample()

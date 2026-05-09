@@ -94,6 +94,14 @@ scripts/prepare_xxx.py -> data/processed/xxx_sam_sample.json
 
 重要设计点：`title` 只是可选展示字段，不作为系统通用假设。对于 NovelQA，标题可以是小说名和 chunk 编号；对于论文数据，标题可以是章节名；没有标题的数据集也可以正常运行。
 
+当前新增了 `query_summary` 类型的摘要记忆节点。它由同一查询候选上下文中的多个文档节点聚合而成，保存候选标题、关键词和文档摘要。摘要节点不作为 gold evidence 计分，只作为联想检索中的中间层记忆，使 SAM 能够形成：
+
+```text
+种子文档 -> 摘要记忆节点 -> 相关候选文档
+```
+
+这一步是吸收 RAPTOR 实验优势后的系统改造：不把摘要层级做成独立静态索引，而是把摘要节点纳入动态记忆图。
+
 ### 4.3 MemoryEdge
 
 语义边用于解释两个节点为何产生联想关系。边不是抽象黑盒相似度，而是带有类型和创建原因。
@@ -117,6 +125,7 @@ scripts/prepare_xxx.py -> data/processed/xxx_sam_sample.json
 - `co_activation`：两个节点在同一次检索中共同出现。
 - `feedback_strengthened`：用户反馈或任务结果强化。
 - `summary_parent`：摘要节点和原始 chunk 的层级关系。
+- `summary_child`：原始文档节点回到摘要记忆节点的反向层级关系。
 
 ### 4.4 EmbeddingProvider
 
@@ -340,6 +349,8 @@ HTML 可视化应重点展示：
 - 固定 HotpotQA bridge-style 300 条主实验，包含 2992 个候选文档节点和 600 个 gold supporting documents。
 - 输出 `ablation_metrics.json`、`ablation_metrics.md`，记录证据召回率、答案命中率、平均路径长度、平均候选路径数、平均路径支持分和平均边记忆分。
 - 将按需建图限制在当前查询候选记忆范围内，并对节点、边和检索日志写入做批量化与轻量化处理，使 300 条实验可以稳定跑通。
+- 新增 query summary memory node，并提供 `sam_with_summary` 实验开关。当前稳定主方法暂不默认启用摘要节点，因为 30 条隔离 smoke run 显示摘要层级会带来过宽跳转噪声；但该模块已经可用于后续消融和重排优化。
+- 修正多方法评测协议：每个方法从同一份初始记忆库快照开始运行，避免前一个方法的动态状态更新污染后一个方法的结果。
 
 后续任务：
 
@@ -365,6 +376,8 @@ HTML 可视化应重点展示：
 | `sam_no_memory_state` | 不使用 usage、recency、edge activation 分数 | 动态记忆状态是否影响排序 |
 | `sam_no_graph` | 不进行图扩展，只保留初始召回和状态分 | 图联想是否补回间接证据 |
 | `sam_static_graph` | 使用已有图，但检索后不更新动态状态 | 动态更新和历史边激活的影响 |
+| `sam_no_summary` | 保留 SAM 其他机制，但移除 query summary memory node | 摘要记忆节点是否带来增益 |
+| `sam_with_summary` | 在 SAM 中启用 query summary memory node | 摘要层级是否能帮助或干扰图扩展 |
 
 从 300 条 HotpotQA 实验看，`sam_full` 相比 Embedding Top-k 多命中 12 个支持证据，答案命中率从 0.547 提升到 0.577。`sam_no_graph` 的平均路径长度为 1.00，答案命中率回落到 0.557，说明图扩展对多跳问答中的间接证据补充有实际作用。`sam_full` 与 `sam_no_multipath`、`sam_no_memory_state` 的差异相对较小，说明下一阶段需要继续优化多路径重排权重、记忆状态衰减函数和 embedding 表示质量。
 

@@ -135,6 +135,55 @@ class GraphBuilder:
         self.store.upsert_edges(created)
         return created
 
+    def bootstrap_summary_edges(self, summary_nodes: list[MemoryNode]) -> list[MemoryEdge]:
+        """连接摘要记忆节点和其覆盖的原始文档节点。"""
+
+        created: list[MemoryEdge] = []
+        for summary_node in summary_nodes:
+            child_node_ids = [
+                str(node_id)
+                for node_id in summary_node.metadata.get("child_node_ids", [])
+            ]
+            if not child_node_ids:
+                continue
+            now = utc_now_iso()
+            for child_id in child_node_ids:
+                summary_to_child = MemoryEdge(
+                    source_id=summary_node.id,
+                    target_id=child_id,
+                    relation_type="summary_parent",
+                    weight=0.32,
+                    reason="摘要记忆节点覆盖该候选文档，用于层级联想扩展",
+                    created_at=now,
+                    updated_at=now,
+                    activation_count=0,
+                    last_activated_at=None,
+                    metadata={
+                        "query_id": summary_node.metadata.get("query_id"),
+                        "summary_node_id": summary_node.id,
+                        "child_node_id": child_id,
+                        "score_breakdown": {
+                            "hierarchy_score": 0.32,
+                            "relation_source": "query_summary_memory",
+                        },
+                    },
+                )
+                child_to_summary = MemoryEdge(
+                    source_id=child_id,
+                    target_id=summary_node.id,
+                    relation_type="summary_child",
+                    weight=0.32,
+                    reason="候选文档归属于该摘要记忆节点，用于从局部证据回到上下文摘要",
+                    created_at=now,
+                    updated_at=now,
+                    activation_count=0,
+                    last_activated_at=None,
+                    metadata=summary_to_child.metadata,
+                )
+                created.extend([summary_to_child, child_to_summary])
+        self.store.upsert_edges(created)
+        return created
+
     def _maybe_create_edge(self, seed: MemoryNode, other: MemoryNode) -> MemoryEdge | None:
         edge_score = self._score_candidate_edge(seed, other)
         if edge_score.relation_type is None:

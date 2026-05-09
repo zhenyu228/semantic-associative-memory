@@ -503,6 +503,70 @@ def documents_to_nodes(
     return nodes
 
 
+def build_query_summary_nodes(
+    document_nodes: list[MemoryNode],
+    embedding_provider: EmbeddingProvider,
+) -> list[MemoryNode]:
+    """为每个查询上下文创建摘要记忆节点。
+
+    摘要节点不是 gold evidence，只作为层级图中的中间记忆，帮助 SAM
+    从一个种子文档跳转到同题上下文中的相关文档。
+    """
+
+    groups: dict[str, list[MemoryNode]] = {}
+    for node in document_nodes:
+        query_id = node.metadata.get("query_id")
+        if query_id:
+            groups.setdefault(str(query_id), []).append(node)
+
+    summary_nodes: list[MemoryNode] = []
+    for query_id, nodes in groups.items():
+        ordered_nodes = sorted(nodes, key=lambda node: str(node.metadata.get("paragraph_index", node.id)))
+        title_terms = [str(node.metadata.get("title", "")) for node in ordered_nodes]
+        keyword_terms = sorted({keyword for node in ordered_nodes for keyword in node.keywords[:6]})
+        summary_text = "\n".join(
+            f"{node.metadata.get('title', node.id)}: {node.summary}"
+            for node in ordered_nodes
+        )
+        text = (
+            f"查询上下文摘要：{query_id}\n"
+            f"候选标题：{'; '.join(title_terms)}\n"
+            f"关键词：{', '.join(keyword_terms[:32])}\n"
+            f"{summary_text}"
+        )
+        node_id = stable_id("summary", query_id)
+        summary_nodes.append(
+            MemoryNode(
+                id=node_id,
+                text=text,
+                summary=text[:240],
+                keywords=extract_keywords(text, limit=16),
+                tags=["summary_memory", *sorted({tag for node in ordered_nodes for tag in node.tags})],
+                source="SAM query summary memory",
+                created_at=utc_now_iso(),
+                last_accessed_at=None,
+                usage_count=0,
+                confidence=0.78,
+                embedding=embedding_provider.embed(text),
+                metadata={
+                    "node_type": "query_summary",
+                    "query_id": query_id,
+                    "dataset": ordered_nodes[0].metadata.get("dataset"),
+                    "title": f"Query summary: {query_id}",
+                    "child_node_ids": [node.id for node in ordered_nodes],
+                    "child_original_doc_ids": [
+                        str(node.metadata.get("original_doc_id"))
+                        for node in ordered_nodes
+                        if node.metadata.get("original_doc_id")
+                    ],
+                    "child_titles": title_terms,
+                    "summary_strategy": "title_keyword_context_summary",
+                },
+            )
+        )
+    return summary_nodes
+
+
 def write_dataset_manifest(path: str | Path) -> None:
     target = Path(path)
     target.parent.mkdir(parents=True, exist_ok=True)
