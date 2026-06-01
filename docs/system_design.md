@@ -432,13 +432,15 @@ final_score = semantic_score + graph_score + path_quality + memory_state + feedb
 
 - `AnalogyEngine`：把同一任务或同一查询上下文下的记忆组织为历史案例，综合查询语义相似度、关键词重叠、案例内部关系类型和关系路径模式，返回可类比的历史案例，并生成可注入 LLM 的提示文本。新增的 `relation_pattern` 参数用于表达当前问题激活出的关系链，例如 `shared_entity -> keyword_overlap`；系统会在历史案例内部枚举短路径并计算路径模式匹配分。
 - `SharedMemoryCoordinator`：提供多智能体共享记忆接口，将记忆分为 `global_insight`、`session`、`interaction` 三层，分别对应开题报告中的全局洞察层、会话层和交互细节层。不同智能体可以向共享记忆写入内容，也可以按层级和会话查询相关记忆。当前还支持 `write_handoff()`，用于把规划智能体、检索智能体、写作智能体等角色的中间结论定向传递给下一个智能体，查询时可以按目标智能体过滤，避免不同角色的过程记忆混杂。
+- `MultiAgentResearchWorkflow`：将 planner、retriever、writer、verifier 四个角色串成一个可运行协作流程。planner 写入全局规划记忆，retriever 将检索证据 handoff 给 writer，writer 读取共享记忆并生成答案，verifier 再读取 writer 的 handoff 进行验证。脚本 `scripts/run_agent_workflow.py` 会输出 `agent_workflow.json` 和 `agent_workflow.md`，用于检查每个角色是否实际读写了共享记忆。
 - `AzureOpenAIEmbeddingProvider`：支持通过环境变量接入 Azure OpenAI 兼容 embedding 服务，使后续实验可以从本地哈希 embedding 切换到正式语义表示模型。
 
-当前 P6 已从“接口占位”推进到“可测试原型”：单元测试覆盖了关系路径匹配优先级和智能体定向 handoff 过滤。后续需要增加：
+当前 P6 已从“接口占位”推进到“可测试原型”：单元测试覆盖了关系路径匹配优先级、智能体定向 handoff 过滤和四角色协作流程。后续需要增加：
 
 - 类比触发率、类比案例命中率和类比后答案提升等指标。
-- 多智能体协作任务，例如规划智能体、检索智能体和写作智能体共享同一记忆库。
 - 基于 GPT-5.4 的最终答案生成和类比提示效果评测。
+
+多智能体协作 smoke run 已完成，路径为 `outputs/runs/analogy_generation_smoke/agent_workflow/`。在启发式本地生成器下，3 条样本均完成 planner -> retriever -> writer -> verifier 四步，且每条样本写入 4 个共享记忆节点；由于本地生成器不代表真实 GPT-5.4 能力，verifier 通过率为 0.000。该结果用于验证协作记忆链路可运行，正式结论需要接入 GPT-5.4 后重跑。
 
 ### P7：检索-生成闭环与 Bad Case 驱动改进
 

@@ -14,6 +14,7 @@ if str(SRC) not in sys.path:
 
 from sam.datasets import load_builtin_benchmark_sample, load_novelqa_sample
 from sam.dataset_format import load_sam_dataset, save_sam_dataset, summarize_sam_dataset
+from sam.agent_workflow import MultiAgentResearchWorkflow, write_agent_workflow_reports
 from sam.agents import SharedMemoryCoordinator
 from sam.analogy import AnalogyEngine
 from sam.badcase import BadCaseAnalyzer, write_bad_case_reports
@@ -562,6 +563,55 @@ class SamCoreTest(unittest.TestCase):
         self.assertEqual(writer_hits[0].metadata["target_agent_id"], "writer")
         self.assertEqual(writer_hits[0].metadata["source_agent_id"], "planner")
         self.assertEqual(writer_hits[0].metadata["task_id"], "task-bridge")
+
+    def test_multi_agent_workflow_uses_shared_handoffs(self) -> None:
+        class EvidenceAwareChatClient(ChatClient):
+            def complete(self, messages: list[dict[str, object]], max_tokens: int = 500) -> str:
+                prompt = "\n".join(str(message.get("content", "")) for message in messages)
+                if "writer handoff" in prompt:
+                    return "author"
+                return "证据不足"
+
+        case = {
+            "query_id": "workflow_case",
+            "question": "Which answer is identified by the writer handoff?",
+            "answer": "author",
+            "support_hits_by_method": {"sam_full": 1},
+            "final_answers": {"sam_full": {"status": "found_in_retrieved_context"}},
+            "methods": {
+                "sam_full": [
+                    {
+                        "title": "Workflow evidence",
+                        "text": "The writer handoff says the answer is author.",
+                        "reason": "向量种子节点 -> shared_entity",
+                        "candidate_paths": [{"relation_type": "shared_entity"}],
+                        "is_supporting": True,
+                    }
+                ]
+            },
+        }
+        coordinator = SharedMemoryCoordinator(self.store, self.embedding)
+        workflow = MultiAgentResearchWorkflow(
+            coordinator=coordinator,
+            generator=ContextAnswerGenerator(EvidenceAwareChatClient()),
+            method="sam_full",
+        )
+
+        result = workflow.run_case(case)
+
+        self.assertEqual(result["query_id"], "workflow_case")
+        self.assertEqual(
+            [step["agent_id"] for step in result["agent_steps"]],
+            ["planner", "retriever", "writer", "verifier"],
+        )
+        self.assertTrue(result["shared_memory_node_ids"])
+        self.assertTrue(result["writer_memory"])
+        self.assertTrue(result["verifier"]["answer_hit"])
+        self.assertEqual(result["verifier"]["status"], "passed")
+        output_dir = Path(self.temp_dir.name) / "agent_workflow"
+        json_path, markdown_path = write_agent_workflow_reports([result], output_dir)
+        self.assertTrue(json_path.exists())
+        self.assertTrue(markdown_path.exists())
 
     def test_generation_and_badcase_reports_are_written(self) -> None:
         result = self.evaluator.evaluate(
