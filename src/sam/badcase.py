@@ -1,0 +1,190 @@
+from __future__ import annotations
+
+import json
+from dataclasses import dataclass, field
+from pathlib import Path
+
+
+@dataclass(slots=True)
+class BadCase:
+    """实验失败样本分析结果。"""
+
+    query_id: str
+    question: str
+    gold_answer: str
+    method: str
+    categories: list[str]
+    diagnosis: str
+    recommendation: str
+    metadata: dict[str, object] = field(default_factory=dict)
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "query_id": self.query_id,
+            "question": self.question,
+            "gold_answer": self.gold_answer,
+            "method": self.method,
+            "categories": self.categories,
+            "diagnosis": self.diagnosis,
+            "recommendation": self.recommendation,
+            "metadata": self.metadata,
+        }
+
+
+class BadCaseAnalyzer:
+    """根据 cases.json 分析 SAM 当前失败原因。"""
+
+    def analyze(
+        self,
+        cases: list[dict[str, object]],
+        *,
+        method: str = "sam_full",
+    ) -> list[BadCase]:
+        bad_cases: list[BadCase] = []
+        for case in cases:
+            resolved_method = _resolve_method(case, method)
+            if not resolved_method:
+                continue
+            categories = _case_categories(case, resolved_method)
+            if not categories:
+                continue
+            bad_cases.append(
+                BadCase(
+                    query_id=str(case.get("query_id", "")),
+                    question=str(case.get("question", "")),
+                    gold_answer=str(case.get("answer", "")),
+                    method=resolved_method,
+                    categories=categories,
+                    diagnosis=_diagnosis(categories),
+                    recommendation=_recommendation(categories),
+                    metadata={
+                        "supporting_doc_count": len(case.get("supporting_doc_ids", [])),
+                        "method_support_hits": _support_hits(case, resolved_method),
+                        "vector_support_hits": case.get("vector_support_hits", 0),
+                    },
+                )
+            )
+        bad_cases.sort(key=lambda item: (len(item.categories), item.query_id), reverse=True)
+        return bad_cases
+
+
+def write_bad_case_reports(
+    bad_cases: list[BadCase],
+    output_dir: str | Path,
+) -> tuple[Path, Path]:
+    target = Path(output_dir)
+    target.mkdir(parents=True, exist_ok=True)
+    json_path = target / "bad_cases.json"
+    markdown_path = target / "bad_cases.md"
+    json_path.write_text(
+        json.dumps([case.to_dict() for case in bad_cases], ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    lines = [
+        "# Bad Case 分析",
+        "",
+        f"- 失败样本数：{len(bad_cases)}",
+        "",
+        "| Query | 类型 | 诊断 | 改进建议 |",
+        "| --- | --- | --- | --- |",
+    ]
+    for case in bad_cases:
+        lines.append(
+            "| "
+            + " | ".join(
+                [
+                    case.query_id,
+                    ", ".join(case.categories),
+                    case.diagnosis.replace("|", "/"),
+                    case.recommendation.replace("|", "/"),
+                ]
+            )
+            + " |"
+        )
+    markdown_path.write_text("\n".join(lines), encoding="utf-8")
+    return json_path, markdown_path
+
+
+def _resolve_method(case: dict[str, object], preferred: str) -> str | None:
+    methods = case.get("methods", {})
+    if not isinstance(methods, dict):
+        return None
+    if preferred in methods:
+        return preferred
+    if "sam" in methods:
+        return "sam"
+    for method in methods:
+        if str(method).startswith("sam"):
+            return str(method)
+    return None
+
+
+def _case_categories(case: dict[str, object], method: str) -> list[str]:
+    categories: list[str] = []
+    supporting_count = len(case.get("supporting_doc_ids", []))
+    method_support_hits = _support_hits(case, method)
+    vector_support_hits = int(case.get("vector_support_hits", 0) or 0)
+    final_answers = case.get("final_answers", {})
+    answer_status = ""
+    if isinstance(final_answers, dict) and isinstance(final_answers.get(method), dict):
+        answer_status = str(final_answers[method].get("status", ""))
+    methods = case.get("methods", {})
+    hits = methods.get(method, []) if isinstance(methods, dict) else []
+    path_lengths = [
+        len(hit.get("path", []))
+        for hit in hits
+        if isinstance(hit, dict)
+    ]
+    non_support_graph_hits = [
+        hit for hit in hits
+        if isinstance(hit, dict)
+        and not hit.get("is_supporting")
+        and len(hit.get("path", [])) > 1
+    ]
+
+    if supporting_count and method_support_hits < supporting_count:
+        categories.append("missing_support_evidence")
+    if answer_status and answer_status not in {"found_in_retrieved_context", "matched_option"}:
+        categories.append("answer_not_covered")
+    if path_lengths and max(path_lengths) <= 1 and supporting_count:
+        categories.append("graph_not_used")
+    if method_support_hits < vector_support_hits:
+        categories.append("worse_than_vector")
+    if non_support_graph_hits and method_support_hits < supporting_count:
+        categories.append("graph_noise")
+    return categories
+
+
+def _support_hits(case: dict[str, object], method: str) -> int:
+    support_hits_by_method = case.get("support_hits_by_method", {})
+    if isinstance(support_hits_by_method, dict):
+        return int(support_hits_by_method.get(method, 0) or 0)
+    return 0
+
+
+def _diagnosis(categories: list[str]) -> str:
+    if "worse_than_vector" in categories:
+        return "图扩展或重排把有效向量候选挤出 top-k。"
+    if "graph_noise" in categories:
+        return "图扩展引入了非支持证据，说明边质量或路径权重需要约束。"
+    if "graph_not_used" in categories:
+        return "结果主要停留在初始召回，联想扩展没有进入最终答案上下文。"
+    if "missing_support_evidence" in categories:
+        return "支持证据链没有被完整召回，当前检索上下文不足。"
+    if "answer_not_covered" in categories:
+        return "检索文本未覆盖标准答案，生成阶段缺少必要证据。"
+    return "失败原因需要结合案例进一步人工检查。"
+
+
+def _recommendation(categories: list[str]) -> str:
+    if "worse_than_vector" in categories:
+        return "增加保底向量候选比例，并在重排中惩罚低置信噪声路径。"
+    if "graph_noise" in categories:
+        return "引入 LLM 关系判断或更强实体链接，降低弱关键词边权重。"
+    if "graph_not_used" in categories:
+        return "提高有效边覆盖率，增加二跳路径候选和路径支持分权重。"
+    if "missing_support_evidence" in categories:
+        return "优化初始 embedding 召回和按需建边策略，补充跨文档桥接边。"
+    if "answer_not_covered" in categories:
+        return "接入生成式答案模块，并扩大可用证据上下文。"
+    return "保留该样本进入人工误差分析集合。"

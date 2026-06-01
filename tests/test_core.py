@@ -16,9 +16,12 @@ from sam.datasets import load_builtin_benchmark_sample, load_novelqa_sample
 from sam.dataset_format import load_sam_dataset, save_sam_dataset, summarize_sam_dataset
 from sam.agents import SharedMemoryCoordinator
 from sam.analogy import AnalogyEngine
+from sam.badcase import BadCaseAnalyzer, write_bad_case_reports
 from sam.embedding import AzureOpenAIEmbeddingProvider, LocalHashEmbeddingProvider, create_embedding_provider
 from sam.evaluator import Evaluator
+from sam.generation import ContextAnswerGenerator, write_generation_reports
 from sam.graph import GraphBuilder
+from sam.llm import HeuristicChatClient
 from sam.retriever import Retriever
 from sam.store import MemoryStore
 
@@ -181,6 +184,7 @@ class SamCoreTest(unittest.TestCase):
             "sam_no_summary",
             "sam_with_summary",
             "sam_no_feedback",
+            "sam_vector_anchor",
         ]:
             hits = retriever.retrieve(
                 query.question,
@@ -398,6 +402,56 @@ class SamCoreTest(unittest.TestCase):
         self.assertTrue(all(hit.usage_count == 0 for hit in hits))
         updated = self.store.get_nodes([hit.id for hit in hits])
         self.assertTrue(all(node.usage_count >= 1 for node in updated))
+
+    def test_generation_and_badcase_reports_are_written(self) -> None:
+        result = self.evaluator.evaluate(
+            self.queries,
+            top_k=2,
+            seed_k=1,
+            hops=2,
+            methods=["embedding_topk", "sam_full"],
+        )
+        report_dir = Path(self.temp_dir.name) / "reports"
+        self.evaluator.write_reports(result, report_dir)
+        self.assertTrue((report_dir / "bad_cases.json").exists())
+        self.assertTrue((report_dir / "bad_cases.md").exists())
+        first_case = result.cases[0]
+        self.assertIn("text", first_case["methods"]["sam_full"][0])
+
+        generator = ContextAnswerGenerator(HeuristicChatClient())
+        generated = generator.generate_for_case(first_case, method="sam_full")
+        self.assertEqual(generated.query_id, first_case["query_id"])
+        self.assertTrue(generated.generated_answer)
+        json_path, markdown_path = write_generation_reports([generated], report_dir)
+        self.assertTrue(json_path.exists())
+        self.assertTrue(markdown_path.exists())
+
+    def test_badcase_analyzer_classifies_missing_support(self) -> None:
+        cases = [
+            {
+                "query_id": "q1",
+                "question": "question",
+                "answer": "answer",
+                "supporting_doc_ids": ["d1", "d2"],
+                "vector_support_hits": 2,
+                "support_hits_by_method": {"sam_full": 1},
+                "final_answers": {"sam_full": {"status": "not_found_in_retrieved_context"}},
+                "methods": {
+                    "sam_full": [
+                        {"is_supporting": False, "path": ["a", "b"]},
+                        {"is_supporting": True, "path": ["c"]},
+                    ]
+                },
+            }
+        ]
+        bad_cases = BadCaseAnalyzer().analyze(cases, method="sam_full")
+        self.assertEqual(len(bad_cases), 1)
+        self.assertIn("missing_support_evidence", bad_cases[0].categories)
+        self.assertIn("worse_than_vector", bad_cases[0].categories)
+        output_dir = Path(self.temp_dir.name) / "badcase"
+        json_path, markdown_path = write_bad_case_reports(bad_cases, output_dir)
+        self.assertTrue(json_path.exists())
+        self.assertTrue(markdown_path.exists())
 
     def test_sam_dataset_format_round_trip(self) -> None:
         documents, queries = load_builtin_benchmark_sample()

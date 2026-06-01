@@ -379,6 +379,7 @@ HTML 可视化应重点展示：
 | `sam_no_summary` | 保留 SAM 其他机制，但移除 query summary memory node | 摘要记忆节点是否带来增益 |
 | `sam_with_summary` | 在 SAM 中启用 query summary memory node | 摘要层级是否能帮助或干扰图扩展 |
 | `sam_no_feedback` | 检索逻辑同 SAM-full，但不执行反馈强化/抑制 | FeedbackUpdater 是否带来跨查询记忆收益 |
+| `sam_vector_anchor` | 保留更多初始向量候选作为锚点，再进行图扩展重排 | 防止噪声图路径挤出有效向量证据 |
 
 隔离评测 300 条实验中，SAM-full 的证据召回率为 0.603，答案命中率为 0.597；Embedding Top-k 为 0.572 / 0.547；`sam_no_graph` 为 0.578 / 0.553。该结果说明图扩展是当前 SAM 的主要有效模块。`sam_with_summary` 为 0.592 / 0.570，低于 SAM-full，说明摘要记忆节点需要更细粒度构造和更强路径重排，不能简单作为中心节点连接所有候选文档。`sam_full` 与 `sam_no_multipath`、`sam_no_memory_state` 的差异相对较小，说明下一阶段需要继续优化多路径重排权重、记忆状态衰减函数和 feedback 更新机制。
 
@@ -438,6 +439,25 @@ final_score = semantic_score + graph_score + path_quality + memory_state + feedb
 - 类比触发率、类比案例命中率和类比后答案提升等指标。
 - 多智能体协作任务，例如规划智能体、检索智能体和写作智能体共享同一记忆库。
 - 基于 GPT-5.4 的最终答案生成和类比提示效果评测。
+
+### P7：检索-生成闭环与 Bad Case 驱动改进
+
+开题计划中的系统最终应形成“记忆检索 -> 证据组织 -> 答案生成 -> 结果反馈”的闭环。当前已补充：
+
+- `AzureOpenAIChatClient`：通过环境变量接入 GPT-5.4 兼容接口。
+- `ContextAnswerGenerator`：读取检索命中的上下文，构造证据约束 prompt，调用聊天模型生成最终答案。
+- `scripts/generate_answers.py`：可对任意 run 的 `cases.json` 进行生成式答案评测，输出 `generated_answers.json` 和 `generated_answers.md`。
+- `BadCaseAnalyzer`：每次实验自动输出 `bad_cases.json` 与 `bad_cases.md`，将失败样本归因为支持证据缺失、答案未覆盖、图扩展未使用、图噪声、弱于向量召回等类型。
+
+基于 HotpotQA 30 条 bad case，当前主要问题是图扩展有时会把有效向量候选挤出 top-k。为验证改进方向，新增 `sam_vector_anchor` 实验模式：保留更多初始向量候选作为锚点，再进行图扩展重排。30 条对比结果如下：
+
+| 方法 | 证据召回率 | 答案命中率 |
+| --- | ---: | ---: |
+| Embedding Top-k | 0.483 | 0.400 |
+| SAM-full | 0.517 | 0.400 |
+| SAM-vector-anchor | 0.500 | 0.433 |
+
+该结果说明向量锚点机制能提升答案覆盖，但会牺牲部分证据召回。因此它暂时保留为实验模式，不替换 SAM-full。后续需要进一步做自适应锚点：当图路径置信度不足时保留更多向量候选，当图路径质量较高时允许更多联想扩展结果进入 top-k。
 
 ## 9. 两周推进建议
 

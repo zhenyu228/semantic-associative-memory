@@ -5,6 +5,7 @@ import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
+from sam.badcase import BadCaseAnalyzer, write_bad_case_reports
 from sam.datasets import build_query_summary_nodes, documents_to_nodes
 from sam.embedding import EmbeddingProvider
 from sam.graph import GraphBuilder
@@ -340,6 +341,8 @@ class Evaluator:
             self._ablation_to_markdown(result),
             encoding="utf-8",
         )
+        bad_cases = BadCaseAnalyzer().analyze(result.cases)
+        write_bad_case_reports(bad_cases, output_dir)
         memory_events = self.store.get_memory_events()
         (output_dir / "memory_events.json").write_text(
             json.dumps(memory_events, ensure_ascii=False, indent=2),
@@ -378,6 +381,7 @@ class Evaluator:
                 "recency_score": hit.metadata.get("recency_score", 0.0),
                 "candidate_path_count": hit.metadata.get("candidate_path_count", 1),
                 "candidate_paths": hit.metadata.get("candidate_paths", []),
+                "text": hit.node.text,
             }
             for hit in hits
         ]

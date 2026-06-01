@@ -1,0 +1,55 @@
+from __future__ import annotations
+
+import argparse
+import json
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+SRC = ROOT / "src"
+if str(SRC) not in sys.path:
+    sys.path.insert(0, str(SRC))
+
+from sam.generation import ContextAnswerGenerator, generate_answers_for_cases, write_generation_reports  # noqa: E402
+from sam.llm import create_chat_client  # noqa: E402
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="基于 cases.json 生成最终答案并评测")
+    parser.add_argument("--cases-file", required=True, help="run 目录中的 cases.json")
+    parser.add_argument("--method", default="sam_full", help="用于生成答案的检索方法")
+    parser.add_argument("--chat-provider", default=None, help="heuristic 或 azure_openai")
+    parser.add_argument("--limit", type=int, default=None, help="最多生成多少条")
+    parser.add_argument("--output-dir", default=None, help="输出目录，默认写到 cases.json 所在目录")
+    parser.add_argument("--max-context-chars", type=int, default=6000, help="每条样本最多使用的上下文字符数")
+    return parser.parse_args()
+
+
+def main() -> None:
+    args = parse_args()
+    cases_path = ROOT / args.cases_file if not Path(args.cases_file).is_absolute() else Path(args.cases_file)
+    cases = json.loads(cases_path.read_text(encoding="utf-8"))
+    output_dir = (
+        ROOT / args.output_dir
+        if args.output_dir and not Path(args.output_dir).is_absolute()
+        else Path(args.output_dir) if args.output_dir else cases_path.parent
+    )
+    chat_client = create_chat_client(args.chat_provider)
+    generator = ContextAnswerGenerator(chat_client, max_context_chars=args.max_context_chars)
+    answers = generate_answers_for_cases(
+        cases,
+        generator,
+        method=args.method,
+        limit=args.limit,
+    )
+    json_path, markdown_path = write_generation_reports(answers, output_dir)
+    hit_count = sum(1 for answer in answers if answer.answer_hit)
+    hit_rate = hit_count / len(answers) if answers else 0.0
+    print(f"生成完成：{len(answers)} 条")
+    print(f"答案命中率：{hit_rate:.3f}")
+    print(f"JSON：{json_path}")
+    print(f"Markdown：{markdown_path}")
+
+
+if __name__ == "__main__":
+    main()

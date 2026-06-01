@@ -86,11 +86,15 @@ class AzureOpenAIEmbeddingProvider(EmbeddingProvider):
         self.endpoint = os.environ["SAM_AZURE_EMBEDDING_ENDPOINT"].rstrip("/")
         self.api_version = os.environ.get("SAM_AZURE_EMBEDDING_API_VERSION", "2023-07-01-preview")
         self.model = os.environ.get("SAM_AZURE_EMBEDDING_MODEL", "text-embedding-3-large")
+        self.full_url = os.environ.get("SAM_AZURE_EMBEDDING_URL")
+        self.auth_header = os.environ.get("SAM_AZURE_EMBEDDING_AUTH_HEADER", "api-key")
         dimensions = os.environ.get("SAM_AZURE_EMBEDDING_DIMENSIONS")
         self.dimensions = int(dimensions) if dimensions else None
 
     @property
     def request_url(self) -> str:
+        if self.full_url:
+            return self.full_url
         return (
             f"{self.endpoint}/openai/deployments/{self.model}/embeddings"
             f"?api-version={self.api_version}"
@@ -104,7 +108,7 @@ class AzureOpenAIEmbeddingProvider(EmbeddingProvider):
             self.request_url,
             data=json.dumps(payload).encode("utf-8"),
             headers={
-                "api-key": self.api_key,
+                self.auth_header: self.api_key,
                 "Content-Type": "application/json",
             },
             method="POST",

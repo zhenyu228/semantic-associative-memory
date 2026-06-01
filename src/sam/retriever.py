@@ -25,6 +25,7 @@ RETRIEVAL_METHOD_NAMES = {
     "sam_no_summary": "SAM-no-summary",
     "sam_with_summary": "SAM-with-summary",
     "sam_no_feedback": "SAM-no-feedback",
+    "sam_vector_anchor": "SAM-vector-anchor",
 }
 
 
@@ -38,6 +39,7 @@ class SamRetrievalConfig:
     use_memory_state: bool = True
     update_dynamic_state: bool = True
     use_summary_nodes: bool = False
+    min_vector_keep: int = 1
 
 
 SAM_RETRIEVAL_CONFIGS = {
@@ -53,6 +55,7 @@ SAM_RETRIEVAL_CONFIGS = {
     "sam_no_summary": SamRetrievalConfig(use_summary_nodes=False),
     "sam_with_summary": SamRetrievalConfig(use_summary_nodes=True),
     "sam_no_feedback": SamRetrievalConfig(),
+    "sam_vector_anchor": SamRetrievalConfig(min_vector_keep=2),
 }
 
 
@@ -492,12 +495,20 @@ class Retriever:
                 )
             )
         hits.sort(key=lambda hit: hit.score, reverse=True)
-        seed_ids = {hit.node.id for hit in seed_hits}
-        seed_results = [hit for hit in hits if hit.node.id in seed_ids]
-        other_results = [hit for hit in hits if hit.node.id not in seed_ids]
-        # 联想检索以向量种子作为“当前被激活记忆”，不能在扩展后把种子挤掉。
-        # 否则图扩展会变成替代检索，而不是开题报告中的“种子激活 + 语义扩散”。
-        ranked = [*seed_results, *other_results]
+        anchor_ids = {
+            hit.node.id
+            for hit in vector_hits[: max(len(seed_hits), config.min_vector_keep)]
+        }
+        anchor_results_by_id = {hit.node.id: hit for hit in hits if hit.node.id in anchor_ids}
+        anchor_results = [
+            anchor_results_by_id[vector_hit.node.id]
+            for vector_hit in vector_hits
+            if vector_hit.node.id in anchor_results_by_id
+        ]
+        other_results = [hit for hit in hits if hit.node.id not in anchor_ids]
+        # 联想检索以向量候选作为“当前被激活记忆”，需要保留少量锚点。
+        # Bad case 显示：若完全按图扩展重排，噪声路径可能把原本有效的向量证据挤出 top-k。
+        ranked = [*anchor_results, *other_results]
         document_hits = [hit for hit in ranked if hit.node.metadata.get("node_type") != "query_summary"]
         if len(document_hits) >= top_k:
             return document_hits[:top_k]
@@ -598,7 +609,7 @@ def _normalize_mode(mode: str) -> str:
     return aliases.get(mode, mode)
 
 
-def _sam_config_payload(config: SamRetrievalConfig) -> dict[str, bool]:
+def _sam_config_payload(config: SamRetrievalConfig) -> dict[str, object]:
     return {
         "use_graph": config.use_graph,
         "build_graph_on_demand": config.build_graph_on_demand,
@@ -606,6 +617,7 @@ def _sam_config_payload(config: SamRetrievalConfig) -> dict[str, bool]:
         "use_memory_state": config.use_memory_state,
         "update_dynamic_state": config.update_dynamic_state,
         "use_summary_nodes": config.use_summary_nodes,
+        "min_vector_keep": config.min_vector_keep,
     }
 
 
