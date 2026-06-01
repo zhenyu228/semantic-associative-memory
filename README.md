@@ -90,6 +90,7 @@ SAM/
 │   ├── generate_answers.py
 │   ├── prepare_hotpotqa.py
 │   ├── prepare_novelqa.py
+│   ├── run_analogy_reuse_experiment.py
 │   ├── run_memory_reuse_experiment.py
 │   ├── run_agent_workflow.py
 │   └── run_demo.py
@@ -242,6 +243,17 @@ conda run -n sam python scripts/run_memory_reuse_experiment.py \
 ```
 
 该实验先用 SAM warmup 生成巩固记忆，再在 probe 阶段移除候选集中的 gold 支持文档，验证系统能否通过历史巩固记忆把证据补回来。结果写入 `memory_reuse_results.json` 和 `memory_reuse_results.md`。
+
+运行类比复用实验：
+
+```bash
+conda run -n sam python scripts/run_analogy_reuse_experiment.py \
+  --dataset-file data/processed/hotpotqa_sam_sample.json \
+  --run-name analogy_reuse_hotpotqa30 \
+  --limit 30
+```
+
+该实验同样先 warmup 生成巩固记忆，再用 masked probe 查询类比检索历史案例，统计是否命中对应的巩固案例以及是否覆盖真实支持证据。
 
 ## 数据集
 

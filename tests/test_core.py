@@ -17,6 +17,7 @@ from sam.dataset_format import load_sam_dataset, save_sam_dataset, summarize_sam
 from sam.agent_workflow import MultiAgentResearchWorkflow, write_agent_workflow_reports
 from sam.agents import SharedMemoryCoordinator
 from sam.analogy import AnalogyEngine
+from sam.analogy_experiment import run_analogy_reuse_probe
 from sam.badcase import BadCaseAnalyzer, write_bad_case_reports
 from sam.consolidation import MemoryConsolidator
 from sam.embedding import (
@@ -833,6 +834,45 @@ class SamCoreTest(unittest.TestCase):
             ["shared_entity", "keyword_overlap"],
         )
         self.assertIn("关系路径", matches[0].prompt_hint)
+
+    def test_analogy_engine_exposes_consolidated_case_metadata(self) -> None:
+        self.evaluator.evaluate(
+            self.queries[:1],
+            top_k=3,
+            seed_k=1,
+            hops=2,
+            methods=["sam_full"],
+        )
+        engine = AnalogyEngine(self.store, self.embedding, self.graph)
+
+        matches = engine.retrieve_cases(
+            f"Use previous evidence pattern to answer: {self.queries[0].question}",
+            top_k=1,
+        )
+
+        self.assertTrue(matches)
+        self.assertEqual(matches[0].case_id, self.queries[0].id)
+        self.assertEqual(matches[0].metadata["is_consolidated_case"], True)
+        self.assertEqual(matches[0].metadata["case_answer"], self.queries[0].answer)
+        self.assertTrue(matches[0].metadata["support_node_ids"])
+
+    def test_analogy_reuse_probe_hits_consolidated_source_case(self) -> None:
+        self.evaluator.evaluate(
+            self.queries[:1],
+            top_k=3,
+            seed_k=1,
+            hops=2,
+            methods=["sam_full"],
+        )
+        masked = build_masked_queries(self.queries[:1])
+        engine = AnalogyEngine(self.store, self.embedding, self.graph)
+
+        result = run_analogy_reuse_probe(engine, masked, top_k=1)
+
+        self.assertEqual(result["query_count"], 1)
+        self.assertEqual(result["consolidated_case_hit_count"], 1)
+        self.assertEqual(result["support_overlap_hit_count"], 1)
+        self.assertTrue(result["cases"][0]["top_match"]["is_consolidated_case"])
 
     def test_shared_memory_coordinator_writes_layered_agent_memory(self) -> None:
         coordinator = SharedMemoryCoordinator(self.store, self.embedding)

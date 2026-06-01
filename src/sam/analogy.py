@@ -85,6 +85,7 @@ class AnalogyEngine:
                 key=lambda node: cosine_similarity(query_embedding, node.embedding),
                 reverse=True,
             )[:3]
+            consolidated_metadata = _consolidated_case_metadata(nodes)
             matches.append(
                 AnalogyMatch(
                     case_id=case_id,
@@ -103,6 +104,7 @@ class AnalogyEngine:
                         "best_node_id": matched_nodes[0].id if matched_nodes else None,
                         "path_pattern_score": round(path_pattern_score, 4),
                         "matched_relation_path": matched_relation_path,
+                        **consolidated_metadata,
                     },
                 )
             )
@@ -257,6 +259,42 @@ def _build_prompt_hint(
         f"共同线索为：{keyword_text}。{path_text}"
         "可以参考该案例中的证据连接方式组织当前推理。"
     )
+
+
+def _consolidated_case_metadata(nodes: list[MemoryNode]) -> dict[str, object]:
+    consolidated_nodes = [
+        node for node in nodes
+        if node.metadata.get("node_type") == "consolidated_memory"
+    ]
+    if not consolidated_nodes:
+        return {
+            "is_consolidated_case": False,
+            "case_answer": None,
+            "support_node_ids": [],
+            "support_titles": [],
+        }
+    consolidated_nodes.sort(key=lambda node: node.confidence, reverse=True)
+    primary = consolidated_nodes[0]
+    return {
+        "is_consolidated_case": True,
+        "case_answer": primary.metadata.get("answer"),
+        "support_node_ids": [
+            str(node_id)
+            for node_id in primary.metadata.get("support_node_ids", [])
+        ],
+        "support_original_doc_ids": [
+            str(node.metadata.get("original_doc_id"))
+            for node in nodes
+            if node.id in set(str(node_id) for node_id in primary.metadata.get("support_node_ids", []))
+            and node.metadata.get("original_doc_id")
+        ],
+        "support_titles": [
+            str(title)
+            for title in primary.metadata.get("support_titles", [])
+        ],
+        "consolidated_node_id": primary.id,
+        "consolidated_confidence": primary.confidence,
+    }
 
 
 def _match_relation_pattern(
