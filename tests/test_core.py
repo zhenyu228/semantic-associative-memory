@@ -39,6 +39,7 @@ from sam.llm import ChatClient, HeuristicChatClient
 from sam.models import MemoryEdge, MemoryNode, utc_now_iso
 from sam.relation_judge import RelationJudgment
 from sam.retriever import Retriever
+from sam.reuse_experiment import build_masked_queries, summarize_memory_reuse
 from sam.store import MemoryStore
 from scripts.run_demo import _nodes_for_graph_export
 
@@ -617,11 +618,21 @@ class SamCoreTest(unittest.TestCase):
             for node in self.store.get_nodes()
             if node.metadata.get("node_type") == "consolidated_memory"
         }
+        consolidated_support_ids = {
+            str(support_id)
+            for node in self.store.get_nodes()
+            if node.metadata.get("node_type") == "consolidated_memory"
+            for support_id in node.metadata.get("support_node_ids", [])
+        }
+        support_original_ids = set(self.queries[0].supporting_doc_ids)
         base_candidate_ids = [
             node.id
             for node in self.store.get_nodes()
             if node.metadata.get("original_doc_id") in self.queries[0].candidate_doc_ids
+            and node.metadata.get("original_doc_id") not in support_original_ids
         ][:2]
+        self.assertTrue(consolidated_support_ids)
+        self.assertFalse(consolidated_support_ids & set(base_candidate_ids))
 
         sam_candidates = self.evaluator._candidate_ids_for_method(
             self.store,
@@ -635,7 +646,30 @@ class SamCoreTest(unittest.TestCase):
         )
 
         self.assertTrue(consolidated_ids & set(sam_candidates))
+        self.assertTrue(consolidated_support_ids & set(sam_candidates))
         self.assertFalse(consolidated_ids & set(vector_candidates))
+        self.assertFalse(consolidated_support_ids & set(vector_candidates))
+
+    def test_memory_reuse_experiment_masks_gold_support(self) -> None:
+        masked = build_masked_queries(self.queries[:1])
+
+        self.assertEqual(masked[0].supporting_doc_ids, self.queries[0].supporting_doc_ids)
+        self.assertFalse(set(masked[0].supporting_doc_ids) & set(masked[0].candidate_doc_ids))
+        self.assertEqual(masked[0].metadata["reuse_probe"], True)
+
+    def test_memory_reuse_summary_reports_gain(self) -> None:
+        baseline = {"support_hits": 0, "evidence_recall": 0.0}
+        sam = {"support_hits": 2, "evidence_recall": 1.0}
+
+        summary = summarize_memory_reuse(
+            warmup_consolidated_count=1,
+            warmup_consolidation_edge_count=2,
+            baseline_metric=baseline,
+            sam_metric=sam,
+        )
+
+        self.assertEqual(summary["support_hit_gain"], 2)
+        self.assertEqual(summary["evidence_recall_gain"], 1.0)
 
     def test_no_feedback_mode_skips_feedback_events(self) -> None:
         self.evaluator.evaluate(

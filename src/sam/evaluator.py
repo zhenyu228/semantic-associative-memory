@@ -341,11 +341,14 @@ class Evaluator:
         candidate_ids = list(base_candidate_ids)
         if not method.startswith("sam"):
             return candidate_ids
-        candidate_ids.extend(
-            node.id
-            for node in store.get_nodes()
-            if node.metadata.get("node_type") == "consolidated_memory"
-        )
+        for node in store.get_nodes():
+            if node.metadata.get("node_type") != "consolidated_memory":
+                continue
+            candidate_ids.append(node.id)
+            candidate_ids.extend(
+                str(support_id)
+                for support_id in node.metadata.get("support_node_ids", [])
+            )
         return list(dict.fromkeys(candidate_ids))
 
     def write_reports(self, result: ExperimentResult, report_dir: str | Path) -> tuple[Path, Path]:

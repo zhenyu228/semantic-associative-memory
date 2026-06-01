@@ -90,6 +90,7 @@ SAM/
 │   ├── generate_answers.py
 │   ├── prepare_hotpotqa.py
 │   ├── prepare_novelqa.py
+│   ├── run_memory_reuse_experiment.py
 │   ├── run_agent_workflow.py
 │   └── run_demo.py
 ├── tests/
@@ -230,6 +231,17 @@ conda run -n sam python scripts/run_agent_workflow.py \
 ```
 
 该命令会输出 `agent_workflow.json` 和 `agent_workflow.md`，记录 planner、retriever、writer、verifier 的步骤、共享记忆节点、writer 使用的记忆和 verifier 验证结果。
+
+运行连续记忆复用实验：
+
+```bash
+conda run -n sam python scripts/run_memory_reuse_experiment.py \
+  --dataset-file data/processed/hotpotqa_sam_sample.json \
+  --run-name memory_reuse_hotpotqa30 \
+  --limit 30
+```
+
+该实验先用 SAM warmup 生成巩固记忆，再在 probe 阶段移除候选集中的 gold 支持文档，验证系统能否通过历史巩固记忆把证据补回来。结果写入 `memory_reuse_results.json` 和 `memory_reuse_results.md`。
 
 ## 数据集
 
