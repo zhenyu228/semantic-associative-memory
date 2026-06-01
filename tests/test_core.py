@@ -17,7 +17,12 @@ from sam.dataset_format import load_sam_dataset, save_sam_dataset, summarize_sam
 from sam.agents import SharedMemoryCoordinator
 from sam.analogy import AnalogyEngine
 from sam.badcase import BadCaseAnalyzer, write_bad_case_reports
-from sam.embedding import AzureOpenAIEmbeddingProvider, LocalHashEmbeddingProvider, create_embedding_provider
+from sam.embedding import (
+    AzureOpenAIEmbeddingProvider,
+    CachedEmbeddingProvider,
+    LocalHashEmbeddingProvider,
+    create_embedding_provider,
+)
 from sam.evaluator import Evaluator
 from sam.generation import ContextAnswerGenerator, write_generation_reports
 from sam.graph import GraphBuilder
@@ -365,6 +370,29 @@ class SamCoreTest(unittest.TestCase):
             self.assertEqual(provider.dimensions, 1024)
             self.assertIn("/openai/deployments/text-embedding-3-large/embeddings", provider.request_url)
             self.assertIn("api-version=2023-07-01-preview", provider.request_url)
+
+    def test_cached_embedding_provider_reuses_vectors(self) -> None:
+        class CountingEmbeddingProvider(LocalHashEmbeddingProvider):
+            def __init__(self) -> None:
+                super().__init__()
+                self.calls = 0
+
+            @property
+            def cache_namespace(self) -> str:
+                return "counting-local"
+
+            def embed(self, text: str) -> list[float]:
+                self.calls += 1
+                return super().embed(text)
+
+        inner = CountingEmbeddingProvider()
+        provider = CachedEmbeddingProvider(inner, Path(self.temp_dir.name) / "embedding_cache.sqlite")
+        first = provider.embed_many(["alpha", "beta", "alpha"])
+        second = provider.embed_many(["alpha", "beta"])
+        provider.close()
+        self.assertEqual(first[0], first[2])
+        self.assertEqual(first[:2], second)
+        self.assertEqual(inner.calls, 2)
 
     def test_analogy_engine_returns_case_hints(self) -> None:
         engine = AnalogyEngine(self.store, self.embedding, self.graph)

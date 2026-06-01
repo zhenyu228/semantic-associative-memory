@@ -448,6 +448,7 @@ final_score = semantic_score + graph_score + path_quality + memory_state + feedb
 - `ContextAnswerGenerator`：读取检索命中的上下文，构造证据约束 prompt，调用聊天模型生成最终答案。
 - `scripts/generate_answers.py`：可对任意 run 的 `cases.json` 进行生成式答案评测，输出 `generated_answers.json` 和 `generated_answers.md`。
 - `BadCaseAnalyzer`：每次实验自动输出 `bad_cases.json` 与 `bad_cases.md`，将失败样本归因为支持证据缺失、答案未覆盖、图扩展未使用、图噪声、弱于向量召回等类型。
+- `CachedEmbeddingProvider`：为在线 embedding 增加 SQLite 缓存和批量去重，`AzureOpenAIEmbeddingProvider` 和 `OpenAIEmbeddingProvider` 支持并发 `embed_many()`。这使 HotpotQA 300 条和 NovelQA chunk 实验可以重复运行而不重复消耗同一批文本的 embedding 额度。
 
 基于 HotpotQA 30 条 bad case，当前主要问题是图扩展有时会把有效向量候选挤出 top-k。为验证改进方向，新增 `sam_vector_anchor` 实验模式：保留更多初始向量候选作为锚点，再进行图扩展重排。30 条对比结果如下：
 

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -45,6 +46,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--case-index", type=int, default=None, help="HTML 页面默认聚焦的 HotpotQA 原始 index")
     parser.add_argument("--rebuild-dataset", action="store_true", help="重新生成 SAM 统一数据格式文件")
     parser.add_argument("--embedding-provider", default=None, help="local、openai 或 azure_openai")
+    parser.add_argument("--embedding-cache", action="store_true", help="启用 SQLite embedding 缓存，默认写入 data/embedding_cache.sqlite")
+    parser.add_argument("--embedding-cache-path", default=None, help="自定义 embedding 缓存 SQLite 路径")
+    parser.add_argument("--embedding-concurrency", type=int, default=None, help="在线 embedding 最大并发数")
     parser.add_argument("--top-k", type=int, default=4, help="最终返回文档数")
     parser.add_argument("--seed-k", type=int, default=1, help="联想检索种子节点数")
     parser.add_argument("--hops", type=int, default=2, help="图扩展跳数")
@@ -115,6 +119,13 @@ def main() -> None:
         except Exception as exc:
             print(f"公开数据集元信息下载失败，使用内置小样本兜底：{exc}")
 
+    if args.embedding_cache:
+        os.environ["SAM_EMBEDDING_CACHE"] = "1"
+    if args.embedding_cache_path:
+        os.environ["SAM_EMBEDDING_CACHE_PATH"] = str(ROOT / args.embedding_cache_path)
+    if args.embedding_concurrency is not None:
+        os.environ["SAM_AZURE_EMBEDDING_CONCURRENCY"] = str(args.embedding_concurrency)
+        os.environ["SAM_OPENAI_EMBEDDING_CONCURRENCY"] = str(args.embedding_concurrency)
     embedding_provider = create_embedding_provider(args.embedding_provider)
     graph_builder = GraphBuilder(store)
     evaluator = Evaluator(store, embedding_provider, graph_builder)

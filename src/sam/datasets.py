@@ -475,8 +475,9 @@ def documents_to_nodes(
     embedding_provider: EmbeddingProvider,
 ) -> list[MemoryNode]:
     nodes: list[MemoryNode] = []
-    for document in documents:
-        text = f"{document.title}\n{document.text}"
+    texts = [f"{document.title}\n{document.text}" for document in documents]
+    embeddings = embedding_provider.embed_many(texts)
+    for document, text, embedding in zip(documents, texts, embeddings, strict=True):
         keywords = document.keywords or extract_keywords(text)
         node_id = stable_id("mem", document.id)
         nodes.append(
@@ -491,7 +492,7 @@ def documents_to_nodes(
                 last_accessed_at=None,
                 usage_count=0,
                 confidence=0.86,
-                embedding=embedding_provider.embed(text),
+                embedding=embedding,
                 metadata={
                     **document.metadata,
                     "original_doc_id": document.id,
@@ -519,7 +520,7 @@ def build_query_summary_nodes(
         if query_id:
             groups.setdefault(str(query_id), []).append(node)
 
-    summary_nodes: list[MemoryNode] = []
+    summary_payloads: list[tuple[str, list[MemoryNode], str, list[str], list[str]]] = []
     for query_id, nodes in groups.items():
         ordered_nodes = sorted(nodes, key=lambda node: str(node.metadata.get("paragraph_index", node.id)))
         title_terms = [str(node.metadata.get("title", "")) for node in ordered_nodes]
@@ -534,6 +535,15 @@ def build_query_summary_nodes(
             f"关键词：{', '.join(keyword_terms[:32])}\n"
             f"{summary_text}"
         )
+        summary_payloads.append((query_id, ordered_nodes, text, title_terms, keyword_terms))
+
+    summary_nodes: list[MemoryNode] = []
+    embeddings = embedding_provider.embed_many([payload[2] for payload in summary_payloads])
+    for (query_id, ordered_nodes, text, _title_terms, _keyword_terms), embedding in zip(
+        summary_payloads,
+        embeddings,
+        strict=True,
+    ):
         node_id = stable_id("summary", query_id)
         summary_nodes.append(
             MemoryNode(
@@ -547,7 +557,7 @@ def build_query_summary_nodes(
                 last_accessed_at=None,
                 usage_count=0,
                 confidence=0.78,
-                embedding=embedding_provider.embed(text),
+                embedding=embedding,
                 metadata={
                     "node_type": "query_summary",
                     "query_id": query_id,

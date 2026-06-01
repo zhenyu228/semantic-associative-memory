@@ -4,8 +4,12 @@ import hashlib
 import json
 import math
 import os
+import sqlite3
+import time
 import urllib.request
 from abc import ABC, abstractmethod
+from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 
 from sam.text import tokenize
 
@@ -17,6 +21,15 @@ class EmbeddingProvider(ABC):
     def embed(self, text: str) -> list[float]:
         raise NotImplementedError
 
+    def embed_many(self, texts: list[str]) -> list[list[float]]:
+        """批量 embedding。默认串行，在线 provider 可覆盖为并发实现。"""
+
+        return [self.embed(text) for text in texts]
+
+    @property
+    def cache_namespace(self) -> str:
+        return self.__class__.__name__
+
 
 class LocalHashEmbeddingProvider(EmbeddingProvider):
     """无需依赖的本地哈希 embedding。
@@ -26,6 +39,10 @@ class LocalHashEmbeddingProvider(EmbeddingProvider):
 
     def __init__(self, dimensions: int = 256) -> None:
         self.dimensions = dimensions
+
+    @property
+    def cache_namespace(self) -> str:
+        return f"local_hash:{self.dimensions}"
 
     def embed(self, text: str) -> list[float]:
         vector = [0.0] * self.dimensions
@@ -53,6 +70,11 @@ class OpenAIEmbeddingProvider(EmbeddingProvider):
         self.api_key = os.environ["OPENAI_API_KEY"]
         self.base_url = os.environ.get("OPENAI_BASE_URL", "https://api.openai.com/v1").rstrip("/")
         self.model = os.environ.get("SAM_OPENAI_EMBEDDING_MODEL", "text-embedding-3-small")
+        self.max_concurrency = int(os.environ.get("SAM_OPENAI_EMBEDDING_CONCURRENCY", "4"))
+
+    @property
+    def cache_namespace(self) -> str:
+        return f"openai:{self.base_url}:{self.model}"
 
     def embed(self, text: str) -> list[float]:
         payload = json.dumps({"model": self.model, "input": text}).encode("utf-8")
@@ -68,6 +90,9 @@ class OpenAIEmbeddingProvider(EmbeddingProvider):
         with urllib.request.urlopen(request, timeout=30) as response:
             data = json.loads(response.read().decode("utf-8"))
         return [float(value) for value in data["data"][0]["embedding"]]
+
+    def embed_many(self, texts: list[str]) -> list[list[float]]:
+        return _parallel_embed(self.embed, texts, self.max_concurrency)
 
 
 class AzureOpenAIEmbeddingProvider(EmbeddingProvider):
@@ -88,8 +113,14 @@ class AzureOpenAIEmbeddingProvider(EmbeddingProvider):
         self.model = os.environ.get("SAM_AZURE_EMBEDDING_MODEL", "text-embedding-3-large")
         self.full_url = os.environ.get("SAM_AZURE_EMBEDDING_URL")
         self.auth_header = os.environ.get("SAM_AZURE_EMBEDDING_AUTH_HEADER", "api-key")
+        self.max_concurrency = int(os.environ.get("SAM_AZURE_EMBEDDING_CONCURRENCY", "4"))
+        self.max_retries = int(os.environ.get("SAM_AZURE_EMBEDDING_MAX_RETRIES", "5"))
         dimensions = os.environ.get("SAM_AZURE_EMBEDDING_DIMENSIONS")
         self.dimensions = int(dimensions) if dimensions else None
+
+    @property
+    def cache_namespace(self) -> str:
+        return f"azure:{self.request_url}:{self.dimensions or 'default'}"
 
     @property
     def request_url(self) -> str:
@@ -113,17 +144,134 @@ class AzureOpenAIEmbeddingProvider(EmbeddingProvider):
             },
             method="POST",
         )
-        with urllib.request.urlopen(request, timeout=60) as response:
-            data = json.loads(response.read().decode("utf-8"))
-        return [float(value) for value in data["data"][0]["embedding"]]
+        for attempt in range(self.max_retries):
+            try:
+                with urllib.request.urlopen(request, timeout=60) as response:
+                    data = json.loads(response.read().decode("utf-8"))
+                return [float(value) for value in data["data"][0]["embedding"]]
+            except Exception:
+                if attempt == self.max_retries - 1:
+                    raise
+                time.sleep(min(8.0, 1.0 + attempt))
+        raise RuntimeError("embedding 请求失败")
+
+    def embed_many(self, texts: list[str]) -> list[list[float]]:
+        return _parallel_embed(self.embed, texts, self.max_concurrency)
+
+
+class CachedEmbeddingProvider(EmbeddingProvider):
+    """SQLite embedding 缓存，避免重复请求在线模型。"""
+
+    def __init__(self, inner: EmbeddingProvider, cache_path: str | Path) -> None:
+        self.inner = inner
+        self.cache_path = Path(cache_path)
+        self.cache_path.parent.mkdir(parents=True, exist_ok=True)
+        self.connection = sqlite3.connect(self.cache_path)
+        self.connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS embedding_cache (
+                cache_key TEXT PRIMARY KEY,
+                namespace TEXT NOT NULL,
+                text_sha1 TEXT NOT NULL,
+                embedding TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            )
+            """
+        )
+        self.connection.commit()
+
+    @property
+    def cache_namespace(self) -> str:
+        return f"cached:{self.inner.cache_namespace}"
+
+    def embed(self, text: str) -> list[float]:
+        cached = self._get(text)
+        if cached is not None:
+            return cached
+        embedding = self.inner.embed(text)
+        self._put(text, embedding)
+        return embedding
+
+    def embed_many(self, texts: list[str]) -> list[list[float]]:
+        results: list[list[float] | None] = [None] * len(texts)
+        missing_positions_by_text: dict[str, list[int]] = {}
+        for index, text in enumerate(texts):
+            cached = self._get(text)
+            if cached is None:
+                missing_positions_by_text.setdefault(text, []).append(index)
+            else:
+                results[index] = cached
+        missing_texts = list(missing_positions_by_text)
+        if missing_texts:
+            embeddings = self.inner.embed_many(missing_texts)
+            for text, embedding in zip(missing_texts, embeddings, strict=True):
+                self._put(text, embedding)
+                for position in missing_positions_by_text[text]:
+                    results[position] = embedding
+        if any(embedding is None for embedding in results):
+            raise RuntimeError("embedding 缓存结果不完整")
+        return [embedding for embedding in results if embedding is not None]
+
+    def close(self) -> None:
+        self.connection.close()
+
+    def _get(self, text: str) -> list[float] | None:
+        row = self.connection.execute(
+            "SELECT embedding FROM embedding_cache WHERE cache_key = ?",
+            (_cache_key(self.inner.cache_namespace, text),),
+        ).fetchone()
+        if not row:
+            return None
+        return [float(value) for value in json.loads(str(row[0]))]
+
+    def _put(self, text: str, embedding: list[float]) -> None:
+        text_sha1 = hashlib.sha1(text.encode("utf-8")).hexdigest()
+        self.connection.execute(
+            """
+            INSERT OR REPLACE INTO embedding_cache (
+                cache_key, namespace, text_sha1, embedding, created_at
+            )
+            VALUES (?, ?, ?, ?, datetime('now'))
+            """,
+            (
+                _cache_key(self.inner.cache_namespace, text),
+                self.inner.cache_namespace,
+                text_sha1,
+                json.dumps(embedding),
+            ),
+        )
+        self.connection.commit()
 
 
 def create_embedding_provider(name: str | None = None) -> EmbeddingProvider:
     provider_name = name or os.environ.get("SAM_EMBEDDING_PROVIDER", "local")
     if provider_name == "openai":
-        return OpenAIEmbeddingProvider()
-    if provider_name in {"azure_openai", "azure"}:
-        return AzureOpenAIEmbeddingProvider()
-    if provider_name == "local":
-        return LocalHashEmbeddingProvider()
-    raise ValueError(f"未知 embedding provider: {provider_name}")
+        provider: EmbeddingProvider = OpenAIEmbeddingProvider()
+    elif provider_name in {"azure_openai", "azure"}:
+        provider = AzureOpenAIEmbeddingProvider()
+    elif provider_name == "local":
+        provider = LocalHashEmbeddingProvider()
+    else:
+        raise ValueError(f"未知 embedding provider: {provider_name}")
+    cache_path = os.environ.get("SAM_EMBEDDING_CACHE_PATH")
+    if cache_path:
+        return CachedEmbeddingProvider(provider, cache_path)
+    if os.environ.get("SAM_EMBEDDING_CACHE") == "1":
+        return CachedEmbeddingProvider(provider, "data/embedding_cache.sqlite")
+    return provider
+
+
+def _parallel_embed(
+    embed_fn,
+    texts: list[str],
+    max_concurrency: int,
+) -> list[list[float]]:
+    if max_concurrency <= 1 or len(texts) <= 1:
+        return [embed_fn(text) for text in texts]
+    with ThreadPoolExecutor(max_workers=max_concurrency) as executor:
+        return list(executor.map(embed_fn, texts))
+
+
+def _cache_key(namespace: str, text: str) -> str:
+    digest = hashlib.sha1(f"{namespace}\n{text}".encode("utf-8")).hexdigest()
+    return f"{namespace}:{digest}"

@@ -135,13 +135,18 @@ export SAM_AZURE_EMBEDDING_ENDPOINT="https://search-va.byteintl.net/gpt/openapi/
 export SAM_AZURE_EMBEDDING_API_VERSION="2023-07-01-preview"
 export SAM_AZURE_EMBEDDING_MODEL="text-embedding-3-large"
 export SAM_AZURE_EMBEDDING_DIMENSIONS="1024"
+export SAM_AZURE_EMBEDDING_CONCURRENCY="10"
 export SAM_AZURE_EMBEDDING_API_KEY="..."
 
 conda run -n sam python scripts/run_demo.py \
   --reset \
   --dataset hotpotqa \
-  --embedding-provider azure_openai
+  --embedding-provider azure_openai \
+  --embedding-cache \
+  --embedding-concurrency 10
 ```
+
+`--embedding-cache` 会把向量缓存到 `data/embedding_cache.sqlite`，该文件已被 gitignore 排除。也可以用 `--embedding-cache-path outputs/runs/<run_name>/embedding_cache.sqlite` 把缓存放进某次实验目录。
 
 使用 GPT-5.4 生成答案时同样使用环境变量配置，不把 key 写入仓库：
 
