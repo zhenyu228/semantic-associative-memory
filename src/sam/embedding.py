@@ -70,11 +70,56 @@ class OpenAIEmbeddingProvider(EmbeddingProvider):
         return [float(value) for value in data["data"][0]["embedding"]]
 
 
+class AzureOpenAIEmbeddingProvider(EmbeddingProvider):
+    """Azure OpenAI 兼容 embedding provider。
+
+    配置全部来自环境变量，避免把 API key 写入仓库：
+    - SAM_AZURE_EMBEDDING_API_KEY
+    - SAM_AZURE_EMBEDDING_ENDPOINT
+    - SAM_AZURE_EMBEDDING_API_VERSION，默认 2023-07-01-preview
+    - SAM_AZURE_EMBEDDING_MODEL，默认 text-embedding-3-large
+    - SAM_AZURE_EMBEDDING_DIMENSIONS，可选，例如 1024
+    """
+
+    def __init__(self) -> None:
+        self.api_key = os.environ["SAM_AZURE_EMBEDDING_API_KEY"]
+        self.endpoint = os.environ["SAM_AZURE_EMBEDDING_ENDPOINT"].rstrip("/")
+        self.api_version = os.environ.get("SAM_AZURE_EMBEDDING_API_VERSION", "2023-07-01-preview")
+        self.model = os.environ.get("SAM_AZURE_EMBEDDING_MODEL", "text-embedding-3-large")
+        dimensions = os.environ.get("SAM_AZURE_EMBEDDING_DIMENSIONS")
+        self.dimensions = int(dimensions) if dimensions else None
+
+    @property
+    def request_url(self) -> str:
+        return (
+            f"{self.endpoint}/openai/deployments/{self.model}/embeddings"
+            f"?api-version={self.api_version}"
+        )
+
+    def embed(self, text: str) -> list[float]:
+        payload: dict[str, object] = {"input": text}
+        if self.dimensions is not None:
+            payload["dimensions"] = self.dimensions
+        request = urllib.request.Request(
+            self.request_url,
+            data=json.dumps(payload).encode("utf-8"),
+            headers={
+                "api-key": self.api_key,
+                "Content-Type": "application/json",
+            },
+            method="POST",
+        )
+        with urllib.request.urlopen(request, timeout=60) as response:
+            data = json.loads(response.read().decode("utf-8"))
+        return [float(value) for value in data["data"][0]["embedding"]]
+
+
 def create_embedding_provider(name: str | None = None) -> EmbeddingProvider:
     provider_name = name or os.environ.get("SAM_EMBEDDING_PROVIDER", "local")
     if provider_name == "openai":
         return OpenAIEmbeddingProvider()
+    if provider_name in {"azure_openai", "azure"}:
+        return AzureOpenAIEmbeddingProvider()
     if provider_name == "local":
         return LocalHashEmbeddingProvider()
     raise ValueError(f"未知 embedding provider: {provider_name}")
-

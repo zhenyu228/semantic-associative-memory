@@ -5,6 +5,7 @@ import unittest
 from pathlib import Path
 import sys
 import json
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
@@ -13,7 +14,9 @@ if str(SRC) not in sys.path:
 
 from sam.datasets import load_builtin_benchmark_sample, load_novelqa_sample
 from sam.dataset_format import load_sam_dataset, save_sam_dataset, summarize_sam_dataset
-from sam.embedding import LocalHashEmbeddingProvider
+from sam.agents import SharedMemoryCoordinator
+from sam.analogy import AnalogyEngine
+from sam.embedding import AzureOpenAIEmbeddingProvider, LocalHashEmbeddingProvider, create_embedding_provider
 from sam.evaluator import Evaluator
 from sam.graph import GraphBuilder
 from sam.retriever import Retriever
@@ -339,6 +342,62 @@ class SamCoreTest(unittest.TestCase):
         self.assertNotIn("support_hit", event_types)
         self.assertNotIn("answer_hit", event_types)
         self.assertNotIn("path_rejected", event_types)
+
+    def test_azure_embedding_provider_uses_env_config(self) -> None:
+        with patch.dict(
+            "os.environ",
+            {
+                "SAM_AZURE_EMBEDDING_API_KEY": "test-key",
+                "SAM_AZURE_EMBEDDING_ENDPOINT": "https://example.test/gpt/openapi/online/v2/crawl",
+                "SAM_AZURE_EMBEDDING_API_VERSION": "2023-07-01-preview",
+                "SAM_AZURE_EMBEDDING_MODEL": "text-embedding-3-large",
+                "SAM_AZURE_EMBEDDING_DIMENSIONS": "1024",
+            },
+            clear=False,
+        ):
+            provider = create_embedding_provider("azure_openai")
+            self.assertIsInstance(provider, AzureOpenAIEmbeddingProvider)
+            assert isinstance(provider, AzureOpenAIEmbeddingProvider)
+            self.assertEqual(provider.dimensions, 1024)
+            self.assertIn("/openai/deployments/text-embedding-3-large/embeddings", provider.request_url)
+            self.assertIn("api-version=2023-07-01-preview", provider.request_url)
+
+    def test_analogy_engine_returns_case_hints(self) -> None:
+        engine = AnalogyEngine(self.store, self.embedding, self.graph)
+        matches = engine.retrieve_cases(
+            "Which university location can help connect graph memory research to a city?",
+            top_k=2,
+        )
+        self.assertTrue(matches)
+        self.assertTrue(matches[0].case_id)
+        self.assertTrue(matches[0].matched_nodes)
+        self.assertIn("当前问题可类比历史案例", matches[0].prompt_hint)
+
+    def test_shared_memory_coordinator_writes_layered_agent_memory(self) -> None:
+        coordinator = SharedMemoryCoordinator(self.store, self.embedding)
+        coordinator.write_memory(
+            agent_id="planner",
+            layer="global_insight",
+            text="跨文档问答需要先锁定种子证据，再沿语义边寻找桥接证据。",
+            session_id="s1",
+        )
+        coordinator.write_memory(
+            agent_id="writer",
+            layer="interaction",
+            text="本轮回答应引用 HotpotQA 的 bridge-style 证据链。",
+            session_id="s1",
+        )
+        hits = coordinator.query_memory(
+            "如何寻找跨文档桥接证据？",
+            layers={"global_insight", "interaction"},
+            session_id="s1",
+            include_other_sessions=False,
+        )
+        self.assertEqual(len(hits), 2)
+        self.assertTrue({hit.metadata["agent_id"] for hit in hits} >= {"planner", "writer"})
+        self.assertTrue(all(hit.usage_count == 0 for hit in hits))
+        updated = self.store.get_nodes([hit.id for hit in hits])
+        self.assertTrue(all(node.usage_count >= 1 for node in updated))
 
     def test_sam_dataset_format_round_trip(self) -> None:
         documents, queries = load_builtin_benchmark_sample()

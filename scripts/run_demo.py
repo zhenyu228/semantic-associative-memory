@@ -44,7 +44,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--novelqa-split", choices=["data", "demonstration"], default="data", help="NovelQA 子集；data 通常没有公开答案，demonstration 带答案和证据")
     parser.add_argument("--case-index", type=int, default=None, help="HTML 页面默认聚焦的 HotpotQA 原始 index")
     parser.add_argument("--rebuild-dataset", action="store_true", help="重新生成 SAM 统一数据格式文件")
-    parser.add_argument("--embedding-provider", default=None, help="local 或 openai")
+    parser.add_argument("--embedding-provider", default=None, help="local、openai 或 azure_openai")
     parser.add_argument("--top-k", type=int, default=4, help="最终返回文档数")
     parser.add_argument("--seed-k", type=int, default=1, help="联想检索种子节点数")
     parser.add_argument("--hops", type=int, default=2, help="图扩展跳数")
