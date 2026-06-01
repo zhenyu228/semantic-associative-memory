@@ -46,6 +46,7 @@ class AnalogyEngine:
         *,
         top_k: int = 3,
         exclude_case_id: str | None = None,
+        relation_pattern: list[str] | None = None,
     ) -> list[AnalogyMatch]:
         query_embedding = self.embedding_provider.embed(query)
         query_keywords = set(extract_keywords(query, limit=10))
@@ -63,16 +64,19 @@ class AnalogyEngine:
         )[: max(1, min(3, len(candidates)))]
         self.graph_builder.build_edges_on_demand(seed_nodes, candidates)
         relation_types_by_case = self._relation_types_by_case()
+        relation_paths_by_case = self._relation_paths_by_case()
 
         matches: list[AnalogyMatch] = []
         for case_id, nodes in self._group_nodes_by_case(candidates).items():
             if exclude_case_id and case_id == exclude_case_id:
                 continue
-            score, shared_keywords = self._score_case(
+            score, shared_keywords, path_pattern_score, matched_relation_path = self._score_case(
                 query_embedding=query_embedding,
                 query_keywords=query_keywords,
                 nodes=nodes,
                 relation_types=relation_types_by_case.get(case_id, []),
+                relation_paths=relation_paths_by_case.get(case_id, []),
+                relation_pattern=relation_pattern,
             )
             if score <= 0.0:
                 continue
@@ -88,10 +92,17 @@ class AnalogyEngine:
                     matched_nodes=matched_nodes,
                     shared_keywords=shared_keywords,
                     relation_types=relation_types_by_case.get(case_id, []),
-                    prompt_hint=_build_prompt_hint(case_id, matched_nodes, shared_keywords),
+                    prompt_hint=_build_prompt_hint(
+                        case_id,
+                        matched_nodes,
+                        shared_keywords,
+                        matched_relation_path=matched_relation_path,
+                    ),
                     metadata={
                         "node_count": len(nodes),
                         "best_node_id": matched_nodes[0].id if matched_nodes else None,
+                        "path_pattern_score": round(path_pattern_score, 4),
+                        "matched_relation_path": matched_relation_path,
                     },
                 )
             )
@@ -131,6 +142,64 @@ class AnalogyEngine:
             for case_id, case_relations in relations.items()
         }
 
+    def _relation_paths_by_case(self) -> dict[str, list[list[str]]]:
+        node_to_case = {
+            node.id: str(
+                node.metadata.get("query_id")
+                or node.metadata.get("case_id")
+                or node.metadata.get("source_id")
+                or node.source
+            )
+            for node in self.store.get_nodes()
+        }
+        adjacency: dict[str, list[tuple[str, str]]] = {}
+        for edge in self.store.get_edges():
+            source_case = node_to_case.get(edge.source_id)
+            target_case = node_to_case.get(edge.target_id)
+            if not source_case or source_case != target_case:
+                continue
+            adjacency.setdefault(edge.source_id, []).append((edge.target_id, edge.relation_type))
+
+        paths_by_case: dict[str, list[list[str]]] = {}
+        for node_id, case_id in node_to_case.items():
+            for relation_path in self._walk_relation_paths(
+                adjacency=adjacency,
+                start_node_id=node_id,
+                visited={node_id},
+                relation_path=[],
+                max_depth=3,
+            ):
+                paths_by_case.setdefault(case_id, []).append(relation_path)
+        return paths_by_case
+
+    def _walk_relation_paths(
+        self,
+        *,
+        adjacency: dict[str, list[tuple[str, str]]],
+        start_node_id: str,
+        visited: set[str],
+        relation_path: list[str],
+        max_depth: int,
+    ) -> list[list[str]]:
+        if len(relation_path) >= max_depth:
+            return [relation_path]
+        paths: list[list[str]] = []
+        for target_id, relation_type in adjacency.get(start_node_id, []):
+            if target_id in visited:
+                continue
+            next_path = [*relation_path, relation_type]
+            paths.append(next_path)
+            paths.extend(
+                self._walk_relation_paths(
+                    adjacency=adjacency,
+                    start_node_id=target_id,
+                    visited={*visited, target_id},
+                    relation_path=next_path,
+                    max_depth=max_depth,
+                )
+            )
+        return paths
+
     def _score_case(
         self,
         *,
@@ -138,7 +207,9 @@ class AnalogyEngine:
         query_keywords: set[str],
         nodes: list[MemoryNode],
         relation_types: list[str],
-    ) -> tuple[float, list[str]]:
+        relation_paths: list[list[str]],
+        relation_pattern: list[str] | None,
+    ) -> tuple[float, list[str], float, list[str]]:
         best_similarity = max(
             cosine_similarity(query_embedding, node.embedding)
             for node in nodes
@@ -151,14 +222,24 @@ class AnalogyEngine:
         shared_keywords = sorted(query_keywords & case_keywords)
         keyword_score = min(1.0, len(shared_keywords) / 4.0)
         relation_score = min(0.2, len(relation_types) * 0.04)
-        score = 0.72 * best_similarity + 0.2 * keyword_score + relation_score
-        return score, shared_keywords
+        path_pattern_score, matched_relation_path = _match_relation_pattern(
+            relation_pattern,
+            relation_paths,
+        )
+        score = (
+            0.62 * best_similarity
+            + 0.18 * keyword_score
+            + relation_score
+            + 0.22 * path_pattern_score
+        )
+        return score, shared_keywords, path_pattern_score, matched_relation_path
 
 
 def _build_prompt_hint(
     case_id: str,
     matched_nodes: list[MemoryNode],
     shared_keywords: list[str],
+    matched_relation_path: list[str] | None = None,
 ) -> str:
     titles = [
         str(node.metadata.get("title") or node.summary or node.id)
@@ -166,7 +247,52 @@ def _build_prompt_hint(
     ]
     keyword_text = "、".join(shared_keywords[:5]) if shared_keywords else "语义结构"
     title_text = "；".join(titles[:3]) if titles else case_id
+    path_text = (
+        f"该案例还匹配关系路径：{' -> '.join(matched_relation_path)}。"
+        if matched_relation_path
+        else ""
+    )
     return (
         f"当前问题可类比历史案例 {case_id}。该案例的相关记忆包括：{title_text}。"
-        f"共同线索为：{keyword_text}。可以参考该案例中的证据连接方式组织当前推理。"
+        f"共同线索为：{keyword_text}。{path_text}"
+        "可以参考该案例中的证据连接方式组织当前推理。"
     )
+
+
+def _match_relation_pattern(
+    relation_pattern: list[str] | None,
+    relation_paths: list[list[str]],
+) -> tuple[float, list[str]]:
+    if not relation_pattern or not relation_paths:
+        return 0.0, []
+
+    best_score = 0.0
+    best_path: list[str] = []
+    for path in relation_paths:
+        score = _ordered_relation_overlap(relation_pattern, path)
+        if score > best_score:
+            best_score = score
+            best_path = path
+        if best_score == 1.0:
+            break
+    return best_score, best_path
+
+
+def _ordered_relation_overlap(pattern: list[str], path: list[str]) -> float:
+    if not pattern:
+        return 0.0
+    if len(path) >= len(pattern):
+        for start in range(0, len(path) - len(pattern) + 1):
+            if path[start:start + len(pattern)] == pattern:
+                return 1.0
+
+    matched = 0
+    path_index = 0
+    for expected in pattern:
+        while path_index < len(path) and path[path_index] != expected:
+            path_index += 1
+        if path_index >= len(path):
+            continue
+        matched += 1
+        path_index += 1
+    return matched / len(pattern)

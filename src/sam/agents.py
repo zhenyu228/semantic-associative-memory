@@ -19,6 +19,8 @@ class AgentMemoryRecord:
     agent_id: str
     layer: str
     session_id: str | None
+    target_agent_id: str | None = None
+    task_id: str | None = None
 
 
 class SharedMemoryCoordinator:
@@ -46,13 +48,15 @@ class SharedMemoryCoordinator:
         source: str = "agent",
         confidence: float = 0.8,
         tags: list[str] | None = None,
+        metadata: dict[str, object] | None = None,
     ) -> AgentMemoryRecord:
         if layer not in MEMORY_LAYERS:
             raise ValueError(f"未知记忆层级：{layer}")
+        extra_metadata = metadata or {}
         keywords = extract_keywords(text, limit=8)
         node_id = stable_id(
             "agent_mem",
-            f"{agent_id}:{layer}:{session_id or ''}:{text}",
+            f"{agent_id}:{layer}:{session_id or ''}:{extra_metadata.get('target_agent_id', '')}:{text}",
         )
         now = utc_now_iso()
         node = MemoryNode(
@@ -72,6 +76,7 @@ class SharedMemoryCoordinator:
                 "agent_id": agent_id,
                 "memory_layer": layer,
                 "session_id": session_id,
+                **extra_metadata,
             },
         )
         self.store.upsert_node(node)
@@ -80,6 +85,43 @@ class SharedMemoryCoordinator:
             agent_id=agent_id,
             layer=layer,
             session_id=session_id,
+            target_agent_id=(
+                str(extra_metadata["target_agent_id"])
+                if extra_metadata.get("target_agent_id") is not None
+                else None
+            ),
+            task_id=(
+                str(extra_metadata["task_id"])
+                if extra_metadata.get("task_id") is not None
+                else None
+            ),
+        )
+
+    def write_handoff(
+        self,
+        *,
+        source_agent_id: str,
+        target_agent_id: str,
+        text: str,
+        session_id: str,
+        task_id: str | None = None,
+        confidence: float = 0.84,
+    ) -> AgentMemoryRecord:
+        """记录一个智能体传递给另一个智能体的中间结论。"""
+
+        return self.write_memory(
+            agent_id=source_agent_id,
+            layer="session",
+            text=text,
+            session_id=session_id,
+            confidence=confidence,
+            tags=["handoff", f"from:{source_agent_id}", f"to:{target_agent_id}"],
+            metadata={
+                "source_agent_id": source_agent_id,
+                "target_agent_id": target_agent_id,
+                "task_id": task_id,
+                "handoff": True,
+            },
         )
 
     def query_memory(
@@ -90,6 +132,7 @@ class SharedMemoryCoordinator:
         layers: set[str] | None = None,
         session_id: str | None = None,
         include_other_sessions: bool = True,
+        agent_id: str | None = None,
     ) -> list[MemoryNode]:
         query_embedding = self.embedding_provider.embed(query)
         allowed_layers = layers or MEMORY_LAYERS
@@ -101,6 +144,9 @@ class SharedMemoryCoordinator:
                 continue
             node_session_id = node.metadata.get("session_id")
             if session_id and not include_other_sessions and node_session_id != session_id:
+                continue
+            target_agent_id = node.metadata.get("target_agent_id")
+            if agent_id and target_agent_id and target_agent_id != agent_id:
                 continue
             candidates.append(node)
 

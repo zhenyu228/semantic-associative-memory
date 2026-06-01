@@ -27,6 +27,7 @@ from sam.evaluator import Evaluator
 from sam.generation import ContextAnswerGenerator, write_generation_reports
 from sam.graph import GraphBuilder
 from sam.llm import HeuristicChatClient
+from sam.models import MemoryEdge, MemoryNode, utc_now_iso
 from sam.retriever import Retriever
 from sam.store import MemoryStore
 
@@ -405,6 +406,101 @@ class SamCoreTest(unittest.TestCase):
         self.assertTrue(matches[0].matched_nodes)
         self.assertIn("当前问题可类比历史案例", matches[0].prompt_hint)
 
+    def test_analogy_engine_prefers_matching_relation_path(self) -> None:
+        self.store.reset()
+        now = utc_now_iso()
+
+        def node(case_id: str, suffix: str, text: str) -> MemoryNode:
+            return MemoryNode(
+                id=f"{case_id}_{suffix}",
+                text=text,
+                summary=text,
+                keywords=text.lower().split()[:8],
+                tags=["case"],
+                source="unit-test",
+                created_at=now,
+                last_accessed_at=None,
+                usage_count=0,
+                confidence=0.8,
+                embedding=self.embedding.embed(text),
+                metadata={"query_id": case_id, "title": f"{case_id}-{suffix}"},
+            )
+
+        matching_nodes = [
+            node("case_path_match", "seed", "bridge evidence activates shared entity memory"),
+            node("case_path_match", "middle", "shared entity leads to keyword bridge"),
+            node("case_path_match", "answer", "keyword bridge supports final answer"),
+        ]
+        mismatch_nodes = [
+            node("case_path_mismatch", "seed", "bridge evidence starts another case"),
+            node("case_path_mismatch", "middle", "unrelated context cooccurrence appears"),
+            node("case_path_mismatch", "answer", "semantic similarity gives weak answer"),
+        ]
+        self.store.upsert_nodes([*matching_nodes, *mismatch_nodes])
+        self.store.upsert_edges(
+            [
+                MemoryEdge(
+                    source_id="case_path_match_seed",
+                    target_id="case_path_match_middle",
+                    relation_type="shared_entity",
+                    weight=0.8,
+                    reason="测试路径第一跳",
+                    created_at=now,
+                    updated_at=now,
+                    activation_count=0,
+                    last_activated_at=None,
+                ),
+                MemoryEdge(
+                    source_id="case_path_match_middle",
+                    target_id="case_path_match_answer",
+                    relation_type="keyword_overlap",
+                    weight=0.7,
+                    reason="测试路径第二跳",
+                    created_at=now,
+                    updated_at=now,
+                    activation_count=0,
+                    last_activated_at=None,
+                ),
+                MemoryEdge(
+                    source_id="case_path_mismatch_seed",
+                    target_id="case_path_mismatch_middle",
+                    relation_type="context_cooccurrence",
+                    weight=0.8,
+                    reason="不匹配路径第一跳",
+                    created_at=now,
+                    updated_at=now,
+                    activation_count=0,
+                    last_activated_at=None,
+                ),
+                MemoryEdge(
+                    source_id="case_path_mismatch_middle",
+                    target_id="case_path_mismatch_answer",
+                    relation_type="embedding_similarity",
+                    weight=0.7,
+                    reason="不匹配路径第二跳",
+                    created_at=now,
+                    updated_at=now,
+                    activation_count=0,
+                    last_activated_at=None,
+                ),
+            ]
+        )
+
+        engine = AnalogyEngine(self.store, self.embedding, self.graph)
+        matches = engine.retrieve_cases(
+            "bridge evidence should use a shared entity and then a keyword bridge",
+            top_k=2,
+            relation_pattern=["shared_entity", "keyword_overlap"],
+        )
+
+        self.assertEqual(matches[0].case_id, "case_path_match")
+        self.assertGreater(matches[0].metadata["path_pattern_score"], 0.0)
+        self.assertEqual(
+            matches[0].metadata["matched_relation_path"],
+            ["shared_entity", "keyword_overlap"],
+        )
+        self.assertIn("关系路径", matches[0].prompt_hint)
+
     def test_shared_memory_coordinator_writes_layered_agent_memory(self) -> None:
         coordinator = SharedMemoryCoordinator(self.store, self.embedding)
         coordinator.write_memory(
@@ -430,6 +526,35 @@ class SamCoreTest(unittest.TestCase):
         self.assertTrue(all(hit.usage_count == 0 for hit in hits))
         updated = self.store.get_nodes([hit.id for hit in hits])
         self.assertTrue(all(node.usage_count >= 1 for node in updated))
+
+    def test_shared_memory_coordinator_filters_agent_handoffs(self) -> None:
+        coordinator = SharedMemoryCoordinator(self.store, self.embedding)
+        coordinator.write_handoff(
+            source_agent_id="planner",
+            target_agent_id="writer",
+            text="写作智能体需要使用 bridge evidence 的两跳证据链组织答案。",
+            session_id="s2",
+            task_id="task-bridge",
+        )
+        coordinator.write_handoff(
+            source_agent_id="planner",
+            target_agent_id="verifier",
+            text="验证智能体需要检查答案是否覆盖 supporting facts。",
+            session_id="s2",
+            task_id="task-bridge",
+        )
+
+        writer_hits = coordinator.query_memory(
+            "如何组织两跳证据链答案？",
+            layers={"session"},
+            session_id="s2",
+            agent_id="writer",
+        )
+
+        self.assertEqual(len(writer_hits), 1)
+        self.assertEqual(writer_hits[0].metadata["target_agent_id"], "writer")
+        self.assertEqual(writer_hits[0].metadata["source_agent_id"], "planner")
+        self.assertEqual(writer_hits[0].metadata["task_id"], "task-bridge")
 
     def test_generation_and_badcase_reports_are_written(self) -> None:
         result = self.evaluator.evaluate(
