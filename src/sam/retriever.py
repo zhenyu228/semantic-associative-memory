@@ -523,7 +523,12 @@ class Retriever:
         # 联想检索以向量候选作为“当前被激活记忆”，需要保留少量锚点。
         # Bad case 显示：若完全按图扩展重排，噪声路径可能把原本有效的向量证据挤出 top-k。
         ranked = [*anchor_results, *other_results]
-        document_hits = [hit for hit in ranked if hit.node.metadata.get("node_type") != "query_summary"]
+        final_excluded_node_types = {"query_summary", "consolidated_memory"}
+        document_hits = [
+            hit
+            for hit in ranked
+            if hit.node.metadata.get("node_type") not in final_excluded_node_types
+        ]
         if len(document_hits) >= top_k:
             return document_hits[:top_k]
         summary_hits = [hit for hit in ranked if hit.node.metadata.get("node_type") == "query_summary"]

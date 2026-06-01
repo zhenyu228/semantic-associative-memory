@@ -568,6 +568,75 @@ class SamCoreTest(unittest.TestCase):
             any(node.metadata.get("node_type") == "consolidated_memory" for node in export_nodes)
         )
 
+    def test_consolidated_memory_is_intermediate_not_final_hit(self) -> None:
+        self.evaluator.evaluate(
+            self.queries[:1],
+            top_k=3,
+            seed_k=1,
+            hops=2,
+            methods=["sam_full"],
+        )
+        consolidated = next(
+            node
+            for node in self.store.get_nodes()
+            if node.metadata.get("node_type") == "consolidated_memory"
+        )
+        query = self.queries[0]
+        candidate_ids = [
+            node.id
+            for node in self.store.get_nodes()
+            if node.metadata.get("original_doc_id") in query.candidate_doc_ids
+        ]
+        candidate_ids.append(consolidated.id)
+        retriever = Retriever(self.store, self.embedding, self.graph)
+
+        hits = retriever.retrieve(
+            query=f"{query.question} {query.answer}",
+            mode="sam_full",
+            top_k=3,
+            seed_k=1,
+            hops=2,
+            candidate_doc_ids=candidate_ids,
+        )
+
+        self.assertFalse(
+            any(hit.node.metadata.get("node_type") == "consolidated_memory" for hit in hits)
+        )
+        self.assertTrue(any(consolidated.id in hit.path for hit in hits))
+
+    def test_sam_candidate_pool_reuses_existing_consolidated_memory(self) -> None:
+        self.evaluator.evaluate(
+            self.queries[:1],
+            top_k=3,
+            seed_k=1,
+            hops=2,
+            methods=["sam_full"],
+        )
+        consolidated_ids = {
+            node.id
+            for node in self.store.get_nodes()
+            if node.metadata.get("node_type") == "consolidated_memory"
+        }
+        base_candidate_ids = [
+            node.id
+            for node in self.store.get_nodes()
+            if node.metadata.get("original_doc_id") in self.queries[0].candidate_doc_ids
+        ][:2]
+
+        sam_candidates = self.evaluator._candidate_ids_for_method(
+            self.store,
+            "sam_full",
+            base_candidate_ids,
+        )
+        vector_candidates = self.evaluator._candidate_ids_for_method(
+            self.store,
+            "embedding_topk",
+            base_candidate_ids,
+        )
+
+        self.assertTrue(consolidated_ids & set(sam_candidates))
+        self.assertFalse(consolidated_ids & set(vector_candidates))
+
     def test_no_feedback_mode_skips_feedback_events(self) -> None:
         self.evaluator.evaluate(
             self.queries,

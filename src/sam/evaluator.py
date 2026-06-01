@@ -286,6 +286,7 @@ class Evaluator:
             assert isinstance(query, EvaluationQuery)
             assert isinstance(support_node_ids, set)
             assert isinstance(candidate_ids, list)
+            candidate_ids = self._candidate_ids_for_method(method_store, method, candidate_ids)
 
             hits = retriever.retrieve(
                 query=query.question,
@@ -330,6 +331,22 @@ class Evaluator:
             case_payload["methods"][method] = self._serialize_hits(hits, support_node_ids)
             case_payload["final_answers"][method] = extracted_answer
             case_payload["support_hits_by_method"][method] = case_support_hits
+
+    def _candidate_ids_for_method(
+        self,
+        store: MemoryStore,
+        method: str,
+        base_candidate_ids: list[str],
+    ) -> list[str]:
+        candidate_ids = list(base_candidate_ids)
+        if not method.startswith("sam"):
+            return candidate_ids
+        candidate_ids.extend(
+            node.id
+            for node in store.get_nodes()
+            if node.metadata.get("node_type") == "consolidated_memory"
+        )
+        return list(dict.fromkeys(candidate_ids))
 
     def write_reports(self, result: ExperimentResult, report_dir: str | Path) -> tuple[Path, Path]:
         output_dir = Path(report_dir)
