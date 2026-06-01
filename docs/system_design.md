@@ -447,7 +447,7 @@ final_score = semantic_score + graph_score + path_quality + memory_state + feedb
 - `AzureOpenAIChatClient`：通过环境变量接入 GPT-5.4 兼容接口。
 - `ContextAnswerGenerator`：读取检索命中的上下文，构造证据约束 prompt，调用聊天模型生成最终答案。
 - `CaseAnalogyHintBuilder`：从同一批 `cases.json` 中检索相似历史案例，综合问题关键词、共享关系路径、历史证据命中情况生成类比提示，并注入生成阶段。
-- `scripts/generate_answers.py`：可对任意 run 的 `cases.json` 进行生成式答案评测，输出 `generated_answers.json` 和 `generated_answers.md`。新增 `--use-analogy-hints` 后，脚本会自动加入历史案例提示，支持进行“无类比提示”和“有类比提示”的生成对照。
+- `scripts/generate_answers.py`：可对任意 run 的 `cases.json` 进行生成式答案评测，输出 `generated_answers.json` 和 `generated_answers.md`。新增 `--use-analogy-hints` 后，脚本会自动加入历史案例提示；新增 `--compare-analogy` 后，脚本会同时运行“无类比提示”和“有类比提示”两种生成，并输出 `generation_comparison.json` 与 `generation_comparison.md`。
 - `BadCaseAnalyzer`：每次实验自动输出 `bad_cases.json` 与 `bad_cases.md`，将失败样本归因为支持证据缺失、答案未覆盖、图扩展未使用、图噪声、弱于向量召回等类型。
 - `CachedEmbeddingProvider`：为在线 embedding 增加 SQLite 缓存和批量去重，`AzureOpenAIEmbeddingProvider` 和 `OpenAIEmbeddingProvider` 支持并发 `embed_many()`。这使 HotpotQA 300 条和 NovelQA chunk 实验可以重复运行而不重复消耗同一批文本的 embedding 额度。
 
@@ -456,6 +456,7 @@ final_score = semantic_score + graph_score + path_quality + memory_state + feedb
 ```text
 no_analogy/generated_answers.json      # metadata.analogy_hints 为空
 with_analogy/generated_answers.json    # 每条样本包含 1 条历史案例提示
+comparison/generation_comparison.json  # baseline / with_analogy 指标和逐样本差异
 ```
 
 后续正式实验应使用 GPT-5.4 生成器运行同一套对照，并分析类比提示是否改善答案组织、证据引用和失败案例。

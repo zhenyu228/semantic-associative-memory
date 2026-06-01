@@ -141,6 +141,61 @@ def generate_answers_for_cases(
     ]
 
 
+def compare_generation_variants(
+    cases: list[dict[str, object]],
+    *,
+    all_cases: list[dict[str, object]] | None,
+    generator: ContextAnswerGenerator,
+    method: str,
+    analogy_top_k: int = 2,
+) -> dict[str, object]:
+    """对比无类比提示与有类比提示的生成结果。"""
+
+    candidate_cases = all_cases or cases
+    hint_builder = CaseAnalogyHintBuilder(candidate_cases, method=method)
+    baseline_answers = generate_answers_for_cases(
+        cases,
+        generator,
+        method=method,
+    )
+    analogy_answers = generate_answers_for_cases(
+        cases,
+        generator,
+        method=method,
+        analogy_hint_builder=hint_builder,
+        analogy_top_k=analogy_top_k,
+    )
+    case_deltas = [
+        _generation_case_delta(baseline, with_analogy)
+        for baseline, with_analogy in zip(baseline_answers, analogy_answers, strict=True)
+    ]
+    baseline_metrics = _generation_metrics(baseline_answers)
+    analogy_metrics = _generation_metrics(analogy_answers)
+    return {
+        "method": method,
+        "query_count": len(cases),
+        "variants": {
+            "baseline": baseline_metrics,
+            "with_analogy": analogy_metrics,
+        },
+        "delta": {
+            "answer_hit_count": (
+                int(analogy_metrics["answer_hit_count"])
+                - int(baseline_metrics["answer_hit_count"])
+            ),
+            "answer_hit_rate": (
+                float(analogy_metrics["answer_hit_rate"])
+                - float(baseline_metrics["answer_hit_rate"])
+            ),
+        },
+        "case_deltas": case_deltas,
+        "answers": {
+            "baseline": [answer.to_dict() for answer in baseline_answers],
+            "with_analogy": [answer.to_dict() for answer in analogy_answers],
+        },
+    }
+
+
 class CaseAnalogyHintBuilder:
     """从 cases.json 中检索相似历史案例，为生成阶段提供类比提示。"""
 
@@ -251,6 +306,60 @@ def write_generation_reports(
     return json_path, markdown_path
 
 
+def write_generation_comparison_reports(
+    comparison: dict[str, object],
+    output_dir: str | Path,
+) -> tuple[Path, Path]:
+    target = Path(output_dir)
+    target.mkdir(parents=True, exist_ok=True)
+    json_path = target / "generation_comparison.json"
+    markdown_path = target / "generation_comparison.md"
+    json_path.write_text(
+        json.dumps(comparison, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    variants = comparison.get("variants", {})
+    baseline = variants.get("baseline", {}) if isinstance(variants, dict) else {}
+    with_analogy = variants.get("with_analogy", {}) if isinstance(variants, dict) else {}
+    delta = comparison.get("delta", {})
+    case_deltas = comparison.get("case_deltas", [])
+    lines = [
+        "# 类比提示生成对照实验",
+        "",
+        f"- 方法：{comparison.get('method', '')}",
+        f"- 样本数：{comparison.get('query_count', 0)}",
+        "",
+        "| 变体 | 答案命中数 | 答案命中率 | 平均提示数 |",
+        "| --- | ---: | ---: | ---: |",
+        _comparison_metric_row("无类比提示", baseline),
+        _comparison_metric_row("有类比提示", with_analogy),
+        "",
+        f"- 答案命中率变化：{float(delta.get('answer_hit_rate', 0.0)):.3f}" if isinstance(delta, dict) else "- 答案命中率变化：0.000",
+        "",
+        "| Query | 状态 | 无类比命中 | 有类比命中 | 类比提示数 |",
+        "| --- | --- | --- | --- | ---: |",
+    ]
+    if isinstance(case_deltas, list):
+        for item in case_deltas:
+            if not isinstance(item, dict):
+                continue
+            lines.append(
+                "| "
+                + " | ".join(
+                    [
+                        str(item.get("query_id", "")),
+                        str(item.get("status", "")),
+                        "是" if item.get("baseline_hit") else "否",
+                        "是" if item.get("with_analogy_hit") else "否",
+                        str(item.get("analogy_hint_count", 0)),
+                    ]
+                )
+                + " |"
+            )
+    markdown_path.write_text("\n".join(lines), encoding="utf-8")
+    return json_path, markdown_path
+
+
 def _hit_to_context(hit: RetrievalHit | dict[str, object], index: int) -> str:
     if isinstance(hit, RetrievalHit):
         title = str(hit.node.metadata.get("title") or hit.node.summary or hit.node.id)
@@ -341,6 +450,58 @@ def _overlap_ratio(left: set[str], right: set[str]) -> float:
     if not left or not right:
         return 0.0
     return len(left & right) / max(1, len(left))
+
+
+def _generation_metrics(answers: list[GeneratedAnswer]) -> dict[str, object]:
+    hit_count = sum(1 for answer in answers if answer.answer_hit)
+    hint_counts = [
+        len(answer.metadata.get("analogy_hints", []))
+        for answer in answers
+        if isinstance(answer.metadata.get("analogy_hints", []), list)
+    ]
+    return {
+        "query_count": len(answers),
+        "answer_hit_count": hit_count,
+        "answer_hit_rate": hit_count / len(answers) if answers else 0.0,
+        "average_analogy_hint_count": (
+            sum(hint_counts) / len(hint_counts)
+            if hint_counts
+            else 0.0
+        ),
+    }
+
+
+def _generation_case_delta(
+    baseline: GeneratedAnswer,
+    with_analogy: GeneratedAnswer,
+) -> dict[str, object]:
+    if not baseline.answer_hit and with_analogy.answer_hit:
+        status = "improved"
+    elif baseline.answer_hit and not with_analogy.answer_hit:
+        status = "regressed"
+    else:
+        status = "unchanged"
+    analogy_hints = with_analogy.metadata.get("analogy_hints", [])
+    return {
+        "query_id": baseline.query_id,
+        "question": baseline.question,
+        "gold_answer": baseline.gold_answer,
+        "baseline_hit": baseline.answer_hit,
+        "with_analogy_hit": with_analogy.answer_hit,
+        "status": status,
+        "analogy_hint_count": len(analogy_hints) if isinstance(analogy_hints, list) else 0,
+    }
+
+
+def _comparison_metric_row(label: str, metrics: object) -> str:
+    if not isinstance(metrics, dict):
+        metrics = {}
+    return (
+        f"| {label} | "
+        f"{int(metrics.get('answer_hit_count', 0))} | "
+        f"{float(metrics.get('answer_hit_rate', 0.0)):.3f} | "
+        f"{float(metrics.get('average_analogy_hint_count', 0.0)):.2f} |"
+    )
 
 
 def _answer_matches(gold_answer: str, generated_answer: str) -> bool:

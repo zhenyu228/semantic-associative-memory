@@ -175,6 +175,20 @@ conda run -n sam python scripts/generate_answers.py \
   --output-dir outputs/runs/<run_name>/generated_with_analogy
 ```
 
+也可以直接生成“无类比提示 vs 有类比提示”的对照报告：
+
+```bash
+conda run -n sam python scripts/generate_answers.py \
+  --cases-file outputs/runs/<run_name>/cases.json \
+  --method sam_full \
+  --chat-provider azure_openai \
+  --compare-analogy \
+  --analogy-top-k 2 \
+  --output-dir outputs/runs/<run_name>/generation_comparison
+```
+
+该命令会输出 `generation_comparison.json` 和 `generation_comparison.md`，记录两种生成方式的答案命中率、差值和逐样本变化。
+
 ## 数据集
 
 ### HotpotQA

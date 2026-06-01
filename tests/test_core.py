@@ -27,11 +27,13 @@ from sam.evaluator import Evaluator
 from sam.generation import (
     CaseAnalogyHintBuilder,
     ContextAnswerGenerator,
+    compare_generation_variants,
     generate_answers_for_cases,
+    write_generation_comparison_reports,
     write_generation_reports,
 )
 from sam.graph import GraphBuilder
-from sam.llm import HeuristicChatClient
+from sam.llm import ChatClient, HeuristicChatClient
 from sam.models import MemoryEdge, MemoryNode, utc_now_iso
 from sam.retriever import Retriever
 from sam.store import MemoryStore
@@ -642,6 +644,68 @@ class SamCoreTest(unittest.TestCase):
         )
         self.assertEqual(len(answers), 1)
         self.assertEqual(answers[0].metadata["analogy_hints"], hints)
+
+    def test_generation_comparison_reports_analogy_delta(self) -> None:
+        class AnalogyAwareChatClient(ChatClient):
+            def complete(self, messages: list[dict[str, object]], max_tokens: int = 500) -> str:
+                prompt = "\n".join(str(message.get("content", "")) for message in messages)
+                if "历史案例" in prompt:
+                    return "author"
+                return "证据不足"
+
+        cases = [
+            {
+                "query_id": "old_bridge_case",
+                "question": "Which bridge evidence connects a film to its director?",
+                "answer": "director",
+                "support_hits_by_method": {"sam_full": 2},
+                "final_answers": {"sam_full": {"status": "found_in_retrieved_context"}},
+                "methods": {
+                    "sam_full": [
+                        {
+                            "title": "Old evidence",
+                            "text": "The film evidence connects to the director.",
+                            "reason": "向量种子节点 -> shared_entity",
+                            "candidate_paths": [{"relation_type": "shared_entity"}],
+                        }
+                    ]
+                },
+            },
+            {
+                "query_id": "new_bridge_case",
+                "question": "Which bridge evidence connects a novel to its author?",
+                "answer": "author",
+                "support_hits_by_method": {"sam_full": 1},
+                "final_answers": {"sam_full": {"status": "found_in_retrieved_context"}},
+                "methods": {
+                    "sam_full": [
+                        {
+                            "title": "New evidence",
+                            "text": "The novel evidence identifies the author.",
+                            "reason": "向量种子节点 -> shared_entity",
+                            "candidate_paths": [{"relation_type": "shared_entity"}],
+                        }
+                    ]
+                },
+            },
+        ]
+
+        comparison = compare_generation_variants(
+            [cases[1]],
+            all_cases=cases,
+            generator=ContextAnswerGenerator(AnalogyAwareChatClient()),
+            method="sam_full",
+            analogy_top_k=1,
+        )
+
+        self.assertEqual(comparison["variants"]["baseline"]["answer_hit_rate"], 0.0)
+        self.assertEqual(comparison["variants"]["with_analogy"]["answer_hit_rate"], 1.0)
+        self.assertEqual(comparison["delta"]["answer_hit_rate"], 1.0)
+        self.assertEqual(comparison["case_deltas"][0]["status"], "improved")
+        output_dir = Path(self.temp_dir.name) / "generation_comparison"
+        json_path, markdown_path = write_generation_comparison_reports(comparison, output_dir)
+        self.assertTrue(json_path.exists())
+        self.assertTrue(markdown_path.exists())
 
     def test_badcase_analyzer_classifies_missing_support(self) -> None:
         cases = [
