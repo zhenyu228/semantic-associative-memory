@@ -16,7 +16,9 @@ from sam.datasets import load_builtin_benchmark_sample, load_novelqa_sample
 from sam.dataset_format import load_sam_dataset, save_sam_dataset, summarize_sam_dataset
 from sam.agent_workflow import MultiAgentResearchWorkflow, write_agent_workflow_reports
 from sam.agent_reuse_experiment import (
+    compare_agent_generation_variants,
     run_agent_memory_reuse_probe,
+    write_agent_generation_comparison_reports,
     write_agent_memory_reuse_reports,
 )
 from sam.agents import SharedMemoryCoordinator
@@ -1035,6 +1037,80 @@ class SamCoreTest(unittest.TestCase):
 
         output_dir = Path(self.temp_dir.name) / "agent_memory_reuse"
         json_path, markdown_path = write_agent_memory_reuse_reports(result, output_dir)
+        self.assertTrue(json_path.exists())
+        self.assertTrue(markdown_path.exists())
+
+    def test_agent_generation_variants_compare_shared_memory_and_analogy(self) -> None:
+        class VariantAwareChatClient(ChatClient):
+            def complete(self, messages: list[dict[str, object]], max_tokens: int = 500) -> str:
+                prompt = "\n".join(str(message.get("content", "")) for message in messages)
+                if "历史案例" in prompt and "old_agent_case" in prompt:
+                    return "author"
+                if "retriever handoff" in prompt:
+                    return "author"
+                return "证据不足"
+
+        old_case = {
+            "query_id": "old_agent_case",
+            "question": "Which bridge evidence identifies a director?",
+            "answer": "director",
+            "support_hits_by_method": {"sam_full": 1},
+            "final_answers": {"sam_full": {"status": "found_in_retrieved_context"}},
+            "methods": {
+                "sam_full": [
+                    {
+                        "title": "Old shared relation",
+                        "text": "The old bridge evidence identifies a director.",
+                        "reason": "向量种子节点 -> shared_entity",
+                        "candidate_paths": [{"relation_type": "shared_entity"}],
+                    }
+                ]
+            },
+        }
+        new_case = {
+            "query_id": "new_agent_case",
+            "question": "Which bridge evidence identifies an author?",
+            "answer": "author",
+            "support_hits_by_method": {"sam_full": 1},
+            "final_answers": {"sam_full": {"status": "found_in_retrieved_context"}},
+            "methods": {
+                "sam_full": [
+                    {
+                        "title": "New shared relation",
+                        "text": "The current evidence needs another role.",
+                        "reason": "向量种子节点 -> shared_entity",
+                        "candidate_paths": [{"relation_type": "shared_entity"}],
+                    }
+                ]
+            },
+        }
+        chat_client = VariantAwareChatClient()
+        generator = ContextAnswerGenerator(chat_client)
+        workflow = MultiAgentResearchWorkflow(
+            coordinator=SharedMemoryCoordinator(self.store, self.embedding),
+            generator=ContextAnswerGenerator(chat_client),
+            method="sam_full",
+        )
+
+        comparison = compare_agent_generation_variants(
+            [new_case],
+            all_cases=[old_case, new_case],
+            workflow=workflow,
+            generator=generator,
+            method="sam_full",
+            analogy_top_k=1,
+        )
+
+        self.assertEqual(comparison["query_count"], 1)
+        self.assertEqual(comparison["variants"]["baseline"]["answer_hit_count"], 0)
+        self.assertEqual(comparison["variants"]["shared_memory"]["answer_hit_count"], 1)
+        self.assertEqual(comparison["variants"]["shared_memory_with_analogy"]["answer_hit_count"], 1)
+        self.assertEqual(comparison["delta"]["shared_memory_vs_baseline_answer_hits"], 1)
+        self.assertEqual(comparison["case_deltas"][0]["shared_memory_status"], "improved")
+        self.assertTrue(comparison["answers"]["shared_memory_with_analogy"][0]["metadata"]["analogy_hints"])
+
+        output_dir = Path(self.temp_dir.name) / "agent_generation"
+        json_path, markdown_path = write_agent_generation_comparison_reports(comparison, output_dir)
         self.assertTrue(json_path.exists())
         self.assertTrue(markdown_path.exists())
 

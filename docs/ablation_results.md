@@ -223,3 +223,21 @@ Warmup 阶段生成了 22 个巩固记忆节点和 62 条巩固相关边。Probe
 | 多智能体复用链路成功率 | 0.733 |
 
 该结果说明，多智能体模块已经从流程级 demo 推进到可量化实验：在信息缺失场景下，SAM 的历史记忆复用增益可以通过共享记忆 handoff 传递到后续智能体角色。当前实验不把本地启发式生成器的答案命中率作为结论，后续需要接入 GPT-5.4，比较无共享记忆、有共享记忆、有共享记忆和类比提示三种设置下的最终答案质量。
+
+## 13. 多智能体生成对照实验
+
+为进一步评估共享记忆是否能作用到最终答案生成阶段，系统新增 `scripts/run_agent_generation_experiment.py`。该脚本在同一批 case 上运行三种设置：
+
+- `baseline`：只使用检索上下文生成答案。
+- `shared_memory`：通过 planner、retriever、writer、verifier 的共享记忆流程生成答案。
+- `shared_memory_with_analogy`：在共享记忆基础上加入历史案例类比提示。
+
+30 条 HotpotQA smoke run 位于 `outputs/runs/agent_generation_hotpotqa30_smoke/`，结果如下：
+
+| 变体 | 答案命中率 | 平均 prompt token 估计 |
+| --- | ---: | ---: |
+| baseline | 0.000 | 698.9 |
+| shared_memory | 0.000 | 790.2 |
+| shared_memory_with_analogy | 0.000 | 923.2 |
+
+该 smoke run 使用本地启发式生成器，目的不是报告模型效果，而是验证三种生成设置、共享记忆注入和类比提示注入是否能稳定生成产物。从 prompt token 估计可以看到，共享记忆和类比提示已经进入生成上下文。正式实验需要使用 GPT-5.4 运行同一脚本，重点比较三种设置的答案命中率、证据引用完整性和 bad case 恢复情况。

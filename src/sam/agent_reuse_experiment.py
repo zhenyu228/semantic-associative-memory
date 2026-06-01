@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 from sam.agent_workflow import MultiAgentResearchWorkflow
+from sam.generation import CaseAnalogyHintBuilder, ContextAnswerGenerator, GeneratedAnswer
 
 
 def run_agent_memory_reuse_probe(
@@ -72,6 +73,103 @@ def run_agent_memory_reuse_probe(
     }
 
 
+def compare_agent_generation_variants(
+    cases: list[dict[str, object]],
+    *,
+    workflow: MultiAgentResearchWorkflow,
+    generator: ContextAnswerGenerator,
+    method: str,
+    all_cases: list[dict[str, object]] | None = None,
+    limit: int | None = None,
+    analogy_top_k: int = 2,
+) -> dict[str, object]:
+    """对比无共享记忆、共享记忆、共享记忆+类比提示三种生成设置。"""
+
+    selected_cases = cases[:limit] if limit is not None else cases
+    hint_builder = CaseAnalogyHintBuilder(all_cases or selected_cases, method=method)
+    baseline_answers: list[GeneratedAnswer] = []
+    shared_answers: list[dict[str, object]] = []
+    shared_analogy_answers: list[GeneratedAnswer] = []
+    case_deltas: list[dict[str, object]] = []
+    for case in selected_cases:
+        baseline = generator.generate_for_case(case, method=method)
+        workflow_result = workflow.run_case(case)
+        shared_answer = workflow_result.get("final_answer", {})
+        shared_memory_hints = _shared_memory_hints(workflow_result)
+        analogy_hints = [
+            *shared_memory_hints,
+            *hint_builder.hints_for(case, top_k=analogy_top_k),
+        ]
+        with_analogy = generator.generate_for_case(
+            case,
+            method=method,
+            analogy_hints=analogy_hints,
+        )
+        baseline_answers.append(baseline)
+        shared_answers.append(shared_answer if isinstance(shared_answer, dict) else {})
+        shared_analogy_answers.append(with_analogy)
+        case_deltas.append(
+            _agent_generation_case_delta(
+                case=case,
+                baseline=baseline,
+                shared_memory=shared_answers[-1],
+                shared_memory_with_analogy=with_analogy,
+            )
+        )
+
+    baseline_metrics = _answer_metrics([answer.to_dict() for answer in baseline_answers])
+    shared_metrics = _answer_metrics(shared_answers)
+    shared_analogy_metrics = _answer_metrics(
+        [answer.to_dict() for answer in shared_analogy_answers]
+    )
+    return {
+        "method": method,
+        "query_count": len(selected_cases),
+        "variants": {
+            "baseline": baseline_metrics,
+            "shared_memory": shared_metrics,
+            "shared_memory_with_analogy": shared_analogy_metrics,
+        },
+        "delta": {
+            "shared_memory_vs_baseline_answer_hits": (
+                int(shared_metrics["answer_hit_count"])
+                - int(baseline_metrics["answer_hit_count"])
+            ),
+            "shared_memory_with_analogy_vs_baseline_answer_hits": (
+                int(shared_analogy_metrics["answer_hit_count"])
+                - int(baseline_metrics["answer_hit_count"])
+            ),
+            "shared_memory_with_analogy_vs_shared_memory_answer_hits": (
+                int(shared_analogy_metrics["answer_hit_count"])
+                - int(shared_metrics["answer_hit_count"])
+            ),
+        },
+        "case_deltas": case_deltas,
+        "answers": {
+            "baseline": [answer.to_dict() for answer in baseline_answers],
+            "shared_memory": shared_answers,
+            "shared_memory_with_analogy": [
+                answer.to_dict() for answer in shared_analogy_answers
+            ],
+        },
+    }
+
+
+def write_agent_generation_comparison_reports(
+    result: dict[str, object],
+    output_dir: str | Path,
+) -> tuple[Path, Path]:
+    """写出多智能体生成对照实验结果。"""
+
+    target = Path(output_dir)
+    target.mkdir(parents=True, exist_ok=True)
+    json_path = target / "agent_generation_comparison.json"
+    markdown_path = target / "agent_generation_comparison.md"
+    json_path.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
+    markdown_path.write_text(_agent_generation_markdown(result), encoding="utf-8")
+    return json_path, markdown_path
+
+
 def write_agent_memory_reuse_reports(
     result: dict[str, object],
     output_dir: str | Path,
@@ -87,6 +185,51 @@ def write_agent_memory_reuse_reports(
     return json_path, markdown_path
 
 
+def _agent_generation_markdown(result: dict[str, object]) -> str:
+    variants = result.get("variants", {})
+    if not isinstance(variants, dict):
+        variants = {}
+    lines = [
+        "# 多智能体共享记忆生成对照实验",
+        "",
+        f"- 方法：{result.get('method', '')}",
+        f"- 查询数量：{result.get('query_count', 0)}",
+        "",
+        "| 变体 | 答案命中数 | 答案命中率 | 平均 prompt token 估计 |",
+        "| --- | ---: | ---: | ---: |",
+    ]
+    for name in ["baseline", "shared_memory", "shared_memory_with_analogy"]:
+        metric = variants.get(name, {})
+        if not isinstance(metric, dict):
+            metric = {}
+        lines.append(
+            f"| {name} | "
+            f"{metric.get('answer_hit_count', 0)} | "
+            f"{float(metric.get('answer_hit_rate', 0.0)):.3f} | "
+            f"{float(metric.get('average_prompt_tokens_estimate', 0.0)):.1f} |"
+        )
+    lines.extend(
+        [
+            "",
+            "## 样本变化",
+            "",
+            "| Query | baseline | shared memory | shared memory + analogy | 状态 |",
+            "| --- | --- | --- | --- | --- |",
+        ]
+    )
+    for case in result.get("case_deltas", []):
+        if not isinstance(case, dict):
+            continue
+        lines.append(
+            f"| {case.get('query_id', '')} | "
+            f"{'命中' if case.get('baseline_answer_hit') else '未命中'} | "
+            f"{'命中' if case.get('shared_memory_answer_hit') else '未命中'} | "
+            f"{'命中' if case.get('shared_memory_with_analogy_answer_hit') else '未命中'} | "
+            f"{case.get('shared_memory_status', '')} |"
+        )
+    return "\n".join(lines)
+
+
 def load_agent_reuse_cases(path: str | Path) -> list[dict[str, object]]:
     """读取普通 `cases.json` 或 `memory_reuse_results.json`。"""
 
@@ -98,6 +241,58 @@ def load_agent_reuse_cases(path: str | Path) -> list[dict[str, object]]:
     if isinstance(payload, dict) and isinstance(payload.get("cases"), list):
         return payload["cases"]
     raise ValueError(f"无法从 {path} 读取 case 列表")
+
+
+def _shared_memory_hints(workflow_result: dict[str, object]) -> list[str]:
+    hints: list[str] = []
+    for memory in workflow_result.get("writer_memory", []):
+        if isinstance(memory, dict) and memory.get("text"):
+            hints.append(f"{memory.get('agent_id', '')} 共享记忆：{memory.get('text')}")
+    return hints
+
+
+def _agent_generation_case_delta(
+    *,
+    case: dict[str, object],
+    baseline: GeneratedAnswer,
+    shared_memory: dict[str, object],
+    shared_memory_with_analogy: GeneratedAnswer,
+) -> dict[str, object]:
+    baseline_hit = baseline.answer_hit
+    shared_hit = bool(shared_memory.get("answer_hit"))
+    analogy_hit = shared_memory_with_analogy.answer_hit
+    return {
+        "query_id": case.get("query_id", baseline.query_id),
+        "baseline_answer_hit": baseline_hit,
+        "shared_memory_answer_hit": shared_hit,
+        "shared_memory_with_analogy_answer_hit": analogy_hit,
+        "shared_memory_status": _delta_status(baseline_hit, shared_hit),
+        "shared_memory_with_analogy_status": _delta_status(shared_hit, analogy_hit),
+    }
+
+
+def _answer_metrics(answers: list[dict[str, object]]) -> dict[str, object]:
+    count = len(answers)
+    answer_hit_count = sum(1 for answer in answers if answer.get("answer_hit"))
+    token_values = [
+        int(answer.get("prompt_tokens_estimate", 0))
+        for answer in answers
+        if isinstance(answer.get("prompt_tokens_estimate", 0), int | float)
+    ]
+    return {
+        "answer_count": count,
+        "answer_hit_count": answer_hit_count,
+        "answer_hit_rate": _rate(answer_hit_count, count),
+        "average_prompt_tokens_estimate": (
+            sum(token_values) / len(token_values) if token_values else 0.0
+        ),
+    }
+
+
+def _delta_status(before: bool, after: bool) -> str:
+    if before == after:
+        return "unchanged"
+    return "improved" if after else "regressed"
 
 
 def _summarize_agent_memory_reuse(
