@@ -18,6 +18,7 @@ from sam.agent_workflow import MultiAgentResearchWorkflow, write_agent_workflow_
 from sam.agents import SharedMemoryCoordinator
 from sam.analogy import AnalogyEngine
 from sam.badcase import BadCaseAnalyzer, write_bad_case_reports
+from sam.consolidation import MemoryConsolidator
 from sam.embedding import (
     AzureOpenAIEmbeddingProvider,
     CachedEmbeddingProvider,
@@ -39,6 +40,7 @@ from sam.models import MemoryEdge, MemoryNode, utc_now_iso
 from sam.relation_judge import RelationJudgment
 from sam.retriever import Retriever
 from sam.store import MemoryStore
+from scripts.run_demo import _nodes_for_graph_export
 
 
 class SamCoreTest(unittest.TestCase):
@@ -513,6 +515,58 @@ class SamCoreTest(unittest.TestCase):
         event_types = {event["event_type"] for event in events}
         self.assertIn("support_hit", event_types)
         self.assertTrue({"answer_hit", "path_rejected"} & event_types)
+
+    def test_successful_retrieval_consolidates_support_memory(self) -> None:
+        self.evaluator.evaluate(
+            self.queries[:1],
+            top_k=3,
+            seed_k=1,
+            hops=2,
+            methods=["sam_full"],
+        )
+
+        consolidated_nodes = [
+            node
+            for node in self.store.get_nodes()
+            if node.metadata.get("node_type") == "consolidated_memory"
+        ]
+        self.assertTrue(consolidated_nodes)
+        consolidated = consolidated_nodes[0]
+        self.assertEqual(consolidated.metadata.get("query_id"), self.queries[0].id)
+        self.assertIn("consolidated_memory", consolidated.tags)
+        self.assertGreater(consolidated.confidence, 0.7)
+        self.assertIn(self.queries[0].answer, consolidated.text)
+
+        edges = self.store.get_edges_for([consolidated.id])
+        self.assertTrue(
+            any(edge.relation_type == "consolidates_support" for edge in edges)
+        )
+        support_nodes = [
+            node
+            for node in self.store.get_nodes()
+            if consolidated.id in node.metadata.get("consolidated_by", [])
+        ]
+        self.assertTrue(support_nodes)
+        event_types = {
+            event["event_type"]
+            for event in self.store.get_memory_events(limit=200)
+        }
+        self.assertIn("memory_consolidated", event_types)
+
+    def test_graph_export_nodes_include_consolidated_memory(self) -> None:
+        self.evaluator.evaluate(
+            self.queries[:1],
+            top_k=3,
+            seed_k=1,
+            hops=2,
+            methods=["sam_full"],
+        )
+
+        export_nodes = _nodes_for_graph_export(self.store)
+
+        self.assertTrue(
+            any(node.metadata.get("node_type") == "consolidated_memory" for node in export_nodes)
+        )
 
     def test_no_feedback_mode_skips_feedback_events(self) -> None:
         self.evaluator.evaluate(

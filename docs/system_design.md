@@ -263,6 +263,10 @@ new_weight = old_weight * decay + relation_score * alpha + feedback_score * beta
 
 先实现这个基础版本，后续再加入更复杂的学习式权重更新。
 
+当前系统已经进一步加入记忆巩固机制。反馈模块发现某次 SAM 检索命中支持证据后，`MemoryConsolidator` 会生成一个 `consolidated_memory` 长期记忆节点，把“问题、标准答案、检索方法、答案状态、支持证据摘要”沉淀为新的记忆单元。该节点通过 `consolidates_support` 边连接到原始支持证据，原始证据节点也会记录 `consolidated_by` 和 `consolidation_count`，表示它已经被某次成功推理吸收为长期经验。
+
+这一步对应开题报告中的“记忆重构”：系统不只记录访问次数，也会把被验证有效的证据链重写为更高层次的经验节点。后续连续任务或类比推理可以直接检索这些巩固节点，而不是每次都从原始段落重新组合证据。
+
 ## 7. 可解释性设计
 
 用户必须能看懂 SAM 为什么选这些节点。每条结果至少提供：

@@ -98,6 +98,12 @@ def _query_id_for_case_index(
     raise ValueError(f"没有找到 case-index={case_index}。可用 index: {available}")
 
 
+def _nodes_for_graph_export(store: MemoryStore):
+    """导出评测后的完整记忆节点，包含动态生成的巩固记忆。"""
+
+    return store.get_nodes()
+
+
 def main() -> None:
     args = parse_args()
     if args.dataset == "novelqa" and args.dataset_file == "data/processed/hotpotqa_sam_sample.json":
@@ -236,7 +242,7 @@ def main() -> None:
     )
     json_path, markdown_path = evaluator.write_reports(result, run_dir)
     graph_paths = export_graph_artifacts(
-        nodes=nodes,
+        nodes=_nodes_for_graph_export(store),
         edges=store.get_edges(),
         queries=queries,
         output_dir=graph_dir,

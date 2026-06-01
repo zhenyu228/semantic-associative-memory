@@ -8,6 +8,7 @@ from pathlib import Path
 from sam.badcase import BadCaseAnalyzer, write_bad_case_reports
 from sam.datasets import build_query_summary_nodes, documents_to_nodes
 from sam.embedding import EmbeddingProvider
+from sam.consolidation import MemoryConsolidator
 from sam.graph import GraphBuilder
 from sam.models import DatasetDocument, EvaluationQuery, MemoryNode, RetrievalHit
 from sam.retriever import RETRIEVAL_METHOD_NAMES, Retriever
@@ -299,6 +300,13 @@ class Evaluator:
             extracted_answer = self._extract_answer(query.answer, hits, query.metadata)
             if _feedback_enabled(method):
                 FeedbackUpdater(method_store).apply(
+                    query=query,
+                    mode=method,
+                    hits=hits,
+                    support_node_ids=support_node_ids,
+                    answer_status=str(extracted_answer["status"]),
+                )
+                MemoryConsolidator(method_store, self.embedding_provider).consolidate_query(
                     query=query,
                     mode=method,
                     hits=hits,
