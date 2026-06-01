@@ -26,6 +26,7 @@ RETRIEVAL_METHOD_NAMES = {
     "sam_with_summary": "SAM-with-summary",
     "sam_no_feedback": "SAM-no-feedback",
     "sam_vector_anchor": "SAM-vector-anchor",
+    "sam_adaptive_anchor": "SAM-adaptive-anchor",
 }
 
 
@@ -40,6 +41,9 @@ class SamRetrievalConfig:
     update_dynamic_state: bool = True
     use_summary_nodes: bool = False
     min_vector_keep: int = 1
+    adaptive_vector_anchor: bool = False
+    adaptive_anchor_keep: int = 2
+    adaptive_anchor_threshold: float = 0.75
 
 
 SAM_RETRIEVAL_CONFIGS = {
@@ -56,6 +60,7 @@ SAM_RETRIEVAL_CONFIGS = {
     "sam_with_summary": SamRetrievalConfig(use_summary_nodes=True),
     "sam_no_feedback": SamRetrievalConfig(),
     "sam_vector_anchor": SamRetrievalConfig(min_vector_keep=2),
+    "sam_adaptive_anchor": SamRetrievalConfig(adaptive_vector_anchor=True),
 }
 
 
@@ -495,9 +500,18 @@ class Retriever:
                 )
             )
         hits.sort(key=lambda hit: hit.score, reverse=True)
+        anchor_count, anchor_reason = _resolve_anchor_policy(
+            hits=hits,
+            seed_count=len(seed_hits),
+            top_k=top_k,
+            config=config,
+        )
+        for hit in hits:
+            hit.metadata["adaptive_anchor_count"] = anchor_count
+            hit.metadata["adaptive_anchor_reason"] = anchor_reason
         anchor_ids = {
             hit.node.id
-            for hit in vector_hits[: max(len(seed_hits), config.min_vector_keep)]
+            for hit in vector_hits[:anchor_count]
         }
         anchor_results_by_id = {hit.node.id: hit for hit in hits if hit.node.id in anchor_ids}
         anchor_results = [
@@ -618,6 +632,9 @@ def _sam_config_payload(config: SamRetrievalConfig) -> dict[str, object]:
         "update_dynamic_state": config.update_dynamic_state,
         "use_summary_nodes": config.use_summary_nodes,
         "min_vector_keep": config.min_vector_keep,
+        "adaptive_vector_anchor": config.adaptive_vector_anchor,
+        "adaptive_anchor_keep": config.adaptive_anchor_keep,
+        "adaptive_anchor_threshold": config.adaptive_anchor_threshold,
     }
 
 
@@ -639,6 +656,35 @@ def _top_path_signals(signals: list[dict[str, object]], limit: int = 4) -> list[
         }
         for signal in ordered[:limit]
     ]
+
+
+def _resolve_anchor_policy(
+    *,
+    hits: list[RetrievalHit],
+    seed_count: int,
+    top_k: int,
+    config: SamRetrievalConfig,
+) -> tuple[int, str]:
+    base_anchor_count = max(seed_count, config.min_vector_keep)
+    if not config.adaptive_vector_anchor:
+        return min(top_k, base_anchor_count), "fixed"
+
+    expanded_support_scores = [
+        float(hit.metadata.get("path_support_score", 0.0))
+        for hit in hits
+        if len(hit.path) > 1
+    ]
+    average_path_support = (
+        sum(expanded_support_scores) / len(expanded_support_scores)
+        if expanded_support_scores
+        else 0.0
+    )
+    if average_path_support < config.adaptive_anchor_threshold:
+        return (
+            min(top_k, max(base_anchor_count, config.adaptive_anchor_keep)),
+            "weak_graph_paths",
+        )
+    return min(top_k, base_anchor_count), "strong_graph_paths"
 
 
 def _now() -> str:

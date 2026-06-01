@@ -199,6 +199,7 @@ class SamCoreTest(unittest.TestCase):
             "sam_with_summary",
             "sam_no_feedback",
             "sam_vector_anchor",
+            "sam_adaptive_anchor",
         ]:
             hits = retriever.retrieve(
                 query.question,
@@ -263,6 +264,40 @@ class SamCoreTest(unittest.TestCase):
         )
         self.assertTrue(
             all("summary_" not in " ".join(hit.path) for hit in no_summary_hits)
+        )
+
+    def test_sam_adaptive_anchor_keeps_more_vectors_when_paths_are_weak(self) -> None:
+        query = self.queries[0]
+        retriever = Retriever(self.store, self.embedding, self.graph)
+        candidate_ids = [
+            node.id
+            for node in self.store.get_nodes()
+            if node.metadata.get("original_doc_id") in query.candidate_doc_ids
+        ]
+        vector_hits = retriever.retrieve(
+            query.question,
+            "embedding_topk",
+            top_k=3,
+            candidate_doc_ids=candidate_ids,
+        )
+        adaptive_hits = retriever.retrieve(
+            query.question,
+            "sam_adaptive_anchor",
+            top_k=3,
+            seed_k=1,
+            hops=0,
+            candidate_doc_ids=candidate_ids,
+        )
+
+        self.assertEqual(
+            [hit.node.id for hit in adaptive_hits[:2]],
+            [hit.node.id for hit in vector_hits[:2]],
+        )
+        self.assertTrue(
+            all(hit.metadata.get("adaptive_anchor_count") == 2 for hit in adaptive_hits)
+        )
+        self.assertTrue(
+            all(hit.metadata.get("adaptive_anchor_reason") == "weak_graph_paths" for hit in adaptive_hits)
         )
 
     def test_sam_static_graph_does_not_update_dynamic_state(self) -> None:

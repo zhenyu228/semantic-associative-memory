@@ -288,6 +288,7 @@ conda run -n sam python scripts/run_demo.py \
 - `hipporag_style`：模拟 HippoRAG 的 KG + Personalized PageRank 思想，以查询相似度作为先验，在图上做节点激活传播。
 - `sam`：先用 embedding 激活种子记忆，再围绕种子按需建图，并结合语义路径、节点使用频率、置信度重排。
 - `sam_vector_anchor`：SAM 的 bad case 改进实验模式，保留更多初始向量候选，避免噪声图路径把有效直接证据挤出 top-k。
+- `sam_adaptive_anchor`：根据扩展路径支持分动态决定是否保留更多向量候选，并在 `cases.json` 中记录触发原因。
 
 这些 `*-style` 方法是论文思想级对照，不声称复现官方完整实现。这样命名是为了保证实验表述诚实。
 

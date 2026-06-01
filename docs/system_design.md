@@ -380,6 +380,7 @@ HTML 可视化应重点展示：
 | `sam_with_summary` | 在 SAM 中启用 query summary memory node | 摘要层级是否能帮助或干扰图扩展 |
 | `sam_no_feedback` | 检索逻辑同 SAM-full，但不执行反馈强化/抑制 | FeedbackUpdater 是否带来跨查询记忆收益 |
 | `sam_vector_anchor` | 保留更多初始向量候选作为锚点，再进行图扩展重排 | 防止噪声图路径挤出有效向量证据 |
+| `sam_adaptive_anchor` | 当扩展路径平均支持分不足时，自动提高向量锚点数量 | 区分高质量联想路径和低置信图扩展 |
 
 隔离评测 300 条实验中，SAM-full 的证据召回率为 0.603，答案命中率为 0.597；Embedding Top-k 为 0.572 / 0.547；`sam_no_graph` 为 0.578 / 0.553。该结果说明图扩展是当前 SAM 的主要有效模块。`sam_with_summary` 为 0.592 / 0.570，低于 SAM-full，说明摘要记忆节点需要更细粒度构造和更强路径重排，不能简单作为中心节点连接所有候选文档。`sam_full` 与 `sam_no_multipath`、`sam_no_memory_state` 的差异相对较小，说明下一阶段需要继续优化多路径重排权重、记忆状态衰减函数和 feedback 更新机制。
 
@@ -463,15 +464,16 @@ comparison/generation_comparison.json  # baseline / with_analogy 指标和逐样
 
 后续正式实验应使用 GPT-5.4 生成器运行同一套对照，并分析类比提示是否改善答案组织、证据引用和失败案例。
 
-基于 HotpotQA 30 条 bad case，当前主要问题是图扩展有时会把有效向量候选挤出 top-k。为验证改进方向，新增 `sam_vector_anchor` 实验模式：保留更多初始向量候选作为锚点，再进行图扩展重排。30 条对比结果如下：
+基于 HotpotQA 30 条 bad case，当前主要问题是图扩展有时会把有效向量候选挤出 top-k。为验证改进方向，先新增 `sam_vector_anchor` 实验模式：保留更多初始向量候选作为锚点，再进行图扩展重排。随后进一步新增 `sam_adaptive_anchor`：当扩展路径平均支持分低于阈值时才提高向量锚点数量，并在 `cases.json` 中记录 `adaptive_anchor_count` 和 `adaptive_anchor_reason`。30 条对比结果如下：
 
 | 方法 | 证据召回率 | 答案命中率 |
 | --- | ---: | ---: |
 | Embedding Top-k | 0.483 | 0.400 |
 | SAM-full | 0.517 | 0.400 |
 | SAM-vector-anchor | 0.500 | 0.433 |
+| SAM-adaptive-anchor | 0.517 | 0.400 |
 
-该结果说明向量锚点机制能提升答案覆盖，但会牺牲部分证据召回。因此它暂时保留为实验模式，不替换 SAM-full。后续需要进一步做自适应锚点：当图路径置信度不足时保留更多向量候选，当图路径质量较高时允许更多联想扩展结果进入 top-k。
+`sam_adaptive_anchor` 在该 run 中触发了 36 个 `weak_graph_paths` 检索结果、84 个 `strong_graph_paths` 检索结果。结果显示，仅用路径支持分做自适应锚点还不足以带来稳定增益：它保持了 SAM-full 的证据召回率，但没有获得 fixed anchor 的答案命中提升。这说明当前 path support 分数仍不能充分识别“看似强但实际噪声”的图路径。下一步需要引入更强的边质量约束，例如实体类型匹配、LLM 关系判断或基于支持证据反馈的路径惩罚。
 
 ## 9. 两周推进建议
 

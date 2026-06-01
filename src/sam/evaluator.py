@@ -381,6 +381,8 @@ class Evaluator:
                 "recency_score": hit.metadata.get("recency_score", 0.0),
                 "candidate_path_count": hit.metadata.get("candidate_path_count", 1),
                 "candidate_paths": hit.metadata.get("candidate_paths", []),
+                "adaptive_anchor_count": hit.metadata.get("adaptive_anchor_count"),
+                "adaptive_anchor_reason": hit.metadata.get("adaptive_anchor_reason"),
                 "text": hit.node.text,
             }
             for hit in hits
