@@ -127,6 +127,8 @@ scripts/prepare_xxx.py -> data/processed/xxx_sam_sample.json
 - `summary_parent`：摘要节点和原始 chunk 的层级关系。
 - `summary_child`：原始文档节点回到摘要记忆节点的反向层级关系。
 
+边质量控制是当前阶段的重点之一。系统已经加入低信息关键词过滤：当候选边只依赖 `system`、`report`、`data`、`question`、`evidence` 等泛化词重叠时，不再创建语义边，而是在候选边打分中记录 `edge_quality` 和跳过原因。这一约束用于防止动态图谱在按需扩展时积累噪声边。后续会继续加入实体类型约束和 GPT-5.4 关系判别，使边创建从词面重叠升级为关系级判断。
+
 ### 4.4 EmbeddingProvider
 
 Embedding 暂时不是主线阻塞点。系统只要求它满足统一接口：

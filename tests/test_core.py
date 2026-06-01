@@ -85,6 +85,46 @@ class SamCoreTest(unittest.TestCase):
         self.assertTrue(self.graph.edge_creation_log)
         self.assertIn("score_breakdown", self.graph.edge_creation_log[0])
 
+    def test_low_information_keyword_overlap_does_not_create_edge(self) -> None:
+        self.store.reset()
+        now = utc_now_iso()
+        left = MemoryNode(
+            id="low_info_left",
+            text="system report alpha",
+            summary="system report alpha",
+            keywords=["system", "report"],
+            tags=[],
+            source="unit-test",
+            created_at=now,
+            last_accessed_at=None,
+            usage_count=0,
+            confidence=0.8,
+            embedding=[1.0, 0.0, 0.0],
+            metadata={},
+        )
+        right = MemoryNode(
+            id="low_info_right",
+            text="system report beta",
+            summary="system report beta",
+            keywords=["system", "report"],
+            tags=[],
+            source="unit-test",
+            created_at=now,
+            last_accessed_at=None,
+            usage_count=0,
+            confidence=0.8,
+            embedding=[0.0, 1.0, 0.0],
+            metadata={},
+        )
+        self.store.upsert_nodes([left, right])
+
+        edges = self.graph.build_edges_on_demand([left], [left, right])
+
+        self.assertEqual(edges, [])
+        score = self.graph._score_candidate_edge(left, right)
+        self.assertEqual(score.relation_type, None)
+        self.assertEqual(score.score_breakdown["edge_quality"], "low_information_keyword_overlap")
+
     def test_edge_creation_log_is_written(self) -> None:
         seed = self.store.get_nodes([self.nodes[0].id])
         self.graph.build_edges_on_demand(seed)

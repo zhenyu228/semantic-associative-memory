@@ -34,6 +34,26 @@ GENERIC_EDGE_KEYWORDS = {
     "city",
 }
 
+LOW_INFORMATION_EDGE_KEYWORDS = {
+    "analysis",
+    "answer",
+    "article",
+    "case",
+    "data",
+    "document",
+    "evidence",
+    "example",
+    "information",
+    "method",
+    "question",
+    "report",
+    "research",
+    "result",
+    "study",
+    "system",
+    "text",
+}
+
 
 @dataclass(slots=True)
 class EdgeScore:
@@ -217,6 +237,7 @@ class GraphBuilder:
         entity_score = self._entity_score(shared_entities)
         keyword_score = self._keyword_score(keyword_overlap)
         semantic_score = self._semantic_score(similarity)
+        edge_quality = _edge_quality(keyword_overlap)
         score_breakdown: dict[str, object] = {
             "entity_score": round(entity_score, 4),
             "keyword_score": round(keyword_score, 4),
@@ -224,6 +245,7 @@ class GraphBuilder:
             "similarity": round(similarity, 4),
             "keyword_overlap": keyword_overlap,
             "shared_entities": shared_entities,
+            "edge_quality": edge_quality,
             "thresholds": {
                 "similarity_threshold": self.similarity_threshold,
                 "keyword_overlap_threshold": self.keyword_overlap_threshold,
@@ -238,6 +260,13 @@ class GraphBuilder:
                 score_breakdown=score_breakdown,
             )
         if len(keyword_overlap) >= self.keyword_overlap_threshold:
+            if edge_quality == "low_information_keyword_overlap":
+                return EdgeScore(
+                    relation_type=None,
+                    weight=0.0,
+                    reason="关键词重叠仅包含低信息词，跳过建边",
+                    score_breakdown=score_breakdown,
+                )
             return EdgeScore(
                 relation_type="keyword_overlap",
                 weight=keyword_score,
@@ -297,3 +326,9 @@ class GraphBuilder:
             encoding="utf-8",
         )
         return target
+
+
+def _edge_quality(keyword_overlap: list[str]) -> str:
+    if keyword_overlap and all(keyword in LOW_INFORMATION_EDGE_KEYWORDS for keyword in keyword_overlap):
+        return "low_information_keyword_overlap"
+    return "normal"
