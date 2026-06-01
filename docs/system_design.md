@@ -127,7 +127,9 @@ scripts/prepare_xxx.py -> data/processed/xxx_sam_sample.json
 - `summary_parent`：摘要节点和原始 chunk 的层级关系。
 - `summary_child`：原始文档节点回到摘要记忆节点的反向层级关系。
 
-边质量控制是当前阶段的重点之一。系统已经加入低信息关键词过滤：当候选边只依赖 `system`、`report`、`data`、`question`、`evidence` 等泛化词重叠时，不再创建语义边，而是在候选边打分中记录 `edge_quality` 和跳过原因。这一约束用于防止动态图谱在按需扩展时积累噪声边。后续会继续加入实体类型约束和 GPT-5.4 关系判别，使边创建从词面重叠升级为关系级判断。
+边质量控制是当前阶段的重点之一。系统已经加入低信息关键词过滤：当候选边只依赖 `system`、`report`、`data`、`question`、`evidence` 等泛化词重叠时，不再创建语义边，而是在候选边打分中记录 `edge_quality` 和跳过原因。这一约束用于防止动态图谱在按需扩展时积累噪声边。
+
+在此基础上，系统新增了关系级建边判别接口 `RelationJudge`。`GraphBuilder` 可以在规则 scorer 产生候选边之后，把两个记忆节点、关键词、实体、相似度和初始关系类型提交给判别器，由 GPT-5.4 判断是否真的存在可解释关系。如果判别器认为只是偶然相似或主题不同，则候选边会被跳过；如果判别器认为关系成立，则把模型给出的关系类型、置信度和原因写入 `score_breakdown`。这样可以把动态图谱构建从“词面重叠和向量相似”推进到“关系有效性判断”。
 
 ### 4.4 EmbeddingProvider
 

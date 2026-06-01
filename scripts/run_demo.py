@@ -23,6 +23,7 @@ from sam.datasets import DATASET_REFERENCES, download_hotpotqa_dev, load_hotpotq
 from sam.embedding import create_embedding_provider  # noqa: E402
 from sam.evaluator import Evaluator  # noqa: E402
 from sam.graph import GraphBuilder  # noqa: E402
+from sam.relation_judge import create_relation_judge  # noqa: E402
 from sam.store import MemoryStore  # noqa: E402
 from sam.visualization import export_graph_artifacts  # noqa: E402
 
@@ -49,6 +50,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--embedding-cache", action="store_true", help="启用 SQLite embedding 缓存，默认写入 data/embedding_cache.sqlite")
     parser.add_argument("--embedding-cache-path", default=None, help="自定义 embedding 缓存 SQLite 路径")
     parser.add_argument("--embedding-concurrency", type=int, default=None, help="在线 embedding 最大并发数")
+    parser.add_argument("--relation-judge", default="disabled", help="关系级建边判别器：disabled 或 gpt54")
     parser.add_argument("--top-k", type=int, default=4, help="最终返回文档数")
     parser.add_argument("--seed-k", type=int, default=1, help="联想检索种子节点数")
     parser.add_argument("--hops", type=int, default=2, help="图扩展跳数")
@@ -127,7 +129,7 @@ def main() -> None:
         os.environ["SAM_AZURE_EMBEDDING_CONCURRENCY"] = str(args.embedding_concurrency)
         os.environ["SAM_OPENAI_EMBEDDING_CONCURRENCY"] = str(args.embedding_concurrency)
     embedding_provider = create_embedding_provider(args.embedding_provider)
-    graph_builder = GraphBuilder(store)
+    graph_builder = GraphBuilder(store, relation_judge=create_relation_judge(args.relation_judge))
     evaluator = Evaluator(store, embedding_provider, graph_builder)
 
     if args.dataset == "hotpotqa":

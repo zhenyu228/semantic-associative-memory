@@ -6,6 +6,7 @@ from itertools import combinations
 from pathlib import Path
 
 from sam.models import MemoryEdge, MemoryNode, utc_now_iso
+from sam.relation_judge import RelationJudge
 from sam.store import MemoryStore
 from sam.text import cosine_similarity
 
@@ -73,10 +74,12 @@ class GraphBuilder:
         store: MemoryStore,
         similarity_threshold: float = 0.18,
         keyword_overlap_threshold: int = 2,
+        relation_judge: RelationJudge | None = None,
     ) -> None:
         self.store = store
         self.similarity_threshold = similarity_threshold
         self.keyword_overlap_threshold = keyword_overlap_threshold
+        self.relation_judge = relation_judge
         self.edge_creation_log: list[dict[str, object]] = []
 
     def build_edges_on_demand(
@@ -253,11 +256,15 @@ class GraphBuilder:
         }
 
         if shared_entities:
-            return EdgeScore(
-                relation_type="shared_entity",
-                weight=entity_score,
-                reason=f"共享实体：{', '.join(shared_entities[:4])}",
-                score_breakdown=score_breakdown,
+            return self._apply_relation_judge(
+                seed,
+                other,
+                EdgeScore(
+                    relation_type="shared_entity",
+                    weight=entity_score,
+                    reason=f"共享实体：{', '.join(shared_entities[:4])}",
+                    score_breakdown=score_breakdown,
+                ),
             )
         if len(keyword_overlap) >= self.keyword_overlap_threshold:
             if edge_quality == "low_information_keyword_overlap":
@@ -267,23 +274,65 @@ class GraphBuilder:
                     reason="关键词重叠仅包含低信息词，跳过建边",
                     score_breakdown=score_breakdown,
                 )
-            return EdgeScore(
-                relation_type="keyword_overlap",
-                weight=keyword_score,
-                reason=f"关键词重叠：{', '.join(keyword_overlap[:4])}",
-                score_breakdown=score_breakdown,
+            return self._apply_relation_judge(
+                seed,
+                other,
+                EdgeScore(
+                    relation_type="keyword_overlap",
+                    weight=keyword_score,
+                    reason=f"关键词重叠：{', '.join(keyword_overlap[:4])}",
+                    score_breakdown=score_breakdown,
+                ),
             )
         if similarity >= self.similarity_threshold:
-            return EdgeScore(
-                relation_type="embedding_similarity",
-                weight=semantic_score,
-                reason=f"语义相似度达到阈值：{similarity:.3f}",
-                score_breakdown=score_breakdown,
+            return self._apply_relation_judge(
+                seed,
+                other,
+                EdgeScore(
+                    relation_type="embedding_similarity",
+                    weight=semantic_score,
+                    reason=f"语义相似度达到阈值：{similarity:.3f}",
+                    score_breakdown=score_breakdown,
+                ),
             )
         return EdgeScore(
             relation_type=None,
             weight=0.0,
             reason="未达到任一按需建边阈值",
+            score_breakdown=score_breakdown,
+        )
+
+    def _apply_relation_judge(
+        self,
+        seed: MemoryNode,
+        other: MemoryNode,
+        edge_score: EdgeScore,
+    ) -> EdgeScore:
+        if self.relation_judge is None or edge_score.relation_type is None:
+            return edge_score
+        score_breakdown = {
+            **edge_score.score_breakdown,
+            "relation_type_hint": edge_score.relation_type,
+        }
+        judgment = self.relation_judge.judge(seed, other, score_breakdown)
+        score_breakdown["relation_judge"] = judgment.to_dict()
+        if not judgment.should_link:
+            return EdgeScore(
+                relation_type=None,
+                weight=0.0,
+                reason=f"关系判别器拒绝建边：{judgment.reason}",
+                score_breakdown=score_breakdown,
+            )
+        relation_type = (
+            judgment.relation_type
+            if judgment.relation_type and judgment.relation_type != "unrelated"
+            else edge_score.relation_type
+        )
+        confidence_factor = 0.7 + 0.3 * judgment.confidence
+        return EdgeScore(
+            relation_type=relation_type,
+            weight=min(0.98, edge_score.weight * confidence_factor),
+            reason=f"{edge_score.reason}；关系判别：{judgment.reason}",
             score_breakdown=score_breakdown,
         )
 

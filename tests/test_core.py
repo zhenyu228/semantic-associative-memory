@@ -36,6 +36,7 @@ from sam.generation import (
 from sam.graph import GraphBuilder
 from sam.llm import ChatClient, HeuristicChatClient
 from sam.models import MemoryEdge, MemoryNode, utc_now_iso
+from sam.relation_judge import RelationJudgment
 from sam.retriever import Retriever
 from sam.store import MemoryStore
 
@@ -124,6 +125,62 @@ class SamCoreTest(unittest.TestCase):
         score = self.graph._score_candidate_edge(left, right)
         self.assertEqual(score.relation_type, None)
         self.assertEqual(score.score_breakdown["edge_quality"], "low_information_keyword_overlap")
+
+    def test_relation_judge_can_reject_noisy_candidate_edge(self) -> None:
+        class RejectingRelationJudge:
+            def judge(
+                self,
+                seed: MemoryNode,
+                other: MemoryNode,
+                score_breakdown: dict[str, object],
+            ) -> RelationJudgment:
+                return RelationJudgment(
+                    should_link=False,
+                    relation_type="unrelated",
+                    confidence=0.92,
+                    reason="两个段落主题不同，共享词不足以构成语义关系",
+                )
+
+        self.store.reset()
+        now = utc_now_iso()
+        left = MemoryNode(
+            id="judge_left",
+            text="Alpha bridge evidence focuses on a film award.",
+            summary="Alpha bridge evidence focuses on a film award.",
+            keywords=["alpha", "bridge"],
+            tags=[],
+            source="unit-test",
+            created_at=now,
+            last_accessed_at=None,
+            usage_count=0,
+            confidence=0.8,
+            embedding=[1.0, 0.0, 0.0],
+            metadata={},
+        )
+        right = MemoryNode(
+            id="judge_right",
+            text="Alpha bridge evidence focuses on a sports roster.",
+            summary="Alpha bridge evidence focuses on a sports roster.",
+            keywords=["alpha", "bridge"],
+            tags=[],
+            source="unit-test",
+            created_at=now,
+            last_accessed_at=None,
+            usage_count=0,
+            confidence=0.8,
+            embedding=[1.0, 0.0, 0.0],
+            metadata={},
+        )
+        self.store.upsert_nodes([left, right])
+        graph = GraphBuilder(self.store, relation_judge=RejectingRelationJudge())
+
+        edges = graph.build_edges_on_demand([left], [left, right])
+        score = graph._score_candidate_edge(left, right)
+
+        self.assertEqual(edges, [])
+        self.assertEqual(score.relation_type, None)
+        self.assertEqual(score.score_breakdown["relation_judge"]["should_link"], False)
+        self.assertEqual(score.score_breakdown["relation_judge"]["relation_type"], "unrelated")
 
     def test_edge_creation_log_is_written(self) -> None:
         seed = self.store.get_nodes([self.nodes[0].id])
