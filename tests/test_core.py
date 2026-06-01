@@ -15,6 +15,10 @@ if str(SRC) not in sys.path:
 from sam.datasets import load_builtin_benchmark_sample, load_novelqa_sample
 from sam.dataset_format import load_sam_dataset, save_sam_dataset, summarize_sam_dataset
 from sam.agent_workflow import MultiAgentResearchWorkflow, write_agent_workflow_reports
+from sam.agent_reuse_experiment import (
+    run_agent_memory_reuse_probe,
+    write_agent_memory_reuse_reports,
+)
 from sam.agents import SharedMemoryCoordinator
 from sam.analogy import AnalogyEngine
 from sam.analogy_experiment import run_analogy_reuse_probe
@@ -975,6 +979,62 @@ class SamCoreTest(unittest.TestCase):
         self.assertEqual(result["verifier"]["status"], "passed")
         output_dir = Path(self.temp_dir.name) / "agent_workflow"
         json_path, markdown_path = write_agent_workflow_reports([result], output_dir)
+        self.assertTrue(json_path.exists())
+        self.assertTrue(markdown_path.exists())
+
+    def test_agent_memory_reuse_probe_reports_cross_agent_reuse(self) -> None:
+        class EvidenceAwareChatClient(ChatClient):
+            def complete(self, messages: list[dict[str, object]], max_tokens: int = 500) -> str:
+                prompt = "\n".join(str(message.get("content", "")) for message in messages)
+                if "writer handoff" in prompt:
+                    return "author"
+                return "证据不足"
+
+        cases = [
+            {
+                "query_id": "agent_reuse_case",
+                "question": "Which answer is carried by the shared memory handoff?",
+                "answer": "author",
+                "support_hits_by_method": {"embedding_topk": 0, "sam_no_feedback": 1},
+                "final_answers": {"sam_no_feedback": {"status": "found_in_retrieved_context"}},
+                "methods": {
+                    "embedding_topk": [],
+                    "sam_no_feedback": [
+                        {
+                            "title": "Shared memory evidence",
+                            "text": "The writer handoff says the answer is author.",
+                            "reason": "巩固记忆 -> 证据节点",
+                            "candidate_paths": [{"relation_type": "consolidates_support"}],
+                            "is_supporting": True,
+                        }
+                    ],
+                },
+            }
+        ]
+        coordinator = SharedMemoryCoordinator(self.store, self.embedding)
+        workflow = MultiAgentResearchWorkflow(
+            coordinator=coordinator,
+            generator=ContextAnswerGenerator(EvidenceAwareChatClient()),
+            method="sam_no_feedback",
+        )
+
+        result = run_agent_memory_reuse_probe(
+            cases,
+            workflow=workflow,
+            method="sam_no_feedback",
+            baseline_method="embedding_topk",
+        )
+
+        self.assertEqual(result["summary"]["query_count"], 1)
+        self.assertEqual(result["summary"]["support_gain_count"], 1)
+        self.assertEqual(result["summary"]["writer_handoff_used_count"], 1)
+        self.assertEqual(result["summary"]["verifier_handoff_used_count"], 1)
+        self.assertEqual(result["summary"]["multi_agent_reuse_success_count"], 1)
+        self.assertTrue(result["cases"][0]["writer_used_retriever_handoff"])
+        self.assertTrue(result["cases"][0]["verifier_used_writer_handoff"])
+
+        output_dir = Path(self.temp_dir.name) / "agent_memory_reuse"
+        json_path, markdown_path = write_agent_memory_reuse_reports(result, output_dir)
         self.assertTrue(json_path.exists())
         self.assertTrue(markdown_path.exists())
 
