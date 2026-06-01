@@ -10,7 +10,12 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from sam.generation import ContextAnswerGenerator, generate_answers_for_cases, write_generation_reports  # noqa: E402
+from sam.generation import (  # noqa: E402
+    CaseAnalogyHintBuilder,
+    ContextAnswerGenerator,
+    generate_answers_for_cases,
+    write_generation_reports,
+)
 from sam.llm import create_chat_client  # noqa: E402
 
 
@@ -22,6 +27,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--limit", type=int, default=None, help="最多生成多少条")
     parser.add_argument("--output-dir", default=None, help="输出目录，默认写到 cases.json 所在目录")
     parser.add_argument("--max-context-chars", type=int, default=6000, help="每条样本最多使用的上下文字符数")
+    parser.add_argument("--use-analogy-hints", action="store_true", help="从 cases.json 中检索相似历史案例并加入类比提示")
+    parser.add_argument("--analogy-top-k", type=int, default=2, help="每条样本最多使用多少条类比提示")
     return parser.parse_args()
 
 
@@ -36,11 +43,18 @@ def main() -> None:
     )
     chat_client = create_chat_client(args.chat_provider)
     generator = ContextAnswerGenerator(chat_client, max_context_chars=args.max_context_chars)
+    analogy_hint_builder = (
+        CaseAnalogyHintBuilder(cases, method=args.method)
+        if args.use_analogy_hints
+        else None
+    )
     answers = generate_answers_for_cases(
         cases,
         generator,
         method=args.method,
         limit=args.limit,
+        analogy_hint_builder=analogy_hint_builder,
+        analogy_top_k=args.analogy_top_k,
     )
     json_path, markdown_path = write_generation_reports(answers, output_dir)
     hit_count = sum(1 for answer in answers if answer.answer_hit)

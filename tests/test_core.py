@@ -24,7 +24,12 @@ from sam.embedding import (
     create_embedding_provider,
 )
 from sam.evaluator import Evaluator
-from sam.generation import ContextAnswerGenerator, write_generation_reports
+from sam.generation import (
+    CaseAnalogyHintBuilder,
+    ContextAnswerGenerator,
+    generate_answers_for_cases,
+    write_generation_reports,
+)
 from sam.graph import GraphBuilder
 from sam.llm import HeuristicChatClient
 from sam.models import MemoryEdge, MemoryNode, utc_now_iso
@@ -578,6 +583,65 @@ class SamCoreTest(unittest.TestCase):
         json_path, markdown_path = write_generation_reports([generated], report_dir)
         self.assertTrue(json_path.exists())
         self.assertTrue(markdown_path.exists())
+
+    def test_generation_can_use_case_analogy_hints(self) -> None:
+        cases = [
+            {
+                "query_id": "old_bridge_case",
+                "question": "Which bridge evidence connects a film to its director?",
+                "answer": "director",
+                "support_hits_by_method": {"sam_full": 2},
+                "final_answers": {"sam_full": {"status": "found_in_retrieved_context"}},
+                "methods": {
+                    "sam_full": [
+                        {
+                            "title": "Old evidence",
+                            "text": "The film evidence connects to the director.",
+                            "reason": "向量种子节点 -> shared_entity -> keyword_overlap",
+                            "candidate_paths": [
+                                {"relation_type": "shared_entity"},
+                                {"relation_type": "keyword_overlap"},
+                            ],
+                        }
+                    ]
+                },
+            },
+            {
+                "query_id": "new_bridge_case",
+                "question": "Which bridge evidence connects a novel to its author?",
+                "answer": "author",
+                "support_hits_by_method": {"sam_full": 1},
+                "final_answers": {"sam_full": {"status": "found_in_retrieved_context"}},
+                "methods": {
+                    "sam_full": [
+                        {
+                            "title": "New evidence",
+                            "text": "The novel evidence identifies the author.",
+                            "reason": "向量种子节点 -> shared_entity",
+                            "candidate_paths": [
+                                {"relation_type": "shared_entity"},
+                            ],
+                        }
+                    ]
+                },
+            },
+        ]
+
+        hint_builder = CaseAnalogyHintBuilder(cases, method="sam_full")
+        hints = hint_builder.hints_for(cases[1], top_k=1)
+        self.assertEqual(len(hints), 1)
+        self.assertIn("old_bridge_case", hints[0])
+        self.assertIn("关系路径", hints[0])
+
+        generator = ContextAnswerGenerator(HeuristicChatClient())
+        answers = generate_answers_for_cases(
+            [cases[1]],
+            generator,
+            method="sam_full",
+            analogy_hint_builder=hint_builder,
+        )
+        self.assertEqual(len(answers), 1)
+        self.assertEqual(answers[0].metadata["analogy_hints"], hints)
 
     def test_badcase_analyzer_classifies_missing_support(self) -> None:
         cases = [

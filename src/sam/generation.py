@@ -8,6 +8,7 @@ from typing import Any
 
 from sam.llm import ChatClient
 from sam.models import RetrievalHit
+from sam.text import extract_keywords
 
 
 @dataclass(slots=True)
@@ -122,12 +123,91 @@ def generate_answers_for_cases(
     *,
     method: str,
     limit: int | None = None,
+    analogy_hint_builder: "CaseAnalogyHintBuilder | None" = None,
+    analogy_top_k: int = 2,
 ) -> list[GeneratedAnswer]:
     selected_cases = cases[:limit] if limit is not None else cases
     return [
-        generator.generate_for_case(case, method=method)
+        generator.generate_for_case(
+            case,
+            method=method,
+            analogy_hints=(
+                analogy_hint_builder.hints_for(case, top_k=analogy_top_k)
+                if analogy_hint_builder
+                else None
+            ),
+        )
         for case in selected_cases
     ]
+
+
+class CaseAnalogyHintBuilder:
+    """从 cases.json 中检索相似历史案例，为生成阶段提供类比提示。"""
+
+    def __init__(self, cases: list[dict[str, object]], method: str) -> None:
+        self.cases = cases
+        self.method = method
+
+    def hints_for(self, case: dict[str, object], top_k: int = 2) -> list[str]:
+        current_query_id = str(case.get("query_id", ""))
+        current_keywords = _case_keywords(case)
+        current_relations = _case_relation_types(case, self.method)
+        scored: list[tuple[float, dict[str, object], list[str]]] = []
+        for candidate in self.cases:
+            if str(candidate.get("query_id", "")) == current_query_id:
+                continue
+            score, shared_relations = self._score_candidate(
+                current_keywords=current_keywords,
+                current_relations=current_relations,
+                candidate=candidate,
+            )
+            if score > 0.0:
+                scored.append((score, candidate, shared_relations))
+        scored.sort(key=lambda item: item[0], reverse=True)
+        return [
+            self._format_hint(candidate, score, shared_relations)
+            for score, candidate, shared_relations in scored[:top_k]
+        ]
+
+    def _score_candidate(
+        self,
+        *,
+        current_keywords: set[str],
+        current_relations: list[str],
+        candidate: dict[str, object],
+    ) -> tuple[float, list[str]]:
+        candidate_keywords = _case_keywords(candidate)
+        keyword_score = _overlap_ratio(current_keywords, candidate_keywords)
+        candidate_relations = _case_relation_types(candidate, self.method)
+        shared_relations = [
+            relation for relation in current_relations
+            if relation in candidate_relations
+        ]
+        relation_score = len(shared_relations) / max(1, len(current_relations))
+        support_hits = _support_hits(candidate, self.method)
+        answer_status = _answer_status(candidate, self.method)
+        success_score = 1.0 if support_hits > 0 or answer_status in {
+            "found_in_retrieved_context",
+            "matched_option",
+        } else 0.0
+        score = 0.54 * keyword_score + 0.32 * relation_score + 0.14 * success_score
+        return score, shared_relations
+
+    def _format_hint(
+        self,
+        candidate: dict[str, object],
+        score: float,
+        shared_relations: list[str],
+    ) -> str:
+        query_id = str(candidate.get("query_id", ""))
+        question = str(candidate.get("question", ""))
+        support_hits = _support_hits(candidate, self.method)
+        relation_text = " -> ".join(shared_relations) if shared_relations else "无显式共享路径"
+        return (
+            f"历史案例 {query_id} 与当前问题相似，问题为：{question}。"
+            f"该案例中 {self.method} 命中支持证据 {support_hits} 个，"
+            f"共享关系路径：{relation_text}，类比分数={score:.3f}。"
+        )
 
 
 def write_generation_reports(
@@ -187,6 +267,80 @@ def _hit_title(hit: RetrievalHit | dict[str, object]) -> str:
     if isinstance(hit, RetrievalHit):
         return str(hit.node.metadata.get("title") or hit.node.id)
     return str(hit.get("title") or hit.get("node_id") or "")
+
+
+def _case_keywords(case: dict[str, object]) -> set[str]:
+    text_parts = [
+        str(case.get("question", "")),
+        str(case.get("answer", "")),
+    ]
+    methods = case.get("methods", {})
+    if isinstance(methods, dict):
+        for hits in methods.values():
+            if not isinstance(hits, list):
+                continue
+            for hit in hits:
+                if isinstance(hit, dict):
+                    text_parts.append(str(hit.get("title", "")))
+                    text_parts.append(str(hit.get("reason", "")))
+    return set(extract_keywords(" ".join(text_parts), limit=24))
+
+
+def _case_relation_types(case: dict[str, object], method: str) -> list[str]:
+    methods = case.get("methods", {})
+    if not isinstance(methods, dict):
+        return []
+    hits = methods.get(method, [])
+    if not isinstance(hits, list):
+        return []
+    relation_types: list[str] = []
+    for hit in hits:
+        if not isinstance(hit, dict):
+            continue
+        for candidate_path in hit.get("candidate_paths", []):
+            if not isinstance(candidate_path, dict):
+                continue
+            relation_type = candidate_path.get("relation_type")
+            if relation_type and relation_type not in relation_types:
+                relation_types.append(str(relation_type))
+        reason = str(hit.get("reason", ""))
+        for relation_type in [
+            "shared_entity",
+            "keyword_overlap",
+            "embedding_similarity",
+            "context_cooccurrence",
+            "summary_parent",
+            "summary_child",
+        ]:
+            if relation_type in reason and relation_type not in relation_types:
+                relation_types.append(relation_type)
+    return relation_types
+
+
+def _support_hits(case: dict[str, object], method: str) -> int:
+    support_hits_by_method = case.get("support_hits_by_method", {})
+    if isinstance(support_hits_by_method, dict):
+        try:
+            return int(support_hits_by_method.get(method, 0))
+        except (TypeError, ValueError):
+            return 0
+    return 0
+
+
+def _answer_status(case: dict[str, object], method: str) -> str:
+    final_answers = case.get("final_answers", {})
+    if not isinstance(final_answers, dict):
+        return ""
+    payload = final_answers.get(method, {})
+    if not isinstance(payload, dict):
+        return ""
+    return str(payload.get("status", ""))
+
+
+def _overlap_ratio(left: set[str], right: set[str]) -> float:
+    if not left or not right:
+        return 0.0
+    return len(left & right) / max(1, len(left))
 
 
 def _answer_matches(gold_answer: str, generated_answer: str) -> bool:

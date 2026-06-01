@@ -446,9 +446,19 @@ final_score = semantic_score + graph_score + path_quality + memory_state + feedb
 
 - `AzureOpenAIChatClient`：通过环境变量接入 GPT-5.4 兼容接口。
 - `ContextAnswerGenerator`：读取检索命中的上下文，构造证据约束 prompt，调用聊天模型生成最终答案。
-- `scripts/generate_answers.py`：可对任意 run 的 `cases.json` 进行生成式答案评测，输出 `generated_answers.json` 和 `generated_answers.md`。
+- `CaseAnalogyHintBuilder`：从同一批 `cases.json` 中检索相似历史案例，综合问题关键词、共享关系路径、历史证据命中情况生成类比提示，并注入生成阶段。
+- `scripts/generate_answers.py`：可对任意 run 的 `cases.json` 进行生成式答案评测，输出 `generated_answers.json` 和 `generated_answers.md`。新增 `--use-analogy-hints` 后，脚本会自动加入历史案例提示，支持进行“无类比提示”和“有类比提示”的生成对照。
 - `BadCaseAnalyzer`：每次实验自动输出 `bad_cases.json` 与 `bad_cases.md`，将失败样本归因为支持证据缺失、答案未覆盖、图扩展未使用、图噪声、弱于向量召回等类型。
 - `CachedEmbeddingProvider`：为在线 embedding 增加 SQLite 缓存和批量去重，`AzureOpenAIEmbeddingProvider` 和 `OpenAIEmbeddingProvider` 支持并发 `embed_many()`。这使 HotpotQA 300 条和 NovelQA chunk 实验可以重复运行而不重复消耗同一批文本的 embedding 额度。
+
+类比提示生成 smoke run 已完成，路径为 `outputs/runs/analogy_generation_smoke/`。在启发式本地生成器下，无类比提示与有类比提示的答案命中率均为 0.000；该 smoke run 不用于汇报模型效果，只用于验证链路是否完整。产物中可以看到：
+
+```text
+no_analogy/generated_answers.json      # metadata.analogy_hints 为空
+with_analogy/generated_answers.json    # 每条样本包含 1 条历史案例提示
+```
+
+后续正式实验应使用 GPT-5.4 生成器运行同一套对照，并分析类比提示是否改善答案组织、证据引用和失败案例。
 
 基于 HotpotQA 30 条 bad case，当前主要问题是图扩展有时会把有效向量候选挤出 top-k。为验证改进方向，新增 `sam_vector_anchor` 实验模式：保留更多初始向量候选作为锚点，再进行图扩展重排。30 条对比结果如下：
 
