@@ -465,6 +465,42 @@ class SamCoreTest(unittest.TestCase):
             second.method_metrics["sam_no_graph"]["answer_hit_count"],
         )
 
+    def test_evaluator_preserves_relation_judge_in_isolated_method_runs(self) -> None:
+        class CountingRelationJudge:
+            def __init__(self) -> None:
+                self.calls = 0
+
+            def judge(
+                self,
+                seed: MemoryNode,
+                other: MemoryNode,
+                score_breakdown: dict[str, object],
+            ) -> RelationJudgment:
+                self.calls += 1
+                return RelationJudgment(
+                    should_link=False,
+                    relation_type="unrelated",
+                    confidence=0.9,
+                    reason="测试用关系判别器拒绝所有候选边",
+                )
+
+        judge = CountingRelationJudge()
+        evaluator = Evaluator(
+            self.store,
+            self.embedding,
+            GraphBuilder(self.store, relation_judge=judge),
+        )
+
+        evaluator.evaluate(
+            self.queries[:1],
+            top_k=2,
+            seed_k=1,
+            hops=1,
+            methods=["sam_full"],
+        )
+
+        self.assertGreater(judge.calls, 0)
+
     def test_feedback_events_are_written(self) -> None:
         self.evaluator.evaluate(
             self.queries,

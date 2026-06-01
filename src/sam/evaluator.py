@@ -156,7 +156,10 @@ class Evaluator:
                 temp_dir = tempfile.TemporaryDirectory()
                 method_store = MemoryStore(Path(temp_dir.name) / f"{method}.sqlite")
                 baseline_store.connection.backup(method_store.connection)
-                method_graph_builder = GraphBuilder(method_store)
+                method_graph_builder = GraphBuilder(
+                    method_store,
+                    relation_judge=self.graph_builder.relation_judge,
+                )
                 retriever = Retriever(method_store, self.embedding_provider, method_graph_builder)
                 try:
                     self._evaluate_method(
