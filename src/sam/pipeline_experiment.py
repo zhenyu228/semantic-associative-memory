@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 from sam.answer_judge import AnswerJudge
@@ -14,6 +15,9 @@ from sam.generation import (
 from sam.graph import GraphBuilder
 from sam.llm import ChatClient
 from sam.models import DatasetDocument, EvaluationQuery
+from sam.query_planner import QueryPlanner
+from sam.relation_judge import RelationJudge
+from sam.reranker import DEFAULT_RERANKER_PROFILE
 from sam.store import MemoryStore
 
 
@@ -27,6 +31,9 @@ def run_retrieval_generation_pipeline(
     answer_judge: AnswerJudge,
     retrieval_methods: list[str],
     generation_method: str,
+    query_planner: QueryPlanner | None = None,
+    relation_judge: RelationJudge | None = None,
+    reranker_profile: str = DEFAULT_RERANKER_PROFILE,
     top_k: int = 4,
     seed_k: int = 1,
     hops: int = 2,
@@ -37,8 +44,10 @@ def run_retrieval_generation_pipeline(
     target = Path(output_dir)
     target.mkdir(parents=True, exist_ok=True)
     store = MemoryStore(target / "pipeline.sqlite")
+    original_reranker_profile = os.environ.get("SAM_RERANKER_PROFILE")
     try:
-        graph_builder = GraphBuilder(store)
+        os.environ["SAM_RERANKER_PROFILE"] = reranker_profile
+        graph_builder = GraphBuilder(store, relation_judge=relation_judge)
         evaluator = Evaluator(store, embedding_provider, graph_builder)
         evaluator.ingest(documents)
         retrieval_result = evaluator.evaluate(
@@ -47,6 +56,7 @@ def run_retrieval_generation_pipeline(
             seed_k=seed_k,
             hops=hops,
             methods=retrieval_methods,
+            query_planner=query_planner,
         )
         metrics_json_path, metrics_md_path = evaluator.write_reports(retrieval_result, target)
         generator = ContextAnswerGenerator(
@@ -61,6 +71,10 @@ def run_retrieval_generation_pipeline(
         )
         generated_json_path, generated_md_path = write_generation_reports(generated_answers, target)
     finally:
+        if original_reranker_profile is None:
+            os.environ.pop("SAM_RERANKER_PROFILE", None)
+        else:
+            os.environ["SAM_RERANKER_PROFILE"] = original_reranker_profile
         store.close()
 
     generation_hit_count = sum(1 for answer in generated_answers if answer.answer_hit)
@@ -69,6 +83,9 @@ def run_retrieval_generation_pipeline(
         "document_count": len(documents),
         "retrieval_methods": retrieval_methods,
         "generation_method": generation_method,
+        "reranker_profile": reranker_profile,
+        "query_planner_enabled": query_planner is not None,
+        "relation_judge_enabled": relation_judge is not None,
         "retrieval": {
             "metrics_json": str(metrics_json_path),
             "metrics_markdown": str(metrics_md_path),

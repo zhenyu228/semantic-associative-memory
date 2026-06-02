@@ -16,6 +16,8 @@ from sam.dataset_format import load_sam_dataset, summarize_sam_dataset  # noqa: 
 from sam.embedding import create_embedding_provider  # noqa: E402
 from sam.llm import create_chat_client  # noqa: E402
 from sam.pipeline_experiment import run_retrieval_generation_pipeline  # noqa: E402
+from sam.query_planner import create_query_planner  # noqa: E402
+from sam.relation_judge import create_relation_judge  # noqa: E402
 
 
 def parse_args() -> argparse.Namespace:
@@ -27,12 +29,20 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--embedding-provider", default=None, help="local、openai 或 azure_openai")
     parser.add_argument("--chat-provider", default=None, help="heuristic 或 azure_openai")
     parser.add_argument("--answer-judge", default="rule", choices=["rule", "gpt54"], help="答案判别器")
+    parser.add_argument("--query-planner", default="disabled", choices=["disabled", "heuristic", "gpt54"], help="查询规划器")
+    parser.add_argument("--relation-judge", default="disabled", help="关系级建边判别器：disabled 或 gpt54")
     parser.add_argument(
         "--retrieval-methods",
         default="embedding_topk,sam_full",
         help="逗号分隔的检索方法列表",
     )
     parser.add_argument("--generation-method", default="sam_full", help="用于生成答案的检索方法")
+    parser.add_argument(
+        "--reranker-profile",
+        default="semantic_heavy",
+        choices=["balanced", "semantic_heavy", "graph_heavy", "memory_heavy"],
+        help="SAM 路径重排权重配置",
+    )
     parser.add_argument("--top-k", type=int, default=4, help="最终返回文档数")
     parser.add_argument("--seed-k", type=int, default=1, help="SAM 种子节点数")
     parser.add_argument("--hops", type=int, default=2, help="图扩展跳数")
@@ -71,6 +81,9 @@ def main() -> None:
         answer_judge=create_answer_judge(args.answer_judge),
         retrieval_methods=retrieval_methods,
         generation_method=args.generation_method,
+        query_planner=create_query_planner(args.query_planner),
+        relation_judge=create_relation_judge(args.relation_judge),
+        reranker_profile=args.reranker_profile,
         top_k=args.top_k,
         seed_k=args.seed_k,
         hops=args.hops,

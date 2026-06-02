@@ -1866,6 +1866,42 @@ class SamCoreTest(unittest.TestCase):
         self.assertTrue((output_dir / "generation_bad_cases.json").exists())
         self.assertTrue((output_dir / "pipeline_summary.json").exists())
 
+    def test_retrieval_generation_pipeline_passes_query_planner_and_reranker_profile(self) -> None:
+        class FixedQueryPlanner:
+            def plan(self, query: EvaluationQuery) -> QueryPlan:
+                return QueryPlan(
+                    retrieval_query=f"{query.question} planned bridge evidence",
+                    keywords=["planned", "bridge"],
+                    entities=[],
+                    reason="端到端测试规划器",
+                    metadata={"planner": "fixed_pipeline"},
+                )
+
+        documents, queries = load_builtin_benchmark_sample()
+        output_dir = Path(self.temp_dir.name) / "pipeline_advanced"
+
+        summary = run_retrieval_generation_pipeline(
+            documents=documents,
+            queries=queries[:1],
+            output_dir=output_dir,
+            embedding_provider=self.embedding,
+            chat_client=HeuristicChatClient(),
+            answer_judge=RuleBasedAnswerJudge(),
+            retrieval_methods=["sam_full"],
+            generation_method="sam_full",
+            top_k=2,
+            seed_k=1,
+            hops=2,
+            query_planner=FixedQueryPlanner(),
+            reranker_profile="graph_heavy",
+        )
+
+        cases = json.loads((output_dir / "cases.json").read_text(encoding="utf-8"))
+        sam_hits = cases[0]["methods"]["sam_full"]
+        self.assertEqual(summary["reranker_profile"], "graph_heavy")
+        self.assertEqual(cases[0]["query_plan"]["metadata"]["planner"], "fixed_pipeline")
+        self.assertTrue(all(hit["reranker_profile"] == "graph_heavy" for hit in sam_hits))
+
     def test_sam_dataset_format_round_trip(self) -> None:
         documents, queries = load_builtin_benchmark_sample()
         output_path = Path(self.temp_dir.name) / "sample_sam_dataset.json"

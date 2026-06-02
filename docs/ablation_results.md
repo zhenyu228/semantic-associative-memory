@@ -444,3 +444,5 @@ conda run -n sam python scripts/run_end_to_end_experiment.py \
 ```
 
 该 run 的检索阶段中，Embedding Top-k 与 SAM-full 的证据召回率均为 0.500，检索答案命中率均为 0.667；生成阶段由于使用本地启发式生成器，答案命中率为 0.000。该结果不用于汇报模型效果，主要验证端到端产物完整性。run 目录中同时包含 `metrics.json`、`cases.json`、`generated_answers.json`、`generation_bad_cases.json`、`pipeline_summary.json` 和 `pipeline_summary.md`。后续正式实验可以在该入口中切换 Azure embedding、GPT-5.4 生成和 GPT-5.4 答案判别。
+
+端到端入口随后补充了 `--query-planner`、`--relation-judge` 和 `--reranker-profile` 参数。高级参数 smoke run 位于 `outputs/runs/end_to_end_advanced_smoke/`，其中 `--query-planner heuristic` 成功写入 `cases.json` 的 `query_plan`，`--reranker-profile graph_heavy` 成功写入 SAM 命中结果。该 run 说明正式实验入口已经能够同时控制查询规划、建边判别、路径重排、生成模型和答案判别器。

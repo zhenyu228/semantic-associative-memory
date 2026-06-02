@@ -181,10 +181,13 @@ conda run -n sam python scripts/run_end_to_end_experiment.py \
   --generation-method sam_full \
   --chat-provider heuristic \
   --answer-judge rule \
+  --query-planner heuristic \
+  --relation-judge disabled \
+  --reranker-profile semantic_heavy \
   --run-name end_to_end_hotpotqa8
 ```
 
-该脚本会在同一个 run 目录中输出 `metrics.json`、`cases.json`、`generated_answers.json`、`generation_bad_cases.json` 和 `pipeline_summary.json`。正式实验可以把 `--chat-provider` 和 `--answer-judge` 切换为 GPT-5.4 配置。
+该脚本会在同一个 run 目录中输出 `metrics.json`、`cases.json`、`generated_answers.json`、`generation_bad_cases.json` 和 `pipeline_summary.json`。正式实验可以把 `--chat-provider`、`--answer-judge`、`--query-planner` 和 `--relation-judge` 切换为 GPT-5.4 配置。
 
 使用 Azure OpenAI embedding 时不要把 key 写入仓库，使用环境变量配置：
 
