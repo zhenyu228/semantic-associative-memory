@@ -25,6 +25,7 @@ from sam.agents import SharedMemoryCoordinator
 from sam.analogy import AnalogyEngine
 from sam.analogy_experiment import run_analogy_reuse_probe
 from sam.badcase import BadCaseAnalyzer, write_bad_case_reports
+from sam.answer_judge import AnswerJudgment, RuleBasedAnswerJudge
 from sam.consolidation import MemoryConsolidator
 from sam.embedding import (
     AzureOpenAIEmbeddingProvider,
@@ -1587,6 +1588,51 @@ class SamCoreTest(unittest.TestCase):
         json_path, markdown_path = write_generation_reports([generated], report_dir)
         self.assertTrue(json_path.exists())
         self.assertTrue(markdown_path.exists())
+
+    def test_rule_based_answer_judge_accepts_key_term_coverage(self) -> None:
+        judgment = RuleBasedAnswerJudge().judge(
+            question="Who lived in the cottage?",
+            gold_answer="Felix, De Lacey, Agatha, Safie",
+            generated_answer="The retrieved context identifies Felix, De Lacey, and Agatha.",
+        )
+
+        self.assertTrue(judgment.answer_hit)
+        self.assertEqual(judgment.status, "key_terms_covered")
+        self.assertGreaterEqual(judgment.score, 0.5)
+
+    def test_context_answer_generator_uses_injected_answer_judge(self) -> None:
+        class FixedChatClient(ChatClient):
+            def complete(self, messages: list[dict[str, object]], max_tokens: int = 500) -> str:
+                return "The answer is semantically correct but does not repeat the exact string."
+
+        class AcceptingJudge:
+            def judge(self, question: str, gold_answer: str, generated_answer: str) -> AnswerJudgment:
+                return AnswerJudgment(
+                    answer_hit=True,
+                    status="llm_equivalent",
+                    score=0.91,
+                    reason="测试用 judge 判断语义等价",
+                    metadata={"judge": "fixed"},
+                )
+
+        generator = ContextAnswerGenerator(FixedChatClient(), answer_judge=AcceptingJudge())
+        answer = generator.generate_from_hits(
+            query_id="judge-case",
+            method="sam_full",
+            question="What is the answer?",
+            gold_answer="gold string",
+            hits=[
+                {
+                    "title": "Evidence",
+                    "text": "Evidence text.",
+                    "path": ["n1"],
+                }
+            ],
+        )
+
+        self.assertTrue(answer.answer_hit)
+        self.assertEqual(answer.metadata["answer_judgment"]["status"], "llm_equivalent")
+        self.assertEqual(answer.metadata["answer_judgment"]["metadata"]["judge"], "fixed")
 
     def test_generation_can_use_case_analogy_hints(self) -> None:
         cases = [

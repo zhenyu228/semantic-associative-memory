@@ -18,6 +18,7 @@ from sam.generation import (  # noqa: E402
     write_generation_comparison_reports,
     write_generation_reports,
 )
+from sam.answer_judge import create_answer_judge  # noqa: E402
 from sam.llm import create_chat_client  # noqa: E402
 
 
@@ -26,6 +27,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--cases-file", required=True, help="run 目录中的 cases.json")
     parser.add_argument("--method", default="sam_full", help="用于生成答案的检索方法")
     parser.add_argument("--chat-provider", default=None, help="heuristic 或 azure_openai")
+    parser.add_argument("--answer-judge", default="rule", choices=["rule", "gpt54"], help="答案命中判别器：rule 或 gpt54")
     parser.add_argument("--limit", type=int, default=None, help="最多生成多少条")
     parser.add_argument("--output-dir", default=None, help="输出目录，默认写到 cases.json 所在目录")
     parser.add_argument("--max-context-chars", type=int, default=6000, help="每条样本最多使用的上下文字符数")
@@ -45,7 +47,11 @@ def main() -> None:
         else Path(args.output_dir) if args.output_dir else cases_path.parent
     )
     chat_client = create_chat_client(args.chat_provider)
-    generator = ContextAnswerGenerator(chat_client, max_context_chars=args.max_context_chars)
+    generator = ContextAnswerGenerator(
+        chat_client,
+        max_context_chars=args.max_context_chars,
+        answer_judge=create_answer_judge(args.answer_judge),
+    )
     selected_cases = cases[:args.limit] if args.limit is not None else cases
     if args.compare_analogy:
         comparison = compare_generation_variants(

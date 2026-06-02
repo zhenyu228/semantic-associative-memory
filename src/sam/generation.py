@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from sam.answer_judge import AnswerJudge, RuleBasedAnswerJudge
 from sam.llm import ChatClient
 from sam.models import RetrievalHit
 from sam.text import extract_keywords
@@ -42,9 +43,15 @@ class GeneratedAnswer:
 class ContextAnswerGenerator:
     """把检索结果转成 LLM 可用上下文并生成最终答案。"""
 
-    def __init__(self, chat_client: ChatClient, max_context_chars: int = 6000) -> None:
+    def __init__(
+        self,
+        chat_client: ChatClient,
+        max_context_chars: int = 6000,
+        answer_judge: AnswerJudge | None = None,
+    ) -> None:
         self.chat_client = chat_client
         self.max_context_chars = max_context_chars
+        self.answer_judge = answer_judge or RuleBasedAnswerJudge()
 
     def generate_from_hits(
         self,
@@ -82,16 +89,20 @@ class ContextAnswerGenerator:
             },
         ]
         answer = self.chat_client.complete(messages, max_tokens=500)
+        judgment = self.answer_judge.judge(question, gold_answer, answer)
         return GeneratedAnswer(
             query_id=query_id,
             method=method,
             question=question,
             gold_answer=gold_answer,
             generated_answer=answer,
-            answer_hit=_answer_matches(gold_answer, answer),
+            answer_hit=judgment.answer_hit,
             context_titles=[_hit_title(hit) for hit in hits],
             prompt_tokens_estimate=max(1, len(json.dumps(messages, ensure_ascii=False)) // 4),
-            metadata={"analogy_hints": analogy_hints or []},
+            metadata={
+                "analogy_hints": analogy_hints or [],
+                "answer_judgment": judgment.to_dict(),
+            },
         )
 
     def generate_for_case(

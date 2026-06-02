@@ -397,3 +397,26 @@ NovelQA 12 条回归实验位于 `outputs/runs/reranker_profile_novelqa12_noise_
 | memory_heavy | 0.071 | 0.083 | 13.33 | 12 |
 
 NovelQA 上，过密路径惩罚显著降低了平均候选路径数，并使 `graph_heavy` 的证据召回率达到 0.286。但答案命中率仍然很低，说明当前主要瓶颈已经不只是图路径排序，而是长文本 chunk 定位、答案表述匹配和生成式答案判断。后续 NovelQA 实验需要结合更强 embedding、GPT-5.4 QueryPlanner、实体消歧和生成式答案评估。
+
+## 19. 生成式答案判别接口
+
+为解决 NovelQA 等长答案场景中“检索证据命中但答案字符串不完全一致”的问题，系统新增 `AnswerJudge` 接口，并接入 `scripts/generate_answers.py`。当前支持两种判别方式：
+
+- `rule`：默认本地规则，检查标准答案字符串包含关系和关键内容词覆盖。
+- `gpt54`：通过聊天模型判断生成答案是否和标准答案语义等价，适合长答案、选项题和表述变化较大的样本。
+
+生成结果中的每条样本都会写入 `answer_judgment`，包含 `answer_hit`、`status`、`score`、`reason` 和判别器元信息。这样后续 bad case 分析可以区分两类问题：第一，检索上下文确实没有覆盖答案；第二，检索上下文存在答案依据，但字符串级指标无法识别语义等价。
+
+本地 smoke run 位于 `outputs/runs/answer_judge_smoke/`，命令如下：
+
+```bash
+conda run -n sam python scripts/generate_answers.py \
+  --cases-file outputs/runs/default_semantic_reranker_smoke/cases.json \
+  --method sam_full \
+  --chat-provider heuristic \
+  --answer-judge rule \
+  --limit 2 \
+  --output-dir outputs/runs/answer_judge_smoke
+```
+
+该 run 用本地规则判别器验证链路，输出 `generated_answers.json` 和 `generated_answers.md`。正式实验中可以把 `--chat-provider` 和 `--answer-judge` 同时切换为 GPT-5.4 配置，用于评估 SAM 检索上下文支持下的最终答案质量。
