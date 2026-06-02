@@ -659,16 +659,12 @@ def _novelqa_retrieval_query(item: dict[str, Any], options: dict[str, Any]) -> s
     question = str(item.get("Question") or item.get("question") or "")
     aspect = item.get("Aspect") or item.get("aspect")
     complexity = item.get("Complexity") or item.get("Complex") or item.get("complexity")
-    option_text = " ".join(
-        f"{key}: {value}"
-        for key, value in sorted(options.items())
-        if value is not None
-    )
+    question_keywords = " ".join(extract_keywords(question, limit=10))
     parts = [
         question,
+        f"Question keywords: {question_keywords}" if question_keywords else "",
         f"Aspect: {aspect}" if aspect else "",
         f"Complexity: {complexity}" if complexity else "",
-        f"Options: {option_text}" if option_text else "",
     ]
     return " ".join(part for part in parts if part).strip()
 

@@ -1461,8 +1461,9 @@ class SamCoreTest(unittest.TestCase):
         self.assertEqual(len(queries), 1)
         self.assertEqual(len(documents), 3)
         self.assertEqual(queries[0].metadata["options"]["A"], "White Rabbit")
-        self.assertIn("White Rabbit", queries[0].metadata["retrieval_query"])
+        self.assertIn("Alice", queries[0].metadata["retrieval_query"])
         self.assertIn("plot", queries[0].metadata["retrieval_query"])
+        self.assertNotIn("Mad Hatter", queries[0].metadata["retrieval_query"])
         self.assertEqual(manifest["selected_books"][0]["book_id"], "B00")
 
     def test_novelqa_demonstration_maps_evidence_to_chunks(self) -> None:

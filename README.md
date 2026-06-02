@@ -188,7 +188,7 @@ conda run -n sam python scripts/run_demo.py \
   --use-retrieval-query
 ```
 
-该参数默认关闭。NovelQA 12 条 demonstration smoke run 显示，直接把选项文本加入所有方法的检索查询会引入噪声，当前不适合作为主实验默认策略；它应作为 query expansion 消融变量单独报告。
+该参数默认关闭。NovelQA adapter 当前生成的是启发式 query plan：保留原问题、问题关键词、Aspect 和 Complexity，不再把所有选项答案直接拼入检索查询。NovelQA 12 条 demonstration smoke run 显示，query plan 比全量 options 拼接更稳定，但仍不适合作为主实验默认策略；它应作为 query expansion 消融变量单独报告。
 
 如果公司网关不是标准 Azure 路径，可以直接设置完整请求地址：
 

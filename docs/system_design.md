@@ -74,7 +74,7 @@ scripts/prepare_xxx.py -> data/processed/xxx_sam_sample.json
 
 核心检索系统只读取统一格式，不直接读取原始数据集。
 
-当前新增了可选的 `metadata.retrieval_query` 字段，用于保存数据集适配阶段生成的扩展检索文本。例如 NovelQA 可以把原问题、问题类型、复杂度和选项写入该字段。Evaluator 默认仍使用原始 question，只有在运行脚本中显式增加 `--use-retrieval-query` 时才启用扩展查询。这样可以把 query expansion 作为消融变量，而不会让带噪声的扩展查询污染主实验。
+当前新增了可选的 `metadata.retrieval_query` 字段，用于保存数据集适配阶段生成的扩展检索文本。例如 NovelQA 会把原问题、问题关键词、问题类型和复杂度写入该字段，但不会默认拼接全部选项答案。Evaluator 默认仍使用原始 question，只有在运行脚本中显式增加 `--use-retrieval-query` 时才启用扩展查询。这样可以把 query expansion 作为消融变量，而不会让带噪声的扩展查询污染主实验。
 
 ### 4.2 MemoryNode
 
