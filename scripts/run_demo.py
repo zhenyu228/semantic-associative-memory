@@ -51,6 +51,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--embedding-cache-path", default=None, help="自定义 embedding 缓存 SQLite 路径")
     parser.add_argument("--embedding-concurrency", type=int, default=None, help="在线 embedding 最大并发数")
     parser.add_argument("--relation-judge", default="disabled", help="关系级建边判别器：disabled 或 gpt54")
+    parser.add_argument("--use-retrieval-query", action="store_true", help="使用数据集 metadata 中的 retrieval_query 扩展检索文本")
     parser.add_argument("--top-k", type=int, default=4, help="最终返回文档数")
     parser.add_argument("--seed-k", type=int, default=1, help="联想检索种子节点数")
     parser.add_argument("--hops", type=int, default=2, help="图扩展跳数")
@@ -239,6 +240,7 @@ def main() -> None:
         seed_k=args.seed_k,
         hops=args.hops,
         methods=methods,
+        use_retrieval_query=args.use_retrieval_query,
     )
     json_path, markdown_path = evaluator.write_reports(result, run_dir)
     graph_paths = export_graph_artifacts(

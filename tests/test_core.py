@@ -43,7 +43,7 @@ from sam.generation import (
 )
 from sam.graph import GraphBuilder
 from sam.llm import ChatClient, HeuristicChatClient
-from sam.models import MemoryEdge, MemoryNode, utc_now_iso
+from sam.models import DatasetDocument, EvaluationQuery, MemoryEdge, MemoryNode, utc_now_iso
 from sam.relation_judge import RelationJudgment
 from sam.retriever import Retriever
 from sam.reuse_experiment import build_masked_queries, summarize_memory_reuse
@@ -447,6 +447,51 @@ class SamCoreTest(unittest.TestCase):
         result = self.evaluator.evaluate(self.queries, top_k=2, seed_k=1, hops=2)
         self.assertGreaterEqual(result.associative_recall, result.vector_recall)
         self.assertGreater(result.average_path_length, 1.0)
+
+    def test_evaluator_can_use_retrieval_query_metadata_without_changing_question(self) -> None:
+        self.store.reset()
+        now_documents = [
+            DatasetDocument(
+                id="support-doc",
+                dataset="unit",
+                title="Support",
+                text="alpha beta gamma",
+                source="unit-test",
+                tags=[],
+                keywords=["alpha", "beta", "gamma"],
+            ),
+            DatasetDocument(
+                id="distractor-doc",
+                dataset="unit",
+                title="Distractor",
+                text="Which document ordinary wording",
+                source="unit-test",
+                tags=[],
+                keywords=["which", "document"],
+            ),
+        ]
+        query = EvaluationQuery(
+            id="retrieval-query-case",
+            dataset="unit",
+            question="Which document?",
+            answer="alpha",
+            supporting_doc_ids=["support-doc"],
+            candidate_doc_ids=["support-doc", "distractor-doc"],
+            metadata={"retrieval_query": "alpha beta gamma"},
+        )
+        evaluator = Evaluator(self.store, self.embedding, GraphBuilder(self.store))
+        evaluator.ingest(now_documents)
+
+        result = evaluator.evaluate(
+            [query],
+            top_k=1,
+            methods=["embedding_topk"],
+            use_retrieval_query=True,
+        )
+
+        self.assertEqual(result.method_metrics["embedding_topk"]["support_hits"], 1)
+        self.assertEqual(result.cases[0]["question"], "Which document?")
+        self.assertEqual(result.cases[0]["query_metadata"]["retrieval_query"], "alpha beta gamma")
 
     def test_evaluation_isolates_method_state(self) -> None:
         first = self.evaluator.evaluate(
@@ -1338,6 +1383,8 @@ class SamCoreTest(unittest.TestCase):
         self.assertEqual(len(queries), 1)
         self.assertEqual(len(documents), 3)
         self.assertEqual(queries[0].metadata["options"]["A"], "White Rabbit")
+        self.assertIn("White Rabbit", queries[0].metadata["retrieval_query"])
+        self.assertIn("plot", queries[0].metadata["retrieval_query"])
         self.assertEqual(manifest["selected_books"][0]["book_id"], "B00")
 
     def test_novelqa_demonstration_maps_evidence_to_chunks(self) -> None:

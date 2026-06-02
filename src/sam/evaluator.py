@@ -87,6 +87,7 @@ class Evaluator:
         seed_k: int = 1,
         hops: int = 2,
         methods: list[str] | None = None,
+        use_retrieval_query: bool = False,
     ) -> ExperimentResult:
         active_methods = methods or DEFAULT_EVALUATION_METHODS
         total_support = 0
@@ -131,6 +132,7 @@ class Evaluator:
             query_contexts.append(
                 {
                     "query": query,
+                    "retrieval_query": _retrieval_query(query) if use_retrieval_query else query.question,
                     "support_node_ids": support_node_ids,
                     "candidate_node_ids": candidate_node_ids,
                     "sam_candidate_node_ids": sam_candidate_node_ids,
@@ -277,6 +279,7 @@ class Evaluator:
     ) -> None:
         for context in query_contexts:
             query = context["query"]
+            retrieval_query = context["retrieval_query"]
             support_node_ids = context["support_node_ids"]
             candidate_ids = (
                 context["sam_candidate_node_ids"]
@@ -284,12 +287,13 @@ class Evaluator:
                 else context["candidate_node_ids"]
             )
             assert isinstance(query, EvaluationQuery)
+            assert isinstance(retrieval_query, str)
             assert isinstance(support_node_ids, set)
             assert isinstance(candidate_ids, list)
             candidate_ids = self._candidate_ids_for_method(method_store, method, candidate_ids)
 
             hits = retriever.retrieve(
-                query=query.question,
+                query=retrieval_query,
                 mode=method,
                 top_k=top_k,
                 seed_k=seed_k,
@@ -578,6 +582,13 @@ class Evaluator:
 
 def _average(values: list[float] | list[int]) -> float:
     return sum(values) / len(values) if values else 0.0
+
+
+def _retrieval_query(query: EvaluationQuery) -> str:
+    value = query.metadata.get("retrieval_query")
+    if isinstance(value, str) and value.strip():
+        return value
+    return query.question
 
 
 def _display_method(methods: list[str]) -> str | None:

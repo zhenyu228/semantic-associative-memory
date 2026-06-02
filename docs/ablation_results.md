@@ -241,3 +241,33 @@ Warmup 阶段生成了 22 个巩固记忆节点和 62 条巩固相关边。Probe
 | shared_memory_with_analogy | 0.000 | 923.2 |
 
 该 smoke run 使用本地启发式生成器，目的不是报告模型效果，而是验证三种生成设置、共享记忆注入和类比提示注入是否能稳定生成产物。从 prompt token 估计可以看到，共享记忆和类比提示已经进入生成上下文。正式实验需要使用 GPT-5.4 运行同一脚本，重点比较三种设置的答案命中率、证据引用完整性和 bad case 恢复情况。
+
+## 14. NovelQA 小样本实验与查询扩展消融
+
+为验证系统不只围绕 HotpotQA 的“标题 + 段落”结构运行，当前使用本地 `NovelQA.zip` 的 demonstration 子集构造了 12 条 Frankenstein 长文本问答样本。数据转换输出为 `data/processed/novelqa_demo_eval_sam_sample.json`，包含 120 个小说 chunk、12 个问题和 20 个可映射 gold evidence chunk。
+
+默认原问题检索 run 位于 `outputs/runs/novelqa_demo_eval12_default_query_policy/`，结果如下：
+
+| 方法 | 证据召回率 | 答案命中率 |
+| --- | ---: | ---: |
+| Embedding Top-k | 0.045 | 0.000 |
+| RAPTOR | 0.045 | 0.000 |
+| GraphRAG | 0.136 | 0.083 |
+| HippoRAG | 0.045 | 0.000 |
+| SAM-full | 0.091 | 0.000 |
+| SAM-no-graph | 0.045 | 0.000 |
+
+该结果说明，SAM-full 相比 SAM-no-graph 在 NovelQA 上仍能通过图扩展补回少量 evidence，但整体效果明显低于 HotpotQA。bad case 显示主要问题包括：小说长文本中的同名人物和泛化代词过多，弱关键词边容易把检索带向相邻但无关情节；部分 NovelQA 答案不是原文字符串，当前 answer hit 指标偏严格；同时，本地哈希 embedding 对长文本语义定位能力不足。
+
+为进一步验证 query expansion，系统新增 `metadata.retrieval_query` 和 `--use-retrieval-query` 开关。NovelQA adapter 会把原问题、Aspect、Complexity 和 Options 写入 `retrieval_query`，但默认不启用。启用扩展查询的 run 位于 `outputs/runs/novelqa_demo_eval12_retrieval_query_policy/`，结果如下：
+
+| 方法 | 证据召回率 | 答案命中率 |
+| --- | ---: | ---: |
+| Embedding Top-k | 0.000 | 0.000 |
+| RAPTOR | 0.000 | 0.000 |
+| GraphRAG | 0.000 | 0.000 |
+| HippoRAG | 0.000 | 0.000 |
+| SAM-full | 0.091 | 0.000 |
+| SAM-no-graph | 0.000 | 0.000 |
+
+该对照说明，直接把所有选项文本拼接进查询会引入明显噪声，尤其会干扰 baseline 的相似度排序。因此当前决策是：保留 `retrieval_query` 作为可控实验变量，但主实验默认使用原始 question；后续应研究更精细的查询改写，例如只抽取角色实体、事件关键词，或使用 GPT-5.4 生成面向检索的 query plan。

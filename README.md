@@ -179,6 +179,17 @@ conda run -n sam python scripts/run_demo.py \
   --relation-judge gpt54
 ```
 
+如果数据集提供了 `metadata.retrieval_query`，可以显式启用扩展检索文本：
+
+```bash
+conda run -n sam python scripts/run_demo.py \
+  --dataset novelqa \
+  --dataset-file data/processed/novelqa_demo_eval_sam_sample.json \
+  --use-retrieval-query
+```
+
+该参数默认关闭。NovelQA 12 条 demonstration smoke run 显示，直接把选项文本加入所有方法的检索查询会引入噪声，当前不适合作为主实验默认策略；它应作为 query expansion 消融变量单独报告。
+
 如果公司网关不是标准 Azure 路径，可以直接设置完整请求地址：
 
 ```bash

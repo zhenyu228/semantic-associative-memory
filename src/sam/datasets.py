@@ -435,6 +435,7 @@ def load_novelqa_sample(
                         "gold": item.get("Gold") or item.get("gold"),
                         "evidence_count": len(item.get("Evidences") or []),
                         "raw_answer": item.get("Answer") or item.get("answer"),
+                        "retrieval_query": _novelqa_retrieval_query(item, options),
                         "source_file": qa_file,
                         "book_file": book_file,
                         "note": "NovelQA 公开格式通常不提供可直接映射到 chunk 的 gold evidence，本阶段主要评估答案/选项覆盖。",
@@ -652,6 +653,24 @@ def _extract_novelqa_answer(item: dict[str, Any]) -> str:
         if value is not None:
             return str(value)
     return ""
+
+
+def _novelqa_retrieval_query(item: dict[str, Any], options: dict[str, Any]) -> str:
+    question = str(item.get("Question") or item.get("question") or "")
+    aspect = item.get("Aspect") or item.get("aspect")
+    complexity = item.get("Complexity") or item.get("Complex") or item.get("complexity")
+    option_text = " ".join(
+        f"{key}: {value}"
+        for key, value in sorted(options.items())
+        if value is not None
+    )
+    parts = [
+        question,
+        f"Aspect: {aspect}" if aspect else "",
+        f"Complexity: {complexity}" if complexity else "",
+        f"Options: {option_text}" if option_text else "",
+    ]
+    return " ".join(part for part in parts if part).strip()
 
 
 def _normalize_novelqa_items(payload: Any) -> list[dict[str, Any]]:
