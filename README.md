@@ -101,6 +101,7 @@ SAM/
 │   ├── run_agent_generation_experiment.py
 │   ├── run_agent_memory_reuse_experiment.py
 │   ├── run_memory_reuse_experiment.py
+│   ├── run_reranker_profile_experiment.py
 │   ├── run_agent_workflow.py
 │   └── run_demo.py
 ├── tests/
@@ -133,6 +134,18 @@ conda run -n sam python scripts/run_demo.py \
 ```
 
 当前支持 `balanced`、`semantic_heavy`、`graph_heavy`、`memory_heavy`。运行产物 `cases.json` 会在 SAM 命中结果中记录 `reranker_profile` 和对应 `score_breakdown`，便于分析某个失败样本是语义相似度不足、图路径噪声，还是历史记忆权重过强。
+
+如果要一次性比较多个 profile，可以运行：
+
+```bash
+conda run -n sam python scripts/run_reranker_profile_experiment.py \
+  --dataset-file data/processed/hotpotqa_sam_sample.json \
+  --limit 30 \
+  --profiles balanced,semantic_heavy,graph_heavy,memory_heavy \
+  --run-name reranker_profile_hotpotqa30
+```
+
+该脚本会输出 `reranker_profile_comparison.json` 和 `reranker_profile_comparison.md`，包含每种 profile 的证据召回率、答案命中率、平均路径长度和 bad case 类型统计。
 
 运行后会生成独立 run 目录，例如：
 

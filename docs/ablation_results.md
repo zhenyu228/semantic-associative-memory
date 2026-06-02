@@ -344,3 +344,15 @@ conda run -n sam python scripts/run_demo.py \
 ```
 
 该 run 中 Embedding Top-k 与 SAM-full 的证据召回率均为 0.667，答案命中率均为 0.667。该结果不用于证明方法收益，主要验证 profile 已进入完整运行链路。后续在 HotpotQA 300 条和 NovelQA 上可分别对比 `semantic_heavy` 与 `graph_heavy`：如果 bad case 主要来自弱图边和错误扩展，应提升语义权重；如果主要来自间接证据漏召回，则应提升图路径和多路径支持权重。
+
+进一步新增 `scripts/run_reranker_profile_experiment.py`，用于一次性比较多个 profile。HotpotQA 8 条 smoke run 位于 `outputs/runs/reranker_profile_hotpotqa8_smoke/`，命令如下：
+
+```bash
+conda run -n sam python scripts/run_reranker_profile_experiment.py \
+  --dataset-file data/processed/hotpotqa_sam_sample.json \
+  --limit 8 \
+  --profiles balanced,semantic_heavy,graph_heavy,memory_heavy \
+  --run-name reranker_profile_hotpotqa8_smoke
+```
+
+本次 8 条 smoke 中四种 profile 的证据召回率均为 0.625，答案命中率均为 0.750，脚本按 tie-break 选择 `graph_heavy`。这说明在小样本和当前本地 embedding 下，profile 权重还没有形成显著差异；但实验产物已经包含每种 profile 的指标、平均路径长度和 bad case 类型统计。下一步应在 HotpotQA 300 条和 NovelQA demonstration 上复跑，以观察不同 profile 对图噪声和间接证据召回的影响。

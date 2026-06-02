@@ -46,6 +46,10 @@ from sam.llm import ChatClient, HeuristicChatClient
 from sam.models import DatasetDocument, EvaluationQuery, MemoryEdge, MemoryNode, RetrievalHit, utc_now_iso
 from sam.query_planner import ChatQueryPlanner, HeuristicQueryPlanner, QueryPlan
 from sam.reranker import PathReranker
+from sam.reranker_experiment import (
+    run_reranker_profile_comparison,
+    write_reranker_profile_reports,
+)
 from sam.relation_judge import RelationJudgment
 from sam.retriever import Retriever
 from sam.reuse_experiment import build_masked_queries, summarize_memory_reuse
@@ -529,6 +533,35 @@ class SamCoreTest(unittest.TestCase):
         self.assertTrue(
             all(hit["reranker_profile"] == "memory_heavy" for hit in sam_hits)
         )
+
+    def test_reranker_profile_comparison_reports_metrics_and_bad_cases(self) -> None:
+        documents, queries = load_builtin_benchmark_sample()
+
+        comparison = run_reranker_profile_comparison(
+            documents=documents,
+            queries=queries[:2],
+            embedding_provider=self.embedding,
+            profiles=["balanced", "graph_heavy"],
+            top_k=2,
+            seed_k=1,
+            hops=2,
+        )
+
+        self.assertEqual(comparison["query_count"], 2)
+        self.assertEqual(set(comparison["profiles"]), {"balanced", "graph_heavy"})
+        self.assertIn(comparison["best_profile"], {"balanced", "graph_heavy"})
+        for profile in ["balanced", "graph_heavy"]:
+            profile_result = comparison["profile_results"][profile]
+            self.assertIn("metrics", profile_result)
+            self.assertIn("bad_case_summary", profile_result)
+            self.assertIn("evidence_recall", profile_result["metrics"])
+            self.assertIn("category_counts", profile_result["bad_case_summary"])
+
+        output_dir = Path(self.temp_dir.name) / "reranker_profiles"
+        json_path, markdown_path = write_reranker_profile_reports(comparison, output_dir)
+        payload = json.loads(json_path.read_text(encoding="utf-8"))
+        self.assertEqual(payload["best_profile"], comparison["best_profile"])
+        self.assertIn("PathReranker Profile 对比实验", markdown_path.read_text(encoding="utf-8"))
 
     def test_sam_static_graph_does_not_update_dynamic_state(self) -> None:
         query = self.queries[0]
