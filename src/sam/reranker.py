@@ -19,6 +19,8 @@ class RerankerWeights:
     usage_scale: float
     usage_cap: float
     recency: float
+    path_noise_cap: float = 0.12
+    path_noise_threshold: int = 12
 
 
 RERANKER_PROFILES = {
@@ -75,6 +77,7 @@ class PathScore:
     total: float
     path_support_score: float
     edge_memory_score: float
+    path_noise_penalty: float
     usage_score: float
     recency_score: float
     confidence_score: float
@@ -106,6 +109,7 @@ class PathReranker:
     ) -> PathScore:
         weights = self.weights
         path_support_score = _path_support_score(signals) if use_multipath else 0.0
+        path_noise_penalty = _path_noise_penalty(signals, weights) if use_multipath else 0.0
         edge_memory_score = _edge_memory_score(signals) if use_memory_state else 0.0
         usage_score = (
             min(weights.usage_cap, math.log1p(node.usage_count) * weights.usage_scale)
@@ -121,6 +125,8 @@ class PathReranker:
         }
         if use_multipath:
             breakdown["path_support_component"] = round(weights.path_support * path_support_score, 4)
+            if path_noise_penalty > 0.0:
+                breakdown["path_noise_penalty"] = round(path_noise_penalty, 4)
         if use_memory_state:
             breakdown["edge_memory_component"] = round(weights.edge_memory * edge_memory_score, 4)
             breakdown["usage_component"] = round(usage_score, 4)
@@ -133,12 +139,14 @@ class PathReranker:
             + usage_score
             + recency_score
             + confidence_score
+            - path_noise_penalty
         )
         return PathScore(
             profile=self.profile,
             total=total,
             path_support_score=path_support_score,
             edge_memory_score=edge_memory_score,
+            path_noise_penalty=path_noise_penalty,
             usage_score=usage_score,
             recency_score=recency_score,
             confidence_score=confidence_score,
@@ -169,6 +177,17 @@ def _edge_memory_score(signals: list[dict[str, object]]) -> float:
     if not activations:
         return 0.0
     return min(1.0, math.log1p(sum(activations)) / 3.0)
+
+
+def _path_noise_penalty(signals: list[dict[str, object]], weights: RerankerWeights) -> float:
+    non_seed_path_count = sum(
+        1 for signal in signals
+        if len(signal.get("path", [])) > 1
+    )
+    if non_seed_path_count <= weights.path_noise_threshold:
+        return 0.0
+    overflow = non_seed_path_count - weights.path_noise_threshold
+    return min(weights.path_noise_cap, math.log1p(overflow) * 0.035)
 
 
 def _recency_score(last_accessed_at: str | None, weight: float) -> float:

@@ -499,6 +499,48 @@ class SamCoreTest(unittest.TestCase):
 
         self.assertEqual(reranker.profile, "semantic_heavy")
 
+    def test_path_reranker_penalizes_over_dense_candidate_paths(self) -> None:
+        node = self.nodes[0]
+        sparse_signals = [
+            {
+                "path": ["seed", node.id],
+                "graph_score": 0.7,
+                "depth": 1,
+                "edge_activation_count": 0,
+            }
+        ]
+        dense_signals = [
+            {
+                "path": [f"seed_{index}", node.id],
+                "graph_score": 0.7,
+                "depth": 1,
+                "edge_activation_count": 0,
+            }
+            for index in range(24)
+        ]
+
+        reranker = PathReranker(profile="semantic_heavy")
+        sparse_score = reranker.score(
+            similarity=0.5,
+            graph_score=0.7,
+            signals=sparse_signals,
+            node=node,
+            use_multipath=True,
+            use_memory_state=True,
+        )
+        dense_score = reranker.score(
+            similarity=0.5,
+            graph_score=0.7,
+            signals=dense_signals,
+            node=node,
+            use_multipath=True,
+            use_memory_state=True,
+        )
+
+        self.assertIn("path_noise_penalty", dense_score.breakdown)
+        self.assertGreater(dense_score.path_noise_penalty, 0.0)
+        self.assertLess(dense_score.total, sparse_score.total)
+
     def test_retriever_reads_reranker_profile_from_environment(self) -> None:
         query = self.queries[0]
         candidate_ids = [

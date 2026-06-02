@@ -133,7 +133,7 @@ conda run -n sam python scripts/run_demo.py \
   --reranker-profile graph_heavy
 ```
 
-当前支持 `balanced`、`semantic_heavy`、`graph_heavy`、`memory_heavy`。运行产物 `cases.json` 会在 SAM 命中结果中记录 `reranker_profile` 和对应 `score_breakdown`，便于分析某个失败样本是语义相似度不足、图路径噪声，还是历史记忆权重过强。
+当前支持 `balanced`、`semantic_heavy`、`graph_heavy`、`memory_heavy`。运行产物 `cases.json` 会在 SAM 命中结果中记录 `reranker_profile` 和对应 `score_breakdown`，便于分析某个失败样本是语义相似度不足、图路径噪声，还是历史记忆权重过强。`PathReranker` 还会对过密候选路径加入 `path_noise_penalty`，避免长文本场景中“路径很多但证据不可靠”的节点被无条件推高。
 
 如果要一次性比较多个 profile，可以运行：
 

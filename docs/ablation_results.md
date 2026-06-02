@@ -369,3 +369,31 @@ HotpotQA 300 条正式 profile 对比 run 位于 `outputs/runs/reranker_profile_
 该实验显示，`semantic_heavy` 相比原默认 `balanced` 证据召回率提升 0.040，答案命中率提升 0.050；`memory_heavy` 明显下降，说明当前阶段的历史记忆和边激活信号还不能承担过高排序权重。Bad case 统计中，所有 profile 的主要失败类型仍集中在 `missing_support_evidence` 和 `graph_noise`，其中 `memory_heavy` 的图噪声和缺失证据数量最多。这说明 SAM 当前最需要控制的是噪声路径进入 top-k，而不是进一步放大历史激活。
 
 基于该结果，系统默认 reranker profile 已从 `balanced` 调整为 `semantic_heavy`。该调整使主流程更保守地依赖语义相似度，同时仍保留图路径和多路径支持作为补充信号。后续 NovelQA 长文本实验仍需要单独复跑 profile 对比，因为小说场景可能更依赖实体关系和长程图路径。
+
+## 18. 过密路径惩罚与长文本图噪声控制
+
+NovelQA profile 对比显示，长文本小说场景中的平均候选路径数明显高于 HotpotQA。以 `outputs/runs/reranker_profile_novelqa12/` 为例，`semantic_heavy` 的平均候选路径数为 19.67，`memory_heavy` 达到 30.50。大量路径并不一定代表强证据，反而可能来自同一本小说中相邻 chunk、人物代词、弱关键词和结构词造成的 hub 噪声。
+
+为此，`PathReranker` 新增 `path_noise_penalty`：当某个候选节点由过多非种子路径同时到达时，系统会对最终分数进行惩罚，避免“路径数量多”被直接解释为“证据支持强”。该惩罚从 12 条候选路径后开始生效，最高扣分 0.12，并写入每条命中的 `score_breakdown`。
+
+加入过密路径惩罚后，HotpotQA 300 条回归实验位于 `outputs/runs/reranker_profile_hotpotqa300_noise_penalty/`，结果如下：
+
+| Profile | 证据召回率 | 答案命中率 | 平均候选路径数 | Bad case 数量 |
+| --- | ---: | ---: | ---: | ---: |
+| balanced | 0.485 | 0.567 | 4.29 | 216 |
+| semantic_heavy | 0.523 | 0.620 | 4.08 | 215 |
+| graph_heavy | 0.490 | 0.597 | 4.29 | 211 |
+| memory_heavy | 0.440 | 0.550 | 4.09 | 236 |
+
+与未加入惩罚前相比，HotpotQA 上没有出现负向影响，`semantic_heavy` 仍为最优，证据召回率从 0.522 小幅提升到 0.523，答案命中率从 0.617 小幅提升到 0.620。
+
+NovelQA 12 条回归实验位于 `outputs/runs/reranker_profile_novelqa12_noise_penalty/`，结果如下：
+
+| Profile | 证据召回率 | 答案命中率 | 平均候选路径数 | Bad case 数量 |
+| --- | ---: | ---: | ---: | ---: |
+| balanced | 0.214 | 0.000 | 9.56 | 12 |
+| semantic_heavy | 0.214 | 0.000 | 7.96 | 12 |
+| graph_heavy | 0.286 | 0.000 | 10.54 | 12 |
+| memory_heavy | 0.071 | 0.083 | 13.33 | 12 |
+
+NovelQA 上，过密路径惩罚显著降低了平均候选路径数，并使 `graph_heavy` 的证据召回率达到 0.286。但答案命中率仍然很低，说明当前主要瓶颈已经不只是图路径排序，而是长文本 chunk 定位、答案表述匹配和生成式答案判断。后续 NovelQA 实验需要结合更强 embedding、GPT-5.4 QueryPlanner、实体消歧和生成式答案评估。
