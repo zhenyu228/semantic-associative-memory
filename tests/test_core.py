@@ -51,6 +51,7 @@ from sam.graph import GraphBuilder
 from sam.llm import ChatClient, HeuristicChatClient
 from sam.models import DatasetDocument, EvaluationQuery, MemoryEdge, MemoryNode, RetrievalHit, utc_now_iso
 from sam.query_planner import ChatQueryPlanner, HeuristicQueryPlanner, QueryPlan
+from sam.pipeline_experiment import run_retrieval_generation_pipeline
 from sam.reranker import PathReranker
 from sam.reranker_experiment import (
     run_reranker_profile_comparison,
@@ -1837,6 +1838,33 @@ class SamCoreTest(unittest.TestCase):
         json_path, markdown_path = write_generation_bad_case_reports(bad_cases, output_dir)
         self.assertTrue(json_path.exists())
         self.assertIn("生成 Bad Case 分析", markdown_path.read_text(encoding="utf-8"))
+
+    def test_retrieval_generation_pipeline_writes_end_to_end_outputs(self) -> None:
+        documents, queries = load_builtin_benchmark_sample()
+        output_dir = Path(self.temp_dir.name) / "pipeline"
+
+        summary = run_retrieval_generation_pipeline(
+            documents=documents,
+            queries=queries[:2],
+            output_dir=output_dir,
+            embedding_provider=self.embedding,
+            chat_client=HeuristicChatClient(),
+            answer_judge=RuleBasedAnswerJudge(),
+            retrieval_methods=["embedding_topk", "sam_full"],
+            generation_method="sam_full",
+            top_k=2,
+            seed_k=1,
+            hops=2,
+        )
+
+        self.assertEqual(summary["query_count"], 2)
+        self.assertIn("retrieval", summary)
+        self.assertIn("generation", summary)
+        self.assertTrue((output_dir / "metrics.json").exists())
+        self.assertTrue((output_dir / "cases.json").exists())
+        self.assertTrue((output_dir / "generated_answers.json").exists())
+        self.assertTrue((output_dir / "generation_bad_cases.json").exists())
+        self.assertTrue((output_dir / "pipeline_summary.json").exists())
 
     def test_sam_dataset_format_round_trip(self) -> None:
         documents, queries = load_builtin_benchmark_sample()

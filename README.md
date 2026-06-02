@@ -100,6 +100,7 @@ SAM/
 │   ├── run_analogy_reuse_experiment.py
 │   ├── run_agent_generation_experiment.py
 │   ├── run_agent_memory_reuse_experiment.py
+│   ├── run_end_to_end_experiment.py
 │   ├── run_memory_reuse_experiment.py
 │   ├── run_reranker_profile_experiment.py
 │   ├── run_agent_workflow.py
@@ -169,6 +170,21 @@ outputs/runs/20260508_230000_hotpotqa/
 ```bash
 conda run -n sam python -m unittest discover -s tests -v
 ```
+
+运行检索、生成、答案判别和 bad case 分析的端到端实验：
+
+```bash
+conda run -n sam python scripts/run_end_to_end_experiment.py \
+  --dataset-file data/processed/hotpotqa_sam_sample.json \
+  --limit 8 \
+  --retrieval-methods embedding_topk,sam_full \
+  --generation-method sam_full \
+  --chat-provider heuristic \
+  --answer-judge rule \
+  --run-name end_to_end_hotpotqa8
+```
+
+该脚本会在同一个 run 目录中输出 `metrics.json`、`cases.json`、`generated_answers.json`、`generation_bad_cases.json` 和 `pipeline_summary.json`。正式实验可以把 `--chat-provider` 和 `--answer-judge` 切换为 GPT-5.4 配置。
 
 使用 Azure OpenAI embedding 时不要把 key 写入仓库，使用环境变量配置：
 

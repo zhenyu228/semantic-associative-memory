@@ -422,3 +422,25 @@ conda run -n sam python scripts/generate_answers.py \
 该 run 用本地规则判别器验证链路，输出 `generated_answers.json` 和 `generated_answers.md`。正式实验中可以把 `--chat-provider` 和 `--answer-judge` 同时切换为 GPT-5.4 配置，用于评估 SAM 检索上下文支持下的最终答案质量。
 
 随后系统进一步加入 `GenerationBadCaseAnalyzer`，生成脚本会自动输出 `generation_bad_cases.json` 和 `generation_bad_cases.md`。本地 smoke run 位于 `outputs/runs/generation_badcase_smoke_fixed/`，其中启发式生成器在证据不足时返回“证据不足”，不再误把 system prompt 当作答案。生成 bad case 报告会把失败样本归为 `generated_answer_not_equivalent`、`judge_low_confidence` 和 `context_available_but_generation_failed` 等类型，便于区分检索召回问题和答案生成问题。
+
+## 20. 检索-生成-判别端到端实验入口
+
+为减少正式实验中手动串联脚本造成的配置误差，系统新增 `scripts/run_end_to_end_experiment.py`。该脚本在同一个 run 目录内完成检索评测、答案生成、答案判别和生成 bad case 分析，并输出 `pipeline_summary.json` 与 `pipeline_summary.md`。
+
+本地 smoke run 位于 `outputs/runs/end_to_end_smoke/`，命令如下：
+
+```bash
+conda run -n sam python scripts/run_end_to_end_experiment.py \
+  --dataset-file data/processed/hotpotqa_sam_sample.json \
+  --limit 3 \
+  --retrieval-methods embedding_topk,sam_full \
+  --generation-method sam_full \
+  --chat-provider heuristic \
+  --answer-judge rule \
+  --top-k 2 \
+  --seed-k 1 \
+  --hops 2 \
+  --run-name end_to_end_smoke
+```
+
+该 run 的检索阶段中，Embedding Top-k 与 SAM-full 的证据召回率均为 0.500，检索答案命中率均为 0.667；生成阶段由于使用本地启发式生成器，答案命中率为 0.000。该结果不用于汇报模型效果，主要验证端到端产物完整性。run 目录中同时包含 `metrics.json`、`cases.json`、`generated_answers.json`、`generation_bad_cases.json`、`pipeline_summary.json` 和 `pipeline_summary.md`。后续正式实验可以在该入口中切换 Azure embedding、GPT-5.4 生成和 GPT-5.4 答案判别。
