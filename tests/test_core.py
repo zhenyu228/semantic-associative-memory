@@ -43,7 +43,7 @@ from sam.generation import (
 )
 from sam.graph import GraphBuilder
 from sam.llm import ChatClient, HeuristicChatClient
-from sam.models import DatasetDocument, EvaluationQuery, MemoryEdge, MemoryNode, utc_now_iso
+from sam.models import DatasetDocument, EvaluationQuery, MemoryEdge, MemoryNode, RetrievalHit, utc_now_iso
 from sam.relation_judge import RelationJudgment
 from sam.retriever import Retriever
 from sam.reuse_experiment import build_masked_queries, summarize_memory_reuse
@@ -492,6 +492,43 @@ class SamCoreTest(unittest.TestCase):
         self.assertEqual(result.method_metrics["embedding_topk"]["support_hits"], 1)
         self.assertEqual(result.cases[0]["question"], "Which document?")
         self.assertEqual(result.cases[0]["query_metadata"]["retrieval_query"], "alpha beta gamma")
+
+    def test_evaluator_extracts_long_answer_by_key_terms(self) -> None:
+        now = utc_now_iso()
+        node = MemoryNode(
+            id="novel-answer-node",
+            text="Felix lived with old De Lacey and his daughter Agatha in the cottage.",
+            summary="Felix lived with De Lacey and Agatha.",
+            keywords=["felix", "de", "lacey", "agatha"],
+            tags=[],
+            source="unit-test",
+            created_at=now,
+            last_accessed_at=None,
+            usage_count=0,
+            confidence=0.8,
+            embedding=[1.0, 0.0],
+            metadata={"title": "Novel answer chunk"},
+        )
+        hit = RetrievalHit(
+            node=node,
+            score=1.0,
+            similarity_score=1.0,
+            graph_score=0.0,
+            usage_score=0.0,
+            confidence_score=0.0,
+            path=[node.id],
+            reason="测试命中",
+        )
+
+        answer = self.evaluator._extract_answer(
+            "Felix, De Lacey, Agatha, (Safie)",
+            [hit],
+            {},
+        )
+
+        self.assertEqual(answer["status"], "answer_terms_covered")
+        self.assertGreaterEqual(answer["term_coverage"], 0.5)
+        self.assertIn("Felix", answer["answer"])
 
     def test_evaluation_isolates_method_state(self) -> None:
         first = self.evaluator.evaluate(

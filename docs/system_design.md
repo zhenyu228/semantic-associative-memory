@@ -210,6 +210,8 @@ query -> seed nodes -> activated edges -> expanded nodes -> ranked results -> ex
 - activated edge count
 - new useful evidence from expansion
 
+对于 NovelQA 这类长答案数据，`answer hit` 不再只依赖完整字符串精确出现。Evaluator 会先检查标准答案或选项文本是否出现在检索上下文中；如果答案是较长的实体/描述列表，还会计算答案关键内容词覆盖率，覆盖率达到阈值时记为 `answer_terms_covered`。这仍然只是“检索上下文是否具备回答基础”的轻量指标，不替代 GPT-5.4 生成评测或 NovelQA 官方评价。
+
 第二层是官方 baseline 评测：
 
 - RAPTOR 官方实现。

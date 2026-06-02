@@ -319,7 +319,11 @@ class Evaluator:
                     answer_status=str(extracted_answer["status"]),
                 )
             method_support_hits[method] += case_support_hits
-            if extracted_answer["status"] in {"found_in_retrieved_context", "matched_option"}:
+            if extracted_answer["status"] in {
+                "found_in_retrieved_context",
+                "matched_option",
+                "answer_terms_covered",
+            }:
                 method_answer_hits[method] += 1
             method_path_lengths[method].extend(len(hit.path) for hit in hits)
             method_candidate_path_counts[method].extend(
@@ -461,6 +465,16 @@ class Evaluator:
                     "evidence_title": hit.node.metadata.get("title", hit.node.id),
                     "note": "当前阶段未接 LLM，此处表示 top-k 检索文本中包含标准答案字符串。",
                 }
+            coverage = _answer_term_coverage(gold_text, haystack)
+            if coverage >= 0.5:
+                return {
+                    "answer": gold_text,
+                    "status": "answer_terms_covered",
+                    "evidence_node_id": hit.node.id,
+                    "evidence_title": hit.node.metadata.get("title", hit.node.id),
+                    "term_coverage": round(coverage, 4),
+                    "note": "当前阶段未接 LLM，此处表示 top-k 检索文本覆盖了标准答案中的关键实体或内容词。",
+                }
         return {
             "answer": "未在检索文本中找到答案",
             "status": "not_found_in_retrieved_context",
@@ -589,6 +603,52 @@ def _retrieval_query(query: EvaluationQuery) -> str:
     if isinstance(value, str) and value.strip():
         return value
     return query.question
+
+
+def _answer_term_coverage(gold_answer: str, haystack: str) -> float:
+    terms = _answer_terms(gold_answer)
+    if len(terms) < 2:
+        return 0.0
+    matched = sum(1 for term in terms if term in haystack)
+    return matched / len(terms)
+
+
+def _answer_terms(text: str) -> list[str]:
+    normalized = "".join(char.lower() if char.isalnum() else " " for char in text)
+    stopwords = {
+        "and",
+        "or",
+        "the",
+        "a",
+        "an",
+        "of",
+        "in",
+        "to",
+        "is",
+        "are",
+        "was",
+        "were",
+        "with",
+        "from",
+        "when",
+        "after",
+        "before",
+        "but",
+        "his",
+        "her",
+        "him",
+        "she",
+        "he",
+        "it",
+        "this",
+        "that",
+    }
+    terms = [
+        token
+        for token in normalized.split()
+        if len(token) >= 3 and token not in stopwords
+    ]
+    return list(dict.fromkeys(terms))
 
 
 def _display_method(methods: list[str]) -> str | None:
