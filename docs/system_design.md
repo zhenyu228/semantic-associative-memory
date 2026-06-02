@@ -37,12 +37,14 @@ SAM 将知识表示为动态记忆图：
 flowchart TD
     A["公开数据集<br/>HotpotQA / NovelQA / 后续数据集"] --> B["数据集适配器<br/>Dataset Adapter"]
     B --> C["SAM 统一数据格式<br/>sam-dataset-v1"]
+    C --> Q["查询规划<br/>QueryPlanner"]
     C --> D["记忆写入层<br/>Memory Ingestion"]
     D --> E["记忆节点<br/>MemoryNode"]
     D --> F["表示层<br/>EmbeddingProvider"]
     E --> G["记忆存储<br/>MemoryStore / SQLite"]
     F --> G
-    G --> H["初始召回<br/>Seed Retrieval"]
+    Q --> H["初始召回<br/>Seed Retrieval"]
+    G --> H
     H --> I["动态按需建图<br/>GraphBuilder"]
     I --> J["语义边<br/>MemoryEdge"]
     J --> G
@@ -76,7 +78,20 @@ scripts/prepare_xxx.py -> data/processed/xxx_sam_sample.json
 
 当前新增了可选的 `metadata.retrieval_query` 字段，用于保存数据集适配阶段生成的扩展检索文本。例如 NovelQA 会把原问题、问题关键词、问题类型和复杂度写入该字段，但不会默认拼接全部选项答案。Evaluator 默认仍使用原始 question，只有在运行脚本中显式增加 `--use-retrieval-query` 时才启用扩展查询。这样可以把 query expansion 作为消融变量，而不会让带噪声的扩展查询污染主实验。
 
-### 4.2 MemoryNode
+### 4.2 QueryPlanner
+
+QueryPlanner 是当前新增的查询理解模块。它位于数据集适配和 Retriever 之间，负责把原始问题转换为更适合检索的 `retrieval_query`，同时保留关键词、实体和规划原因。
+
+当前支持两种模式：
+
+- `heuristic`：基于问题关键词、显式实体、Aspect、Complexity 等元信息生成检索文本，不拼接 NovelQA 的全部候选选项，避免干扰选项污染召回。
+- `gpt54`：通过聊天模型生成结构化 query plan，预留给后续正式实验，用于抽取角色实体、事件触发词、待验证关系和检索意图。
+
+QueryPlanner 和 Dataset Adapter 的 `metadata.retrieval_query` 分工不同：前者是运行时策略，可以作为实验变量切换；后者是数据转换阶段保存的静态扩展字段。Evaluator 在传入 `query_planner` 时优先使用运行时规划结果，并把每条样本的规划内容写入 `cases.json`，便于 bad case 分析。
+
+这一模块对应开题计划中的“语义理解和语义联想触发”部分。它解决的问题不是简单增加关键词，而是让系统在进入图检索前先明确：本题需要寻找人物关系、事件次数、因果关系，还是跨文档桥接证据。后续接入 GPT-5.4 后，可以进一步把查询规划结果用于控制种子节点数量、候选边类型和路径重排权重。
+
+### 4.3 MemoryNode
 
 记忆节点是系统的最小可检索单元。当前设计字段包括：
 
@@ -104,7 +119,7 @@ scripts/prepare_xxx.py -> data/processed/xxx_sam_sample.json
 
 这一步是吸收 RAPTOR 实验优势后的系统改造：不把摘要层级做成独立静态索引，而是把摘要节点纳入动态记忆图。
 
-### 4.3 MemoryEdge
+### 4.4 MemoryEdge
 
 语义边用于解释两个节点为何产生联想关系。边不是抽象黑盒相似度，而是带有类型和创建原因。
 
@@ -133,7 +148,7 @@ scripts/prepare_xxx.py -> data/processed/xxx_sam_sample.json
 
 在此基础上，系统新增了关系级建边判别接口 `RelationJudge`。`GraphBuilder` 可以在规则 scorer 产生候选边之后，把两个记忆节点、关键词、实体、相似度和初始关系类型提交给判别器，由 GPT-5.4 判断是否真的存在可解释关系。如果判别器认为只是偶然相似或主题不同，则候选边会被跳过；如果判别器认为关系成立，则把模型给出的关系类型、置信度和原因写入 `score_breakdown`。这样可以把动态图谱构建从“词面重叠和向量相似”推进到“关系有效性判断”。
 
-### 4.4 EmbeddingProvider
+### 4.5 EmbeddingProvider
 
 Embedding 暂时不是主线阻塞点。系统只要求它满足统一接口：
 
@@ -151,7 +166,7 @@ embed_batch(texts) -> vectors
 
 论文实现上，EmbeddingProvider 是基础表示模块，不是 SAM 的核心创新点。SAM 的创新点放在动态建图、记忆状态更新和联想检索机制上。
 
-### 4.5 GraphBuilder
+### 4.6 GraphBuilder
 
 GraphBuilder 负责按需建图。它不在数据写入时做全量两两比较，而是在以下场景触发建边：
 
@@ -179,7 +194,7 @@ flowchart TD
 
 这样可以直接回应开题专家担心的建图时间成本：SAM 不追求全量图，而是让图结构随访问逐步成长。
 
-### 4.6 Retriever
+### 4.7 Retriever
 
 SAM 检索不是单步 top-k，而是多阶段过程：
 
@@ -197,7 +212,7 @@ SAM 检索不是单步 top-k，而是多阶段过程：
 query -> seed nodes -> activated edges -> expanded nodes -> ranked results -> explanation paths
 ```
 
-### 4.7 Evaluator
+### 4.8 Evaluator
 
 评测模块分两层：
 

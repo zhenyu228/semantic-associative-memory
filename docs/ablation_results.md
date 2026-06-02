@@ -305,3 +305,23 @@ NovelQA bad case 显示，小说文本中大量代词、助动词和结构词会
 | SAM-no-graph | 0.143 | 0.000 |
 
 与上一轮默认检索相比，过滤后 SAM-full 的答案命中率从 0.000 提升到 0.083，并且不再明显低于 SAM-no-graph。该结果说明弱关键词边过滤能够缓解一部分图扩展噪声，但还没有解决 NovelQA 的核心困难。GraphRAG 仍然表现最好，说明长文本小说问答更依赖实体级局部图和更强语义表示。后续应继续引入实体消歧、GPT-5.4 关系判别和正式 embedding 模型。
+
+## 16. QueryPlanner 运行时查询规划
+
+为避免查询扩展逻辑固化在 NovelQA adapter 中，系统新增 `QueryPlanner` 模块。该模块在 Evaluator 调用检索器之前运行，输出 `retrieval_query`、关键词、实体和规划原因，并写入每条样本的 `cases.json`。这样同一份 SAM 数据集可以在不重新转换数据的情况下，直接对比原始问题、数据集静态 `retrieval_query`、启发式 QueryPlanner 和 GPT-5.4 QueryPlanner。
+
+当前启发式 QueryPlanner 会使用原始问题、问题关键词、Aspect 和 Complexity，但不会把所有候选选项拼接进检索文本。本轮 smoke run 位于 `outputs/runs/query_planner_smoke/`，使用 `data/processed/novelqa_demo_eval_sam_sample.json` 的 12 条 Frankenstein demonstration 样本，命令如下：
+
+```bash
+conda run -n sam python scripts/run_demo.py \
+  --reset \
+  --dataset novelqa \
+  --dataset-file data/processed/novelqa_demo_eval_sam_sample.json \
+  --methods embedding_topk,sam \
+  --top-k 3 \
+  --seed-k 1 \
+  --hops 2 \
+  --query-planner heuristic
+```
+
+结果为：Embedding Top-k 证据召回率 0.071、答案命中率 0.000；SAM 动态联想检索证据召回率 0.071、答案命中率 0.083。该结果说明在当前 NovelQA 小样本中，查询规划模块已经能稳定进入评测闭环，SAM 的图扩展仍能带来少量答案覆盖增益。但证据召回没有明显提升，说明启发式规划还不足以解决长文本小说中的实体消歧和事件定位问题。下一步应使用 GPT-5.4 QueryPlanner 生成更细粒度的角色实体、事件触发词和关系约束，再与 Qwen3-Embedding 或公司 embedding 接口结合重跑同一套实验。

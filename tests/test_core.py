@@ -44,6 +44,7 @@ from sam.generation import (
 from sam.graph import GraphBuilder
 from sam.llm import ChatClient, HeuristicChatClient
 from sam.models import DatasetDocument, EvaluationQuery, MemoryEdge, MemoryNode, RetrievalHit, utc_now_iso
+from sam.query_planner import ChatQueryPlanner, HeuristicQueryPlanner, QueryPlan
 from sam.relation_judge import RelationJudgment
 from sam.retriever import Retriever
 from sam.reuse_experiment import build_masked_queries, summarize_memory_reuse
@@ -533,6 +534,118 @@ class SamCoreTest(unittest.TestCase):
         self.assertEqual(result.method_metrics["embedding_topk"]["support_hits"], 1)
         self.assertEqual(result.cases[0]["question"], "Which document?")
         self.assertEqual(result.cases[0]["query_metadata"]["retrieval_query"], "alpha beta gamma")
+
+    def test_heuristic_query_planner_uses_question_metadata_without_all_options(self) -> None:
+        query = EvaluationQuery(
+            id="novelqa-query-plan",
+            dataset="novelqa",
+            question="Why does Alice leave the tea party?",
+            answer="A",
+            supporting_doc_ids=[],
+            candidate_doc_ids=[],
+            metadata={
+                "aspect": "plot",
+                "complexity": "causal",
+                "options": {
+                    "A": "Because the conversation becomes frustrating.",
+                    "B": "Because the Mad Hatter asks her to sing.",
+                    "C": "Because the Queen arrives with soldiers.",
+                },
+            },
+        )
+
+        plan = HeuristicQueryPlanner().plan(query)
+
+        self.assertIn("Alice", plan.retrieval_query)
+        self.assertIn("plot", plan.retrieval_query)
+        self.assertIn("causal", plan.retrieval_query)
+        self.assertNotIn("Mad Hatter", plan.retrieval_query)
+        self.assertNotIn("Queen arrives", plan.retrieval_query)
+        self.assertEqual(plan.metadata["planner"], "heuristic")
+
+    def test_chat_query_planner_parses_structured_plan(self) -> None:
+        class PlanningChatClient(ChatClient):
+            def complete(self, messages: list[dict[str, object]], max_tokens: int = 500) -> str:
+                return json.dumps(
+                    {
+                        "retrieval_query": "Alice tea party frustration cause",
+                        "keywords": ["alice", "tea", "party"],
+                        "entities": ["Alice"],
+                        "reason": "定位角色和事件原因",
+                    },
+                    ensure_ascii=False,
+                )
+
+        query = EvaluationQuery(
+            id="chat-query-plan",
+            dataset="novelqa",
+            question="Why does Alice leave the tea party?",
+            answer="A",
+            supporting_doc_ids=[],
+            candidate_doc_ids=[],
+            metadata={"aspect": "plot", "complexity": "causal"},
+        )
+
+        plan = ChatQueryPlanner(PlanningChatClient()).plan(query)
+
+        self.assertEqual(plan.retrieval_query, "Alice tea party frustration cause")
+        self.assertEqual(plan.entities, ["Alice"])
+        self.assertEqual(plan.metadata["planner"], "chat")
+
+    def test_evaluator_can_use_query_planner_and_records_plan(self) -> None:
+        class FixedQueryPlanner:
+            def plan(self, query: EvaluationQuery) -> QueryPlan:
+                return QueryPlan(
+                    retrieval_query="alpha beta gamma",
+                    keywords=["alpha", "beta", "gamma"],
+                    entities=["alpha"],
+                    reason="单元测试固定查询规划",
+                    metadata={"planner": "fixed"},
+                )
+
+        self.store.reset()
+        documents = [
+            DatasetDocument(
+                id="support-doc",
+                dataset="unit",
+                title="Support",
+                text="alpha beta gamma",
+                source="unit-test",
+                tags=[],
+                keywords=["alpha", "beta", "gamma"],
+            ),
+            DatasetDocument(
+                id="distractor-doc",
+                dataset="unit",
+                title="Distractor",
+                text="Which document ordinary wording",
+                source="unit-test",
+                tags=[],
+                keywords=["which", "document"],
+            ),
+        ]
+        query = EvaluationQuery(
+            id="query-planner-case",
+            dataset="unit",
+            question="Which document?",
+            answer="alpha",
+            supporting_doc_ids=["support-doc"],
+            candidate_doc_ids=["support-doc", "distractor-doc"],
+        )
+        evaluator = Evaluator(self.store, self.embedding, GraphBuilder(self.store))
+        evaluator.ingest(documents)
+
+        result = evaluator.evaluate(
+            [query],
+            top_k=1,
+            methods=["embedding_topk"],
+            query_planner=FixedQueryPlanner(),
+        )
+
+        self.assertEqual(result.method_metrics["embedding_topk"]["support_hits"], 1)
+        self.assertEqual(result.cases[0]["question"], "Which document?")
+        self.assertEqual(result.cases[0]["query_plan"]["retrieval_query"], "alpha beta gamma")
+        self.assertEqual(result.cases[0]["query_plan"]["metadata"]["planner"], "fixed")
 
     def test_evaluator_extracts_long_answer_by_key_terms(self) -> None:
         now = utc_now_iso()

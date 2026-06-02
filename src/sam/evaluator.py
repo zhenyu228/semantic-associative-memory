@@ -11,6 +11,7 @@ from sam.embedding import EmbeddingProvider
 from sam.consolidation import MemoryConsolidator
 from sam.graph import GraphBuilder
 from sam.models import DatasetDocument, EvaluationQuery, MemoryNode, RetrievalHit
+from sam.query_planner import QueryPlanner
 from sam.retriever import RETRIEVAL_METHOD_NAMES, Retriever
 from sam.store import MemoryStore
 from sam.feedback import FeedbackUpdater
@@ -88,6 +89,7 @@ class Evaluator:
         hops: int = 2,
         methods: list[str] | None = None,
         use_retrieval_query: bool = False,
+        query_planner: QueryPlanner | None = None,
     ) -> ExperimentResult:
         active_methods = methods or DEFAULT_EVALUATION_METHODS
         total_support = 0
@@ -112,6 +114,7 @@ class Evaluator:
         query_contexts: list[dict[str, object]] = []
         cases_by_query: dict[str, dict[str, object]] = {}
         for query in queries:
+            query_plan = query_planner.plan(query) if query_planner else None
             support_node_ids = {
                 original_to_node[doc_id]
                 for doc_id in query.supporting_doc_ids
@@ -132,7 +135,14 @@ class Evaluator:
             query_contexts.append(
                 {
                     "query": query,
-                    "retrieval_query": _retrieval_query(query) if use_retrieval_query else query.question,
+                    "retrieval_query": (
+                        query_plan.retrieval_query
+                        if query_plan
+                        else _retrieval_query(query)
+                        if use_retrieval_query
+                        else query.question
+                    ),
+                    "query_plan": query_plan.to_dict() if query_plan else None,
                     "support_node_ids": support_node_ids,
                     "candidate_node_ids": candidate_node_ids,
                     "sam_candidate_node_ids": sam_candidate_node_ids,
@@ -144,6 +154,7 @@ class Evaluator:
                 "question": query.question,
                 "answer": query.answer,
                 "query_metadata": query.metadata,
+                "query_plan": query_plan.to_dict() if query_plan else None,
                 "supporting_doc_ids": query.supporting_doc_ids,
                 "methods": {},
                 "final_answers": {},
