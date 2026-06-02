@@ -39,7 +39,34 @@ STOPWORDS = {
     "this",
     "it",
     "its",
+    "he",
+    "she",
+    "him",
+    "her",
+    "his",
+    "hers",
+    "you",
+    "your",
+    "i",
+    "me",
+    "my",
+    "we",
+    "our",
+    "they",
+    "them",
     "their",
+    "had",
+    "has",
+    "have",
+    "do",
+    "does",
+    "did",
+    "so",
+    "but",
+    "not",
+    "no",
+    "yes",
+    "one",
     "be",
 }
 
@@ -72,4 +99,3 @@ def cosine_similarity(left: list[float], right: list[float]) -> float:
     if left_norm == 0.0 or right_norm == 0.0:
         return 0.0
     return dot / (left_norm * right_norm)
-

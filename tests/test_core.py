@@ -136,6 +136,47 @@ class SamCoreTest(unittest.TestCase):
         self.assertEqual(score.relation_type, None)
         self.assertEqual(score.score_breakdown["edge_quality"], "low_information_keyword_overlap")
 
+    def test_novel_chunk_structural_keywords_do_not_create_edge(self) -> None:
+        self.store.reset()
+        now = utc_now_iso()
+        left = MemoryNode(
+            id="novel_noise_left",
+            text="Frankenstein chunk had his letter and she was there.",
+            summary="Frankenstein chunk had his letter.",
+            keywords=["frankenstein", "chunk", "had", "his", "she"],
+            tags=["novelqa"],
+            source="unit-test",
+            created_at=now,
+            last_accessed_at=None,
+            usage_count=0,
+            confidence=0.8,
+            embedding=[1.0, 0.0, 0.0],
+            metadata={"book_id": "Frankenstein"},
+        )
+        right = MemoryNode(
+            id="novel_noise_right",
+            text="Frankenstein chunk had his memory and she replied.",
+            summary="Frankenstein chunk had his memory.",
+            keywords=["frankenstein", "chunk", "had", "his", "she"],
+            tags=["novelqa"],
+            source="unit-test",
+            created_at=now,
+            last_accessed_at=None,
+            usage_count=0,
+            confidence=0.8,
+            embedding=[0.0, 1.0, 0.0],
+            metadata={"book_id": "Frankenstein"},
+        )
+        self.store.upsert_nodes([left, right])
+
+        edges = self.graph.build_edges_on_demand([left], [left, right])
+        score = self.graph._score_candidate_edge(left, right)
+
+        self.assertEqual(edges, [])
+        self.assertEqual(score.relation_type, None)
+        self.assertEqual(score.score_breakdown["edge_quality"], "low_information_keyword_overlap")
+        self.assertEqual(score.score_breakdown["keyword_overlap"], [])
+
     def test_relation_judge_can_reject_noisy_candidate_edge(self) -> None:
         class RejectingRelationJudge:
             def judge(

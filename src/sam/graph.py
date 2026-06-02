@@ -8,7 +8,7 @@ from pathlib import Path
 from sam.models import MemoryEdge, MemoryNode, utc_now_iso
 from sam.relation_judge import RelationJudge
 from sam.store import MemoryStore
-from sam.text import cosine_similarity
+from sam.text import cosine_similarity, tokenize
 
 
 GENERIC_EDGE_KEYWORDS = {
@@ -27,8 +27,30 @@ GENERIC_EDGE_KEYWORDS = {
     "football",
     "team",
     "home",
+    "chunk",
+    "chapter",
+    "letter",
     "they",
     "their",
+    "them",
+    "she",
+    "her",
+    "hers",
+    "he",
+    "him",
+    "his",
+    "you",
+    "your",
+    "my",
+    "mine",
+    "our",
+    "had",
+    "has",
+    "have",
+    "but",
+    "not",
+    "one",
+    "so",
     "known",
     "based",
     "people",
@@ -233,7 +255,7 @@ class GraphBuilder:
             set(seed.metadata.get("entities", [])) & set(other.metadata.get("entities", []))
         )
         keyword_overlap = sorted(
-            (set(seed.keywords) & set(other.keywords)) - GENERIC_EDGE_KEYWORDS
+            (set(seed.keywords) & set(other.keywords)) - _uninformative_edge_keywords(seed, other)
         )
         similarity = cosine_similarity(seed.embedding, other.embedding)
 
@@ -378,6 +400,17 @@ class GraphBuilder:
 
 
 def _edge_quality(keyword_overlap: list[str]) -> str:
-    if keyword_overlap and all(keyword in LOW_INFORMATION_EDGE_KEYWORDS for keyword in keyword_overlap):
+    if not keyword_overlap:
+        return "low_information_keyword_overlap"
+    if all(keyword in LOW_INFORMATION_EDGE_KEYWORDS for keyword in keyword_overlap):
         return "low_information_keyword_overlap"
     return "normal"
+
+
+def _uninformative_edge_keywords(seed: MemoryNode, other: MemoryNode) -> set[str]:
+    keywords = set(GENERIC_EDGE_KEYWORDS) | set(LOW_INFORMATION_EDGE_KEYWORDS)
+    seed_book_id = seed.metadata.get("book_id")
+    other_book_id = other.metadata.get("book_id")
+    if seed_book_id and seed_book_id == other_book_id:
+        keywords.update(tokenize(str(seed_book_id)))
+    return keywords
