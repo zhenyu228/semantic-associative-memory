@@ -491,7 +491,7 @@ final_score = semantic_score + graph_score + path_quality + memory_state + feedb
 - `CaseAnalogyHintBuilder`：从同一批 `cases.json` 中检索相似历史案例，综合问题关键词、共享关系路径、历史证据命中情况生成类比提示，并注入生成阶段。
 - `scripts/generate_answers.py`：可对任意 run 的 `cases.json` 进行生成式答案评测，输出 `generated_answers.json` 和 `generated_answers.md`。新增 `--use-analogy-hints` 后，脚本会自动加入历史案例提示；新增 `--compare-analogy` 后，脚本会同时运行“无类比提示”和“有类比提示”两种生成，并输出 `generation_comparison.json` 与 `generation_comparison.md`。
 - `BadCaseAnalyzer`：每次实验自动输出 `bad_cases.json` 与 `bad_cases.md`，将失败样本归因为支持证据缺失、答案未覆盖、图扩展未使用、图噪声、弱于向量召回等类型。
-- `CachedEmbeddingProvider`：为在线 embedding 增加 SQLite 缓存和批量去重，`AzureOpenAIEmbeddingProvider` 和 `OpenAIEmbeddingProvider` 支持并发 `embed_many()`。这使 HotpotQA 300 条和 NovelQA chunk 实验可以重复运行而不重复消耗同一批文本的 embedding 额度。
+- `CachedEmbeddingProvider`：为在线 embedding 增加 SQLite 缓存和批量去重，`AzureOpenAIEmbeddingProvider` 和 `OpenAIEmbeddingProvider` 支持并发 `embed_many()`。在线 provider 会按照 batch size 把多条文本合并进一次 embedding 请求，并通过并发 batch 提高实验吞吐；同时 payload 支持 `model` 和 `dimensions` 字段，适配公司网关的 text-embedding-3-large 降维调用。这使 HotpotQA 300 条和 NovelQA chunk 实验可以重复运行而不重复消耗同一批文本的 embedding 额度。
 
 类比提示生成 smoke run 已完成，路径为 `outputs/runs/analogy_generation_smoke/`。在启发式本地生成器下，无类比提示与有类比提示的答案命中率均为 0.000；该 smoke run 不用于汇报模型效果，只用于验证链路是否完整。产物中可以看到：
 

@@ -948,6 +948,59 @@ class SamCoreTest(unittest.TestCase):
             self.assertIn("/openai/deployments/text-embedding-3-large/embeddings", provider.request_url)
             self.assertIn("api-version=2023-07-01-preview", provider.request_url)
 
+    def test_azure_embedding_provider_batches_requests_with_model_and_dimensions(self) -> None:
+        class FakeResponse:
+            def __init__(self, payload: dict[str, object]) -> None:
+                inputs = payload["input"]
+                assert isinstance(inputs, list)
+                self.body = json.dumps(
+                    {
+                        "data": [
+                            {"embedding": [float(index), float(len(text))]}
+                            for index, text in enumerate(inputs)
+                        ]
+                    }
+                ).encode("utf-8")
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb) -> None:
+                return None
+
+            def read(self) -> bytes:
+                return self.body
+
+        requests: list[dict[str, object]] = []
+
+        def fake_urlopen(request, timeout=60):
+            payload = json.loads(request.data.decode("utf-8"))
+            requests.append(payload)
+            return FakeResponse(payload)
+
+        with patch.dict(
+            "os.environ",
+            {
+                "SAM_AZURE_EMBEDDING_API_KEY": "test-key",
+                "SAM_AZURE_EMBEDDING_ENDPOINT": "https://example.test/gpt/openapi/online/v2/crawl",
+                "SAM_AZURE_EMBEDDING_API_VERSION": "2023-07-01-preview",
+                "SAM_AZURE_EMBEDDING_MODEL": "text-embedding-3-large",
+                "SAM_AZURE_EMBEDDING_DIMENSIONS": "1024",
+                "SAM_AZURE_EMBEDDING_BATCH_SIZE": "2",
+                "SAM_AZURE_EMBEDDING_CONCURRENCY": "1",
+            },
+            clear=False,
+        ), patch("urllib.request.urlopen", fake_urlopen):
+            provider = AzureOpenAIEmbeddingProvider()
+            embeddings = provider.embed_many(["alpha", "beta", "gamma"])
+
+        self.assertEqual(len(requests), 2)
+        self.assertEqual(requests[0]["input"], ["alpha", "beta"])
+        self.assertEqual(requests[1]["input"], ["gamma"])
+        self.assertEqual(requests[0]["model"], "text-embedding-3-large")
+        self.assertEqual(requests[0]["dimensions"], 1024)
+        self.assertEqual(embeddings, [[0.0, 5.0], [1.0, 4.0], [0.0, 5.0]])
+
     def test_cached_embedding_provider_reuses_vectors(self) -> None:
         class CountingEmbeddingProvider(LocalHashEmbeddingProvider):
             def __init__(self) -> None:

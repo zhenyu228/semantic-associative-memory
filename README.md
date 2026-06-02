@@ -154,6 +154,7 @@ export SAM_AZURE_EMBEDDING_API_VERSION="2023-07-01-preview"
 export SAM_AZURE_EMBEDDING_MODEL="text-embedding-3-large"
 export SAM_AZURE_EMBEDDING_DIMENSIONS="1024"
 export SAM_AZURE_EMBEDDING_CONCURRENCY="10"
+export SAM_AZURE_EMBEDDING_BATCH_SIZE="16"
 export SAM_AZURE_EMBEDDING_API_KEY="..."
 
 conda run -n sam python scripts/run_demo.py \
@@ -165,6 +166,12 @@ conda run -n sam python scripts/run_demo.py \
 ```
 
 `--embedding-cache` 会把向量缓存到 `data/embedding_cache.sqlite`，该文件已被 gitignore 排除。也可以用 `--embedding-cache-path outputs/runs/<run_name>/embedding_cache.sqlite` 把缓存放进某次实验目录。
+
+在线 embedding provider 会按 `SAM_AZURE_EMBEDDING_BATCH_SIZE` 分批请求，并按 `SAM_AZURE_EMBEDDING_CONCURRENCY` 并发处理不同 batch。默认 payload 会同时发送 `model` 和 `dimensions`，适配公司网关；如果你的 Azure 标准部署不接受 body 中的 `model` 字段，可以设置：
+
+```bash
+export SAM_AZURE_EMBEDDING_SEND_MODEL="0"
+```
 
 如果要使用 GPT-5.4 对候选语义边进行关系级判别，先配置聊天模型环境变量，然后在实验命令中增加 `--relation-judge gpt54`：
 

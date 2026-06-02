@@ -71,16 +71,32 @@ class OpenAIEmbeddingProvider(EmbeddingProvider):
         self.base_url = os.environ.get("OPENAI_BASE_URL", "https://api.openai.com/v1").rstrip("/")
         self.model = os.environ.get("SAM_OPENAI_EMBEDDING_MODEL", "text-embedding-3-small")
         self.max_concurrency = int(os.environ.get("SAM_OPENAI_EMBEDDING_CONCURRENCY", "4"))
+        self.batch_size = int(os.environ.get("SAM_OPENAI_EMBEDDING_BATCH_SIZE", "16"))
+        dimensions = os.environ.get("SAM_OPENAI_EMBEDDING_DIMENSIONS")
+        self.dimensions = int(dimensions) if dimensions else None
 
     @property
     def cache_namespace(self) -> str:
-        return f"openai:{self.base_url}:{self.model}"
+        return f"openai:{self.base_url}:{self.model}:{self.dimensions or 'default'}"
 
     def embed(self, text: str) -> list[float]:
-        payload = json.dumps({"model": self.model, "input": text}).encode("utf-8")
+        return self._embed_batch([text])[0]
+
+    def embed_many(self, texts: list[str]) -> list[list[float]]:
+        return _parallel_embed_batches(
+            self._embed_batch,
+            texts,
+            batch_size=self.batch_size,
+            max_concurrency=self.max_concurrency,
+        )
+
+    def _embed_batch(self, texts: list[str]) -> list[list[float]]:
+        payload: dict[str, object] = {"model": self.model, "input": texts}
+        if self.dimensions is not None:
+            payload["dimensions"] = self.dimensions
         request = urllib.request.Request(
             f"{self.base_url}/embeddings",
-            data=payload,
+            data=json.dumps(payload).encode("utf-8"),
             headers={
                 "Authorization": f"Bearer {self.api_key}",
                 "Content-Type": "application/json",
@@ -89,10 +105,10 @@ class OpenAIEmbeddingProvider(EmbeddingProvider):
         )
         with urllib.request.urlopen(request, timeout=30) as response:
             data = json.loads(response.read().decode("utf-8"))
-        return [float(value) for value in data["data"][0]["embedding"]]
-
-    def embed_many(self, texts: list[str]) -> list[list[float]]:
-        return _parallel_embed(self.embed, texts, self.max_concurrency)
+        return [
+            [float(value) for value in item["embedding"]]
+            for item in data["data"]
+        ]
 
 
 class AzureOpenAIEmbeddingProvider(EmbeddingProvider):
@@ -114,7 +130,10 @@ class AzureOpenAIEmbeddingProvider(EmbeddingProvider):
         self.full_url = os.environ.get("SAM_AZURE_EMBEDDING_URL")
         self.auth_header = os.environ.get("SAM_AZURE_EMBEDDING_AUTH_HEADER", "api-key")
         self.max_concurrency = int(os.environ.get("SAM_AZURE_EMBEDDING_CONCURRENCY", "4"))
+        self.batch_size = int(os.environ.get("SAM_AZURE_EMBEDDING_BATCH_SIZE", "16"))
         self.max_retries = int(os.environ.get("SAM_AZURE_EMBEDDING_MAX_RETRIES", "5"))
+        self.request_timeout = int(os.environ.get("SAM_AZURE_EMBEDDING_TIMEOUT", "60"))
+        self.send_model = os.environ.get("SAM_AZURE_EMBEDDING_SEND_MODEL", "1") != "0"
         dimensions = os.environ.get("SAM_AZURE_EMBEDDING_DIMENSIONS")
         self.dimensions = int(dimensions) if dimensions else None
 
@@ -132,31 +151,44 @@ class AzureOpenAIEmbeddingProvider(EmbeddingProvider):
         )
 
     def embed(self, text: str) -> list[float]:
-        payload: dict[str, object] = {"input": text}
+        return self._embed_batch([text])[0]
+
+    def embed_many(self, texts: list[str]) -> list[list[float]]:
+        return _parallel_embed_batches(
+            self._embed_batch,
+            texts,
+            batch_size=self.batch_size,
+            max_concurrency=self.max_concurrency,
+        )
+
+    def _embed_batch(self, texts: list[str]) -> list[list[float]]:
+        payload: dict[str, object] = {"input": texts}
+        if self.send_model:
+            payload["model"] = self.model
         if self.dimensions is not None:
             payload["dimensions"] = self.dimensions
-        request = urllib.request.Request(
-            self.request_url,
-            data=json.dumps(payload).encode("utf-8"),
-            headers={
-                self.auth_header: self.api_key,
-                "Content-Type": "application/json",
-            },
-            method="POST",
-        )
         for attempt in range(self.max_retries):
             try:
-                with urllib.request.urlopen(request, timeout=60) as response:
+                request = urllib.request.Request(
+                    self.request_url,
+                    data=json.dumps(payload).encode("utf-8"),
+                    headers={
+                        self.auth_header: self.api_key,
+                        "Content-Type": "application/json",
+                    },
+                    method="POST",
+                )
+                with urllib.request.urlopen(request, timeout=self.request_timeout) as response:
                     data = json.loads(response.read().decode("utf-8"))
-                return [float(value) for value in data["data"][0]["embedding"]]
+                return [
+                    [float(value) for value in item["embedding"]]
+                    for item in data["data"]
+                ]
             except Exception:
                 if attempt == self.max_retries - 1:
                     raise
                 time.sleep(min(8.0, 1.0 + attempt))
         raise RuntimeError("embedding 请求失败")
-
-    def embed_many(self, texts: list[str]) -> list[list[float]]:
-        return _parallel_embed(self.embed, texts, self.max_concurrency)
 
 
 class CachedEmbeddingProvider(EmbeddingProvider):
@@ -270,6 +302,31 @@ def _parallel_embed(
         return [embed_fn(text) for text in texts]
     with ThreadPoolExecutor(max_workers=max_concurrency) as executor:
         return list(executor.map(embed_fn, texts))
+
+
+def _parallel_embed_batches(
+    embed_batch_fn,
+    texts: list[str],
+    batch_size: int,
+    max_concurrency: int,
+) -> list[list[float]]:
+    if not texts:
+        return []
+    safe_batch_size = max(1, batch_size)
+    batches = [
+        texts[index : index + safe_batch_size]
+        for index in range(0, len(texts), safe_batch_size)
+    ]
+    if max_concurrency <= 1 or len(batches) <= 1:
+        batch_results = [embed_batch_fn(batch) for batch in batches]
+    else:
+        with ThreadPoolExecutor(max_workers=max_concurrency) as executor:
+            batch_results = list(executor.map(embed_batch_fn, batches))
+    return [
+        embedding
+        for batch in batch_results
+        for embedding in batch
+    ]
 
 
 def _cache_key(namespace: str, text: str) -> str:
