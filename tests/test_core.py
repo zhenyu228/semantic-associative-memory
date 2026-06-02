@@ -1659,6 +1659,42 @@ class SamCoreTest(unittest.TestCase):
         self.assertNotIn("严格基于检索证据", answer)
         self.assertEqual(answer, "证据不足")
 
+    def test_heuristic_chat_client_extracts_answer_from_context(self) -> None:
+        answer = HeuristicChatClient().complete(
+            [
+                {
+                    "role": "user",
+                    "content": (
+                        "问题：Which city is identified?\n\n"
+                        "上下文：\n"
+                        "[1] Evidence\n"
+                        "The answer is Shanghai.\n\n"
+                        "请输出最终答案。"
+                    ),
+                }
+            ]
+        )
+
+        self.assertEqual(answer, "Shanghai")
+
+    def test_heuristic_chat_client_extracts_short_fact_from_context(self) -> None:
+        answer = HeuristicChatClient().complete(
+            [
+                {
+                    "role": "user",
+                    "content": (
+                        "问题：Which city is identified?\n\n"
+                        "上下文：\n"
+                        "[1] Evidence\n"
+                        "The university is located in Shanghai. The city is Shanghai.\n\n"
+                        "请输出最终答案。"
+                    ),
+                }
+            ]
+        )
+
+        self.assertEqual(answer, "Shanghai")
+
     def test_generation_can_use_case_analogy_hints(self) -> None:
         cases = [
             {

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import urllib.request
 from abc import ABC, abstractmethod
 
@@ -34,11 +35,27 @@ class HeuristicChatClient(ChatClient):
             if marker in lowered:
                 start = lowered.index(marker) + len(marker)
                 return user_text[start:].splitlines()[0].strip().strip("。.")[:max_tokens]
+        context_text = _context_section(user_text)
+        for pattern in [
+            r"\bthe city is ([A-Z][A-Za-z0-9_\- ]{1,60})[\.。\n]",
+            r"\blocated in ([A-Z][A-Za-z0-9_\- ]{1,60})[\.。\n]",
+            r"\bis ([A-Z][A-Za-z0-9_\- ]{1,40})[\.。\n]",
+        ]:
+            match = re.search(pattern, context_text)
+            if match:
+                return match.group(1).strip()[:max_tokens]
         for line in user_text.splitlines():
             clean = line.strip()
             if clean in {"证据不足", "insufficient evidence"}:
                 return clean[:max_tokens]
         return "证据不足"
+
+
+def _context_section(text: str) -> str:
+    for marker in ["上下文：", "Context:"]:
+        if marker in text:
+            return text.split(marker, 1)[1]
+    return text
 
 
 class AzureOpenAIChatClient(ChatClient):
