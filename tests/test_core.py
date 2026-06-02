@@ -24,7 +24,12 @@ from sam.agent_reuse_experiment import (
 from sam.agents import SharedMemoryCoordinator
 from sam.analogy import AnalogyEngine
 from sam.analogy_experiment import run_analogy_reuse_probe
-from sam.badcase import BadCaseAnalyzer, write_bad_case_reports
+from sam.badcase import (
+    BadCaseAnalyzer,
+    GenerationBadCaseAnalyzer,
+    write_bad_case_reports,
+    write_generation_bad_case_reports,
+)
 from sam.answer_judge import AnswerJudgment, RuleBasedAnswerJudge
 from sam.consolidation import MemoryConsolidator
 from sam.embedding import (
@@ -1588,6 +1593,8 @@ class SamCoreTest(unittest.TestCase):
         json_path, markdown_path = write_generation_reports([generated], report_dir)
         self.assertTrue(json_path.exists())
         self.assertTrue(markdown_path.exists())
+        self.assertTrue((report_dir / "generation_bad_cases.json").exists())
+        self.assertTrue((report_dir / "generation_bad_cases.md").exists())
 
     def test_rule_based_answer_judge_accepts_key_term_coverage(self) -> None:
         judgment = RuleBasedAnswerJudge().judge(
@@ -1633,6 +1640,23 @@ class SamCoreTest(unittest.TestCase):
         self.assertTrue(answer.answer_hit)
         self.assertEqual(answer.metadata["answer_judgment"]["status"], "llm_equivalent")
         self.assertEqual(answer.metadata["answer_judgment"]["metadata"]["judge"], "fixed")
+
+    def test_heuristic_chat_client_does_not_return_system_prompt(self) -> None:
+        answer = HeuristicChatClient().complete(
+            [
+                {
+                    "role": "system",
+                    "content": "你是一个严格基于检索证据回答问题的研究助手。",
+                },
+                {
+                    "role": "user",
+                    "content": "问题：What is the answer?\n\n上下文：\n[1] Evidence\nNo answer here.\n\n请输出最终答案。",
+                },
+            ]
+        )
+
+        self.assertNotIn("严格基于检索证据", answer)
+        self.assertEqual(answer, "证据不足")
 
     def test_generation_can_use_case_analogy_hints(self) -> None:
         cases = [
@@ -1781,6 +1805,38 @@ class SamCoreTest(unittest.TestCase):
         json_path, markdown_path = write_bad_case_reports(bad_cases, output_dir)
         self.assertTrue(json_path.exists())
         self.assertTrue(markdown_path.exists())
+
+    def test_generation_badcase_analyzer_uses_answer_judgment(self) -> None:
+        answers = [
+            {
+                "query_id": "gen-q1",
+                "method": "sam_full",
+                "question": "Who lived in the cottage?",
+                "gold_answer": "Felix, De Lacey, Agatha, Safie",
+                "generated_answer": "The answer is unclear.",
+                "answer_hit": False,
+                "context_titles": ["Novel chunk 1"],
+                "metadata": {
+                    "answer_judgment": {
+                        "answer_hit": False,
+                        "status": "not_matched",
+                        "score": 0.2,
+                        "reason": "关键内容词覆盖不足",
+                        "metadata": {"judge": "rule"},
+                    }
+                },
+            }
+        ]
+
+        bad_cases = GenerationBadCaseAnalyzer().analyze(answers)
+
+        self.assertEqual(len(bad_cases), 1)
+        self.assertIn("generated_answer_not_equivalent", bad_cases[0].categories)
+        self.assertIn("answer_judgment", bad_cases[0].metadata)
+        output_dir = Path(self.temp_dir.name) / "generation_badcase"
+        json_path, markdown_path = write_generation_bad_case_reports(bad_cases, output_dir)
+        self.assertTrue(json_path.exists())
+        self.assertIn("生成 Bad Case 分析", markdown_path.read_text(encoding="utf-8"))
 
     def test_sam_dataset_format_round_trip(self) -> None:
         documents, queries = load_builtin_benchmark_sample()

@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from sam.answer_judge import AnswerJudge, RuleBasedAnswerJudge
+from sam.badcase import GenerationBadCaseAnalyzer, write_generation_bad_case_reports
 from sam.llm import ChatClient
 from sam.models import RetrievalHit
 from sam.text import extract_keywords
@@ -313,6 +314,10 @@ def write_generation_reports(
             )
             + " |"
         )
+    generation_bad_cases = GenerationBadCaseAnalyzer().analyze(
+        [answer.to_dict() for answer in answers]
+    )
+    write_generation_bad_case_reports(generation_bad_cases, target)
     markdown_path.write_text("\n".join(lines), encoding="utf-8")
     return json_path, markdown_path
 

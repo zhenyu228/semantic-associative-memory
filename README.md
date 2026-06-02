@@ -263,6 +263,8 @@ conda run -n sam python scripts/generate_answers.py \
 
 `--answer-judge` 控制答案命中判别方式。默认 `rule` 使用本地规则和关键内容词覆盖；`gpt54` 会调用聊天模型判断生成答案是否与标准答案语义等价，并把结构化判别结果写入 `generated_answers.json` 的 `answer_judgment` 字段。
 
+生成脚本还会自动输出 `generation_bad_cases.json` 和 `generation_bad_cases.md`，用于区分“检索上下文不足”和“上下文已有但生成答案未通过判别”两类问题。
+
 如果要评测类比提示对答案生成的影响，可以在同一份 `cases.json` 上增加：
 
 ```bash

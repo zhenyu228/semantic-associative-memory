@@ -420,3 +420,5 @@ conda run -n sam python scripts/generate_answers.py \
 ```
 
 该 run 用本地规则判别器验证链路，输出 `generated_answers.json` 和 `generated_answers.md`。正式实验中可以把 `--chat-provider` 和 `--answer-judge` 同时切换为 GPT-5.4 配置，用于评估 SAM 检索上下文支持下的最终答案质量。
+
+随后系统进一步加入 `GenerationBadCaseAnalyzer`，生成脚本会自动输出 `generation_bad_cases.json` 和 `generation_bad_cases.md`。本地 smoke run 位于 `outputs/runs/generation_badcase_smoke_fixed/`，其中启发式生成器在证据不足时返回“证据不足”，不再误把 system prompt 当作答案。生成 bad case 报告会把失败样本归为 `generated_answer_not_equivalent`、`judge_low_confidence` 和 `context_available_but_generation_failed` 等类型，便于区分检索召回问题和答案生成问题。

@@ -21,15 +21,24 @@ class HeuristicChatClient(ChatClient):
     """
 
     def complete(self, messages: list[dict[str, object]], max_tokens: int = 500) -> str:
-        user_text = "\n".join(str(message.get("content", "")) for message in messages)
+        user_text = "\n".join(
+            str(message.get("content", ""))
+            for message in messages
+            if message.get("role") == "user"
+        )
         for marker in ["标准答案：", "Gold answer:"]:
             if marker in user_text:
                 return user_text.split(marker, 1)[1].splitlines()[0].strip()
+        for marker in ["answer is ", "答案是"]:
+            lowered = user_text.lower()
+            if marker in lowered:
+                start = lowered.index(marker) + len(marker)
+                return user_text[start:].splitlines()[0].strip().strip("。.")[:max_tokens]
         for line in user_text.splitlines():
             clean = line.strip()
-            if clean and not clean.startswith(("问题", "Question", "上下文", "Context", "[")):
+            if clean in {"证据不足", "insufficient evidence"}:
                 return clean[:max_tokens]
-        return "无法根据给定上下文确定答案"
+        return "证据不足"
 
 
 class AzureOpenAIChatClient(ChatClient):

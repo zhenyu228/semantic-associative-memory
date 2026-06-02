@@ -494,6 +494,7 @@ final_score = semantic_score + graph_score + path_quality + memory_state + feedb
 - `CaseAnalogyHintBuilder`：从同一批 `cases.json` 中检索相似历史案例，综合问题关键词、共享关系路径、历史证据命中情况生成类比提示，并注入生成阶段。
 - `scripts/generate_answers.py`：可对任意 run 的 `cases.json` 进行生成式答案评测，输出 `generated_answers.json` 和 `generated_answers.md`。新增 `--use-analogy-hints` 后，脚本会自动加入历史案例提示；新增 `--compare-analogy` 后，脚本会同时运行“无类比提示”和“有类比提示”两种生成，并输出 `generation_comparison.json` 与 `generation_comparison.md`。
 - `AnswerJudge`：新增生成答案判别接口。默认 `RuleBasedAnswerJudge` 使用字符串和关键内容词覆盖；`ChatAnswerJudge` 可通过 `--answer-judge gpt54` 调用 GPT-5.4 判断生成答案和标准答案是否语义等价。判别结果会写入 `answer_judgment`，包含命中状态、分数和原因。
+- `GenerationBadCaseAnalyzer`：生成式评测会自动输出 `generation_bad_cases.json` 与 `generation_bad_cases.md`，将生成阶段失败进一步归因为空答案、语义不等价、判别低置信、已有上下文但生成失败、判别器回退等类型。
 - `BadCaseAnalyzer`：每次实验自动输出 `bad_cases.json` 与 `bad_cases.md`，将失败样本归因为支持证据缺失、答案未覆盖、图扩展未使用、图噪声、弱于向量召回等类型。
 - `CachedEmbeddingProvider`：为在线 embedding 增加 SQLite 缓存和批量去重，`AzureOpenAIEmbeddingProvider` 和 `OpenAIEmbeddingProvider` 支持并发 `embed_many()`。在线 provider 会按照 batch size 把多条文本合并进一次 embedding 请求，并通过并发 batch 提高实验吞吐；同时 payload 支持 `model` 和 `dimensions` 字段，适配公司网关的 text-embedding-3-large 降维调用。这使 HotpotQA 300 条和 NovelQA chunk 实验可以重复运行而不重复消耗同一批文本的 embedding 额度。
 
