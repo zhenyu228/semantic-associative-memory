@@ -64,7 +64,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--hops", type=int, default=2, help="图扩展跳数")
     parser.add_argument(
         "--reranker-profile",
-        default="balanced",
+        default="semantic_heavy",
         choices=["balanced", "semantic_heavy", "graph_heavy", "memory_heavy"],
         help="SAM 路径重排权重配置",
     )

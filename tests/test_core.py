@@ -493,6 +493,12 @@ class SamCoreTest(unittest.TestCase):
             balanced.breakdown["similarity_component"],
         )
 
+    def test_path_reranker_default_profile_is_semantic_heavy(self) -> None:
+        with patch.dict("os.environ", {}, clear=True):
+            reranker = PathReranker.from_env()
+
+        self.assertEqual(reranker.profile, "semantic_heavy")
+
     def test_retriever_reads_reranker_profile_from_environment(self) -> None:
         query = self.queries[0]
         candidate_ids = [

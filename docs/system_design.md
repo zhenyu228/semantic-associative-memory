@@ -445,7 +445,7 @@ final_score = semantic_score + graph_score + path_quality + memory_state + feedb
 - 检索阶段写入 `node_retrieved`、`edge_traversed` 事件。
 - 评测反馈阶段写入 `support_hit`、`answer_hit`、`path_rejected` 事件。
 - 新增 `PathReranker`，将相似度、图分、路径支持、边历史、usage、recency 和 confidence 拆成独立评分模块。
-- `PathReranker` 已支持 `balanced`、`semantic_heavy`、`graph_heavy`、`memory_heavy` 四种 profile，并可通过 `--reranker-profile` 控制。每条 SAM 检索结果会写入 profile 和 `score_breakdown`，用于 bad case 后判断应该增强语义相似、图路径、多路径支持还是历史记忆状态。
+- `PathReranker` 已支持 `balanced`、`semantic_heavy`、`graph_heavy`、`memory_heavy` 四种 profile，并可通过 `--reranker-profile` 控制。根据 HotpotQA 300 条 profile 对比实验，当前默认 profile 调整为 `semantic_heavy`。每条 SAM 检索结果会写入 profile 和 `score_breakdown`，用于 bad case 后判断应该增强语义相似、图路径、多路径支持还是历史记忆状态。
 - 新增 `run_reranker_profile_experiment.py`，可以在隔离数据库中批量比较多个 profile，并输出每种 profile 的指标与 bad case 类型统计。
 - 新增 `FeedbackUpdater`，当路径命中支持证据时强化路径边权，扩展路径未命中支持证据时轻微抑制边权。
 - 每次 run 输出 `memory_events.json` 和 `memory_events.md`，可以直接检查记忆演化过程。

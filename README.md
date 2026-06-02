@@ -123,7 +123,7 @@ conda run -n sam python scripts/prepare_hotpotqa.py --sample-size 8 --max-scan 8
 conda run -n sam python scripts/run_demo.py --reset --dataset hotpotqa
 ```
 
-SAM 的路径重排权重可以通过 `--reranker-profile` 切换，用于 bad case 后的消融实验：
+SAM 的路径重排权重可以通过 `--reranker-profile` 切换，用于 bad case 后的消融实验。当前默认 profile 是 `semantic_heavy`，这是根据 HotpotQA 300 条 profile 对比实验确定的：它比原先的 `balanced` 取得了更高的证据召回率和答案命中率。
 
 ```bash
 conda run -n sam python scripts/run_demo.py \

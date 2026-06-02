@@ -64,6 +64,8 @@ RERANKER_PROFILES = {
     ),
 }
 
+DEFAULT_RERANKER_PROFILE = "semantic_heavy"
+
 
 @dataclass(frozen=True, slots=True)
 class PathScore:
@@ -82,7 +84,7 @@ class PathScore:
 class PathReranker:
     """将联想检索结果的路径质量和记忆状态合成为排序分。"""
 
-    def __init__(self, profile: str = "balanced") -> None:
+    def __init__(self, profile: str = DEFAULT_RERANKER_PROFILE) -> None:
         if profile not in RERANKER_PROFILES:
             raise ValueError(f"未知 reranker profile: {profile}")
         self.profile = profile
@@ -90,7 +92,7 @@ class PathReranker:
 
     @classmethod
     def from_env(cls) -> "PathReranker":
-        return cls(os.environ.get("SAM_RERANKER_PROFILE", "balanced"))
+        return cls(os.environ.get("SAM_RERANKER_PROFILE", DEFAULT_RERANKER_PROFILE))
 
     def score(
         self,

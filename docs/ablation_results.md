@@ -356,3 +356,16 @@ conda run -n sam python scripts/run_reranker_profile_experiment.py \
 ```
 
 本次 8 条 smoke 中四种 profile 的证据召回率均为 0.625，答案命中率均为 0.750，脚本按 tie-break 选择 `graph_heavy`。这说明在小样本和当前本地 embedding 下，profile 权重还没有形成显著差异；但实验产物已经包含每种 profile 的指标、平均路径长度和 bad case 类型统计。下一步应在 HotpotQA 300 条和 NovelQA demonstration 上复跑，以观察不同 profile 对图噪声和间接证据召回的影响。
+
+HotpotQA 300 条正式 profile 对比 run 位于 `outputs/runs/reranker_profile_hotpotqa300/`。实验设置为 top-k=4、seed-k=1、hops=2、方法为 `sam_full`，候选文档节点数量为 2992。结果如下：
+
+| Profile | 证据召回率 | 答案命中率 | 平均路径长度 | Bad case 数量 |
+| --- | ---: | ---: | ---: | ---: |
+| balanced | 0.482 | 0.567 | 1.98 | 217 |
+| semantic_heavy | 0.522 | 0.617 | 1.88 | 215 |
+| graph_heavy | 0.490 | 0.593 | 2.04 | 212 |
+| memory_heavy | 0.440 | 0.550 | 2.10 | 236 |
+
+该实验显示，`semantic_heavy` 相比原默认 `balanced` 证据召回率提升 0.040，答案命中率提升 0.050；`memory_heavy` 明显下降，说明当前阶段的历史记忆和边激活信号还不能承担过高排序权重。Bad case 统计中，所有 profile 的主要失败类型仍集中在 `missing_support_evidence` 和 `graph_noise`，其中 `memory_heavy` 的图噪声和缺失证据数量最多。这说明 SAM 当前最需要控制的是噪声路径进入 top-k，而不是进一步放大历史激活。
+
+基于该结果，系统默认 reranker profile 已从 `balanced` 调整为 `semantic_heavy`。该调整使主流程更保守地依赖语义相似度，同时仍保留图路径和多路径支持作为补充信号。后续 NovelQA 长文本实验仍需要单独复跑 profile 对比，因为小说场景可能更依赖实体关系和长程图路径。
