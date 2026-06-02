@@ -45,6 +45,7 @@ from sam.graph import GraphBuilder
 from sam.llm import ChatClient, HeuristicChatClient
 from sam.models import DatasetDocument, EvaluationQuery, MemoryEdge, MemoryNode, RetrievalHit, utc_now_iso
 from sam.query_planner import ChatQueryPlanner, HeuristicQueryPlanner, QueryPlan
+from sam.reranker import PathReranker
 from sam.relation_judge import RelationJudgment
 from sam.retriever import Retriever
 from sam.reuse_experiment import build_masked_queries, summarize_memory_reuse
@@ -447,6 +448,86 @@ class SamCoreTest(unittest.TestCase):
         )
         self.assertTrue(
             all(hit.metadata.get("adaptive_anchor_reason") == "weak_graph_paths" for hit in adaptive_hits)
+        )
+
+    def test_path_reranker_profiles_change_score_weights(self) -> None:
+        node = self.nodes[0]
+        signals = [
+            {
+                "path": ["seed", node.id],
+                "graph_score": 0.8,
+                "depth": 1,
+                "edge_activation_count": 2,
+            }
+        ]
+
+        balanced = PathReranker(profile="balanced").score(
+            similarity=0.4,
+            graph_score=0.8,
+            signals=signals,
+            node=node,
+            use_multipath=True,
+            use_memory_state=True,
+        )
+        graph_heavy = PathReranker(profile="graph_heavy").score(
+            similarity=0.4,
+            graph_score=0.8,
+            signals=signals,
+            node=node,
+            use_multipath=True,
+            use_memory_state=True,
+        )
+
+        self.assertEqual(balanced.profile, "balanced")
+        self.assertEqual(graph_heavy.profile, "graph_heavy")
+        self.assertGreater(
+            graph_heavy.breakdown["graph_component"],
+            balanced.breakdown["graph_component"],
+        )
+        self.assertLess(
+            graph_heavy.breakdown["similarity_component"],
+            balanced.breakdown["similarity_component"],
+        )
+
+    def test_retriever_reads_reranker_profile_from_environment(self) -> None:
+        query = self.queries[0]
+        candidate_ids = [
+            node.id
+            for node in self.store.get_nodes()
+            if node.metadata.get("original_doc_id") in query.candidate_doc_ids
+        ]
+
+        with patch.dict("os.environ", {"SAM_RERANKER_PROFILE": "graph_heavy"}, clear=False):
+            retriever = Retriever(self.store, self.embedding, self.graph)
+            hits = retriever.retrieve(
+                query.question,
+                "sam_full",
+                top_k=2,
+                seed_k=1,
+                hops=2,
+                candidate_doc_ids=candidate_ids,
+            )
+
+        self.assertTrue(hits)
+        self.assertTrue(
+            all(hit.metadata.get("reranker_profile") == "graph_heavy" for hit in hits)
+        )
+
+    def test_evaluator_serializes_reranker_profile_for_bad_case_analysis(self) -> None:
+        with patch.dict("os.environ", {"SAM_RERANKER_PROFILE": "memory_heavy"}, clear=False):
+            evaluator = Evaluator(self.store, self.embedding, self.graph)
+            result = evaluator.evaluate(
+                self.queries[:1],
+                top_k=2,
+                seed_k=1,
+                hops=2,
+                methods=["sam_full"],
+            )
+
+        sam_hits = result.cases[0]["methods"]["sam_full"]
+        self.assertTrue(sam_hits)
+        self.assertTrue(
+            all(hit["reranker_profile"] == "memory_heavy" for hit in sam_hits)
         )
 
     def test_sam_static_graph_does_not_update_dynamic_state(self) -> None:

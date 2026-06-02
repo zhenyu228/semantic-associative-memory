@@ -76,7 +76,7 @@ class Retriever:
         self.store = store
         self.embedding_provider = embedding_provider
         self.graph_builder = graph_builder
-        self.path_reranker = PathReranker()
+        self.path_reranker = PathReranker.from_env()
 
     def retrieve(
         self,
@@ -490,6 +490,7 @@ class Retriever:
                     ),
                     metadata={
                         "score_breakdown": path_score.breakdown,
+                        "reranker_profile": path_score.profile,
                         "path_support_score": round(path_score.path_support_score, 4),
                         "edge_memory_score": round(path_score.edge_memory_score, 4),
                         "recency_score": round(path_score.recency_score, 4),

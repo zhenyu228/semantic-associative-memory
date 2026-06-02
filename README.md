@@ -122,6 +122,18 @@ conda run -n sam python scripts/prepare_hotpotqa.py --sample-size 8 --max-scan 8
 conda run -n sam python scripts/run_demo.py --reset --dataset hotpotqa
 ```
 
+SAM 的路径重排权重可以通过 `--reranker-profile` 切换，用于 bad case 后的消融实验：
+
+```bash
+conda run -n sam python scripts/run_demo.py \
+  --reset \
+  --dataset hotpotqa \
+  --methods embedding_topk,sam_full \
+  --reranker-profile graph_heavy
+```
+
+当前支持 `balanced`、`semantic_heavy`、`graph_heavy`、`memory_heavy`。运行产物 `cases.json` 会在 SAM 命中结果中记录 `reranker_profile` 和对应 `score_breakdown`，便于分析某个失败样本是语义相似度不足、图路径噪声，还是历史记忆权重过强。
+
 运行后会生成独立 run 目录，例如：
 
 ```text

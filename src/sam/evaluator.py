@@ -426,6 +426,7 @@ class Evaluator:
                 "path": hit.path,
                 "reason": hit.reason,
                 "score_breakdown": hit.metadata.get("score_breakdown", {}),
+                "reranker_profile": hit.metadata.get("reranker_profile"),
                 "path_support_score": hit.metadata.get("path_support_score", 0.0),
                 "edge_memory_score": hit.metadata.get("edge_memory_score", 0.0),
                 "recency_score": hit.metadata.get("recency_score", 0.0),

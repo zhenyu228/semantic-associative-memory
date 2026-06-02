@@ -325,3 +325,22 @@ conda run -n sam python scripts/run_demo.py \
 ```
 
 结果为：Embedding Top-k 证据召回率 0.071、答案命中率 0.000；SAM 动态联想检索证据召回率 0.071、答案命中率 0.083。该结果说明在当前 NovelQA 小样本中，查询规划模块已经能稳定进入评测闭环，SAM 的图扩展仍能带来少量答案覆盖增益。但证据召回没有明显提升，说明启发式规划还不足以解决长文本小说中的实体消歧和事件定位问题。下一步应使用 GPT-5.4 QueryPlanner 生成更细粒度的角色实体、事件触发词和关系约束，再与 Qwen3-Embedding 或公司 embedding 接口结合重跑同一套实验。
+
+## 17. PathReranker 权重配置化
+
+为支持 bad case 后的可控架构调整，系统将 SAM 路径重排权重进一步配置化。当前 `PathReranker` 支持四种 profile：`balanced`、`semantic_heavy`、`graph_heavy`、`memory_heavy`。它们分别提高语义相似度、图路径、多路径和历史记忆状态在最终排序中的权重。运行脚本新增 `--reranker-profile` 参数，每条 SAM 检索结果会在 `cases.json` 中记录实际使用的 profile 和 `score_breakdown`。
+
+smoke run 位于 `outputs/runs/reranker_profile_smoke/`，命令如下：
+
+```bash
+conda run -n sam python scripts/run_demo.py \
+  --reset \
+  --dataset builtin \
+  --methods embedding_topk,sam_full \
+  --top-k 2 \
+  --seed-k 1 \
+  --hops 2 \
+  --reranker-profile graph_heavy
+```
+
+该 run 中 Embedding Top-k 与 SAM-full 的证据召回率均为 0.667，答案命中率均为 0.667。该结果不用于证明方法收益，主要验证 profile 已进入完整运行链路。后续在 HotpotQA 300 条和 NovelQA 上可分别对比 `semantic_heavy` 与 `graph_heavy`：如果 bad case 主要来自弱图边和错误扩展，应提升语义权重；如果主要来自间接证据漏召回，则应提升图路径和多路径支持权重。

@@ -63,6 +63,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--seed-k", type=int, default=1, help="联想检索种子节点数")
     parser.add_argument("--hops", type=int, default=2, help="图扩展跳数")
     parser.add_argument(
+        "--reranker-profile",
+        default="balanced",
+        choices=["balanced", "semantic_heavy", "graph_heavy", "memory_heavy"],
+        help="SAM 路径重排权重配置",
+    )
+    parser.add_argument(
         "--methods",
         default="embedding_topk,raptor_style,graphrag_style,hipporag_style,sam",
         help="逗号分隔的检索方法列表",
@@ -142,6 +148,7 @@ def main() -> None:
     if args.embedding_concurrency is not None:
         os.environ["SAM_AZURE_EMBEDDING_CONCURRENCY"] = str(args.embedding_concurrency)
         os.environ["SAM_OPENAI_EMBEDDING_CONCURRENCY"] = str(args.embedding_concurrency)
+    os.environ["SAM_RERANKER_PROFILE"] = args.reranker_profile
     embedding_provider = create_embedding_provider(args.embedding_provider)
     graph_builder = GraphBuilder(store, relation_judge=create_relation_judge(args.relation_judge))
     query_planner = create_query_planner(args.query_planner)
