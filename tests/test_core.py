@@ -37,6 +37,7 @@ from sam.embedding import (
     CachedEmbeddingProvider,
     LocalHashEmbeddingProvider,
     create_embedding_provider,
+    inspect_embedding_provider_config,
 )
 from sam.evaluator import Evaluator
 from sam.generation import (
@@ -1116,6 +1117,54 @@ class SamCoreTest(unittest.TestCase):
             self.assertEqual(provider.dimensions, 1024)
             self.assertIn("/openai/deployments/text-embedding-3-large/embeddings", provider.request_url)
             self.assertIn("api-version=2023-07-01-preview", provider.request_url)
+
+    def test_azure_embedding_provider_can_use_full_request_url(self) -> None:
+        with patch.dict(
+            "os.environ",
+            {
+                "SAM_AZURE_EMBEDDING_API_KEY": "test-key",
+                "SAM_AZURE_EMBEDDING_URL": "https://example.test/custom/embeddings",
+                "SAM_AZURE_EMBEDDING_MODEL": "text-embedding-3-large",
+            },
+            clear=True,
+        ):
+            provider = AzureOpenAIEmbeddingProvider()
+
+        self.assertEqual(provider.request_url, "https://example.test/custom/embeddings")
+
+    def test_embedding_config_diagnostic_does_not_expose_secret_values(self) -> None:
+        with patch.dict(
+            "os.environ",
+            {
+                "SAM_AZURE_EMBEDDING_API_KEY": "test-secret-value",
+                "SAM_AZURE_EMBEDDING_URL": "https://example.test/custom/embeddings",
+                "SAM_AZURE_EMBEDDING_DIMENSIONS": "1024",
+            },
+            clear=True,
+        ):
+            status = inspect_embedding_provider_config("azure_openai")
+
+        rendered = json.dumps(status, ensure_ascii=False)
+        self.assertTrue(status["ready"])
+        self.assertNotIn("test-secret-value", rendered)
+        self.assertNotIn("https://example.test/custom/embeddings", rendered)
+        self.assertIn("SAM_AZURE_EMBEDDING_DIMENSIONS", status["configured_optional"])
+
+    def test_embedding_config_diagnostic_requires_endpoint_or_full_url(self) -> None:
+        with patch.dict(
+            "os.environ",
+            {
+                "SAM_AZURE_EMBEDDING_API_KEY": "test-key",
+            },
+            clear=True,
+        ):
+            status = inspect_embedding_provider_config("azure_openai")
+
+        self.assertFalse(status["ready"])
+        self.assertEqual(
+            status["required_any_missing"],
+            [["SAM_AZURE_EMBEDDING_ENDPOINT", "SAM_AZURE_EMBEDDING_URL"]],
+        )
 
     def test_azure_embedding_provider_batches_requests_with_model_and_dimensions(self) -> None:
         class FakeResponse:

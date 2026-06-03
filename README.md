@@ -217,6 +217,29 @@ conda run -n sam python scripts/run_demo.py \
 export SAM_AZURE_EMBEDDING_SEND_MODEL="0"
 ```
 
+正式跑实验前，建议先用诊断脚本检查配置。默认只检查环境变量，不会发请求：
+
+```bash
+conda run -n sam python scripts/check_embedding_provider.py \
+  --provider azure_openai
+```
+
+如果要确认接口实际可用，可以显式增加 `--probe`。脚本只输出向量维度和范数，不打印向量内容、API key 或 endpoint 明文：
+
+```bash
+conda run -n sam python scripts/check_embedding_provider.py \
+  --provider azure_openai \
+  --probe "SAM embedding connectivity test."
+```
+
+如果公司网关不是标准 Azure deployment 拼接路径，也可以直接配置完整 embeddings 请求地址：
+
+```bash
+export SAM_AZURE_EMBEDDING_URL="https://你的完整/embeddings/请求地址"
+```
+
+设置 `SAM_AZURE_EMBEDDING_URL` 后，系统会优先使用该地址；否则使用 `SAM_AZURE_EMBEDDING_ENDPOINT`、`SAM_AZURE_EMBEDDING_MODEL` 和 `SAM_AZURE_EMBEDDING_API_VERSION` 拼接请求地址。
+
 如果要使用 GPT-5.4 对候选语义边进行关系级判别，先配置聊天模型环境变量，然后在实验命令中增加 `--relation-judge gpt54`：
 
 ```bash

@@ -117,17 +117,21 @@ class AzureOpenAIEmbeddingProvider(EmbeddingProvider):
     配置全部来自环境变量，避免把 API key 写入仓库：
     - SAM_AZURE_EMBEDDING_API_KEY
     - SAM_AZURE_EMBEDDING_ENDPOINT
+    - SAM_AZURE_EMBEDDING_URL，可选，填写后直接作为完整 embeddings 请求地址
     - SAM_AZURE_EMBEDDING_API_VERSION，默认 2023-07-01-preview
     - SAM_AZURE_EMBEDDING_MODEL，默认 text-embedding-3-large
     - SAM_AZURE_EMBEDDING_DIMENSIONS，可选，例如 1024
     """
 
     def __init__(self) -> None:
-        self.api_key = os.environ["SAM_AZURE_EMBEDDING_API_KEY"]
-        self.endpoint = os.environ["SAM_AZURE_EMBEDDING_ENDPOINT"].rstrip("/")
+        self.api_key = _require_env("SAM_AZURE_EMBEDDING_API_KEY")
         self.api_version = os.environ.get("SAM_AZURE_EMBEDDING_API_VERSION", "2023-07-01-preview")
         self.model = os.environ.get("SAM_AZURE_EMBEDDING_MODEL", "text-embedding-3-large")
         self.full_url = os.environ.get("SAM_AZURE_EMBEDDING_URL")
+        endpoint = os.environ.get("SAM_AZURE_EMBEDDING_ENDPOINT")
+        if not self.full_url and not endpoint:
+            raise ValueError("缺少 SAM_AZURE_EMBEDDING_ENDPOINT 或 SAM_AZURE_EMBEDDING_URL")
+        self.endpoint = endpoint.rstrip("/") if endpoint else ""
         self.auth_header = os.environ.get("SAM_AZURE_EMBEDDING_AUTH_HEADER", "api-key")
         self.max_concurrency = int(os.environ.get("SAM_AZURE_EMBEDDING_CONCURRENCY", "4"))
         self.batch_size = int(os.environ.get("SAM_AZURE_EMBEDDING_BATCH_SIZE", "16"))
@@ -291,6 +295,82 @@ def create_embedding_provider(name: str | None = None) -> EmbeddingProvider:
     if os.environ.get("SAM_EMBEDDING_CACHE") == "1":
         return CachedEmbeddingProvider(provider, "data/embedding_cache.sqlite")
     return provider
+
+
+def inspect_embedding_provider_config(name: str | None = None) -> dict[str, object]:
+    """检查 embedding 配置是否完整。
+
+    返回值只包含变量名和开关状态，不返回任何密钥或 endpoint 明文。
+    """
+
+    provider_name = name or os.environ.get("SAM_EMBEDDING_PROVIDER", "local")
+    aliases = {"azure": "azure_openai"}
+    provider_name = aliases.get(provider_name, provider_name)
+    if provider_name == "local":
+        missing: list[str] = []
+        required_any_missing: list[list[str]] = []
+        optional = ["SAM_EMBEDDING_CACHE", "SAM_EMBEDDING_CACHE_PATH"]
+    elif provider_name == "openai":
+        missing = _missing_env(["OPENAI_API_KEY"])
+        required_any_missing = []
+        optional = [
+            "OPENAI_BASE_URL",
+            "SAM_OPENAI_EMBEDDING_MODEL",
+            "SAM_OPENAI_EMBEDDING_DIMENSIONS",
+            "SAM_OPENAI_EMBEDDING_CONCURRENCY",
+            "SAM_OPENAI_EMBEDDING_BATCH_SIZE",
+            "SAM_EMBEDDING_CACHE",
+            "SAM_EMBEDDING_CACHE_PATH",
+        ]
+    elif provider_name == "azure_openai":
+        missing = _missing_env(["SAM_AZURE_EMBEDDING_API_KEY"])
+        required_any_missing = [
+            group
+            for group in [["SAM_AZURE_EMBEDDING_ENDPOINT", "SAM_AZURE_EMBEDDING_URL"]]
+            if not any(os.environ.get(item) for item in group)
+        ]
+        optional = [
+            "SAM_AZURE_EMBEDDING_API_VERSION",
+            "SAM_AZURE_EMBEDDING_MODEL",
+            "SAM_AZURE_EMBEDDING_DIMENSIONS",
+            "SAM_AZURE_EMBEDDING_CONCURRENCY",
+            "SAM_AZURE_EMBEDDING_BATCH_SIZE",
+            "SAM_AZURE_EMBEDDING_SEND_MODEL",
+            "SAM_AZURE_EMBEDDING_AUTH_HEADER",
+            "SAM_AZURE_EMBEDDING_TIMEOUT",
+            "SAM_AZURE_EMBEDDING_MAX_RETRIES",
+            "SAM_EMBEDDING_CACHE",
+            "SAM_EMBEDDING_CACHE_PATH",
+        ]
+    else:
+        return {
+            "provider": provider_name,
+            "ready": False,
+            "error": f"未知 embedding provider: {provider_name}",
+            "missing": [],
+            "required_any_missing": [],
+            "configured_optional": [],
+            "cache_enabled": False,
+        }
+    return {
+        "provider": provider_name,
+        "ready": not missing and not required_any_missing,
+        "missing": missing,
+        "required_any_missing": required_any_missing,
+        "configured_optional": [key for key in optional if os.environ.get(key)],
+        "cache_enabled": bool(os.environ.get("SAM_EMBEDDING_CACHE_PATH") or os.environ.get("SAM_EMBEDDING_CACHE") == "1"),
+    }
+
+
+def _missing_env(keys: list[str]) -> list[str]:
+    return [key for key in keys if not os.environ.get(key)]
+
+
+def _require_env(key: str) -> str:
+    value = os.environ.get(key)
+    if not value:
+        raise ValueError(f"缺少环境变量 {key}")
+    return value
 
 
 def _parallel_embed(
