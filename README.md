@@ -267,6 +267,24 @@ conda run -n sam python scripts/check_model_providers.py \
   --chat-probe "What is the result of 1+1?"
 ```
 
+确认 provider 可用后，可以运行 1-2 条样本的低额度端到端 smoke。该脚本会先执行 provider gate，再运行检索、生成和答案判别，并把 `provider_status.json`、`pipeline_summary.json`、`metrics.json`、`cases.json`、`generated_answers.json` 写入本次 run 目录：
+
+```bash
+conda run -n sam python scripts/run_provider_smoke_experiment.py \
+  --dataset-file data/processed/hotpotqa_sam_sample.json \
+  --limit 1 \
+  --embedding-provider azure_openai \
+  --chat-provider azure_openai \
+  --answer-judge gpt54 \
+  --query-planner gpt54 \
+  --relation-judge gpt54 \
+  --retrieval-methods embedding_topk,sam_full \
+  --generation-method sam_full \
+  --embedding-probe "SAM embedding connectivity test." \
+  --chat-probe "What is the result of 1+1?" \
+  --run-name provider_smoke_gpt54_hotpotqa1
+```
+
 如果要使用 GPT-5.4 对候选语义边进行关系级判别，先配置聊天模型环境变量，然后在实验命令中增加 `--relation-judge gpt54`：
 
 ```bash

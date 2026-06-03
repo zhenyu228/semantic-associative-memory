@@ -64,6 +64,7 @@ from sam.reuse_experiment import build_masked_queries, summarize_memory_reuse
 from sam.store import MemoryStore
 from scripts.run_demo import _nodes_for_graph_export
 from scripts.check_model_providers import build_provider_status
+from scripts.run_provider_smoke_experiment import run_provider_smoke_experiment
 
 
 class SamCoreTest(unittest.TestCase):
@@ -1308,6 +1309,35 @@ class SamCoreTest(unittest.TestCase):
         self.assertTrue(status["ready"])
         self.assertTrue(status["embedding"]["ready"])
         self.assertFalse(status["chat"]["ready"])
+
+    def test_provider_smoke_experiment_writes_provider_and_pipeline_reports(self) -> None:
+        output_dir = Path(self.temp_dir.name) / "provider_smoke"
+        dataset_path = Path(self.temp_dir.name) / "sample_dataset.json"
+        documents, queries = load_builtin_benchmark_sample()
+        save_sam_dataset(
+            path=dataset_path,
+            documents=documents,
+            queries=queries,
+            dataset_info={"name": "builtin-test"},
+            processing={"source_script": "unit-test"},
+        )
+
+        summary = run_provider_smoke_experiment(
+            dataset_file=dataset_path,
+            output_dir=output_dir,
+            limit=1,
+            embedding_provider_name="local",
+            chat_provider_name="heuristic",
+            answer_judge_name="rule",
+            query_planner_name="heuristic",
+            relation_judge_name="disabled",
+        )
+
+        self.assertTrue(summary["provider_status"]["ready"])
+        self.assertEqual(summary["pipeline"]["query_count"], 1)
+        self.assertTrue((output_dir / "provider_status.json").exists())
+        self.assertTrue((output_dir / "pipeline_summary.json").exists())
+        self.assertTrue((output_dir / "smoke_summary.md").exists())
 
     def test_azure_embedding_provider_batches_requests_with_model_and_dimensions(self) -> None:
         class FakeResponse:
