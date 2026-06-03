@@ -71,11 +71,14 @@ class AzureOpenAIChatClient(ChatClient):
     """
 
     def __init__(self) -> None:
-        self.api_key = os.environ["SAM_AZURE_CHAT_API_KEY"]
-        self.endpoint = os.environ["SAM_AZURE_CHAT_ENDPOINT"].rstrip("/")
+        self.api_key = _require_env("SAM_AZURE_CHAT_API_KEY")
         self.api_version = os.environ.get("SAM_AZURE_CHAT_API_VERSION", "2024-02-01")
         self.model = os.environ.get("SAM_AZURE_CHAT_MODEL", "gpt-5.4-2026-03-05")
         self.full_url = os.environ.get("SAM_AZURE_CHAT_URL")
+        endpoint = os.environ.get("SAM_AZURE_CHAT_ENDPOINT")
+        if not self.full_url and not endpoint:
+            raise ValueError("缺少 SAM_AZURE_CHAT_ENDPOINT 或 SAM_AZURE_CHAT_URL")
+        self.endpoint = endpoint.rstrip("/") if endpoint else ""
         self.auth_header = os.environ.get("SAM_AZURE_CHAT_AUTH_HEADER", "api-key")
 
     @property
@@ -115,3 +118,59 @@ def create_chat_client(name: str | None = None) -> ChatClient:
     if provider_name in {"azure_openai", "azure"}:
         return AzureOpenAIChatClient()
     raise ValueError(f"未知 chat provider: {provider_name}")
+
+
+def inspect_chat_provider_config(name: str | None = None) -> dict[str, object]:
+    """检查聊天模型配置是否完整。
+
+    返回结果只包含环境变量名称和开关状态，不暴露 API key 或 endpoint 明文。
+    """
+
+    provider_name = name or os.environ.get("SAM_CHAT_PROVIDER", "heuristic")
+    aliases = {"azure": "azure_openai", "local": "heuristic"}
+    provider_name = aliases.get(provider_name, provider_name)
+    if provider_name == "heuristic":
+        missing: list[str] = []
+        required_any_missing: list[list[str]] = []
+        optional: list[str] = []
+    elif provider_name == "azure_openai":
+        missing = _missing_env(["SAM_AZURE_CHAT_API_KEY"])
+        required_any_missing = [
+            group
+            for group in [["SAM_AZURE_CHAT_ENDPOINT", "SAM_AZURE_CHAT_URL"]]
+            if not any(os.environ.get(item) for item in group)
+        ]
+        optional = [
+            "SAM_AZURE_CHAT_API_VERSION",
+            "SAM_AZURE_CHAT_MODEL",
+            "SAM_AZURE_CHAT_AUTH_HEADER",
+            "SAM_AZURE_CHAT_URL",
+            "SAM_AZURE_CHAT_ENDPOINT",
+        ]
+    else:
+        return {
+            "provider": provider_name,
+            "ready": False,
+            "error": f"未知 chat provider: {provider_name}",
+            "missing": [],
+            "required_any_missing": [],
+            "configured_optional": [],
+        }
+    return {
+        "provider": provider_name,
+        "ready": not missing and not required_any_missing,
+        "missing": missing,
+        "required_any_missing": required_any_missing,
+        "configured_optional": [key for key in optional if os.environ.get(key)],
+    }
+
+
+def _missing_env(keys: list[str]) -> list[str]:
+    return [key for key in keys if not os.environ.get(key)]
+
+
+def _require_env(key: str) -> str:
+    value = os.environ.get(key)
+    if not value:
+        raise ValueError(f"缺少环境变量 {key}")
+    return value

@@ -257,6 +257,29 @@ conda run -n sam python scripts/run_demo.py \
   --relation-judge gpt54
 ```
 
+正式启用 GPT-5.4 前，可以先检查聊天模型配置。默认只检查环境变量，不会发请求：
+
+```bash
+conda run -n sam python scripts/check_chat_provider.py \
+  --provider azure_openai
+```
+
+如果要做一次最小连通性测试，显式增加 `--probe`：
+
+```bash
+conda run -n sam python scripts/check_chat_provider.py \
+  --provider azure_openai \
+  --probe "What is the result of 1+1?"
+```
+
+诊断脚本不会打印 API key 或 endpoint 明文，只会打印 provider 状态和回答预览。如果公司网关不是标准 Azure deployment 拼接路径，可以直接配置完整 chat completions 请求地址：
+
+```bash
+export SAM_AZURE_CHAT_URL="https://你的完整/chat/completions/请求地址"
+```
+
+设置 `SAM_AZURE_CHAT_URL` 后，系统会优先使用该地址；否则使用 `SAM_AZURE_CHAT_ENDPOINT`、`SAM_AZURE_CHAT_MODEL` 和 `SAM_AZURE_CHAT_API_VERSION` 拼接请求地址。
+
 如果数据集提供了 `metadata.retrieval_query`，可以显式启用扩展检索文本：
 
 ```bash

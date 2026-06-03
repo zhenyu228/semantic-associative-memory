@@ -49,7 +49,7 @@ from sam.generation import (
     write_generation_reports,
 )
 from sam.graph import GraphBuilder
-from sam.llm import ChatClient, HeuristicChatClient
+from sam.llm import AzureOpenAIChatClient, ChatClient, HeuristicChatClient, inspect_chat_provider_config
 from sam.models import DatasetDocument, EvaluationQuery, MemoryEdge, MemoryNode, RetrievalHit, utc_now_iso
 from sam.query_planner import ChatQueryPlanner, HeuristicQueryPlanner, QueryPlan
 from sam.pipeline_experiment import run_retrieval_generation_pipeline
@@ -1165,6 +1165,98 @@ class SamCoreTest(unittest.TestCase):
             status["required_any_missing"],
             [["SAM_AZURE_EMBEDDING_ENDPOINT", "SAM_AZURE_EMBEDDING_URL"]],
         )
+
+    def test_azure_chat_client_can_use_full_request_url(self) -> None:
+        with patch.dict(
+            "os.environ",
+            {
+                "SAM_AZURE_CHAT_API_KEY": "test-key",
+                "SAM_AZURE_CHAT_URL": "https://example.test/custom/chat/completions",
+                "SAM_AZURE_CHAT_MODEL": "gpt-5.4-2026-03-05",
+            },
+            clear=True,
+        ):
+            client = AzureOpenAIChatClient()
+
+        self.assertEqual(client.request_url, "https://example.test/custom/chat/completions")
+
+    def test_chat_config_diagnostic_does_not_expose_secret_values(self) -> None:
+        with patch.dict(
+            "os.environ",
+            {
+                "SAM_AZURE_CHAT_API_KEY": "test-chat-secret",
+                "SAM_AZURE_CHAT_URL": "https://example.test/custom/chat/completions",
+                "SAM_AZURE_CHAT_MODEL": "gpt-5.4-2026-03-05",
+            },
+            clear=True,
+        ):
+            status = inspect_chat_provider_config("azure_openai")
+
+        rendered = json.dumps(status, ensure_ascii=False)
+        self.assertTrue(status["ready"])
+        self.assertNotIn("test-chat-secret", rendered)
+        self.assertNotIn("https://example.test/custom/chat/completions", rendered)
+        self.assertIn("SAM_AZURE_CHAT_MODEL", status["configured_optional"])
+
+    def test_chat_config_diagnostic_requires_endpoint_or_full_url(self) -> None:
+        with patch.dict(
+            "os.environ",
+            {
+                "SAM_AZURE_CHAT_API_KEY": "test-key",
+            },
+            clear=True,
+        ):
+            status = inspect_chat_provider_config("azure_openai")
+
+        self.assertFalse(status["ready"])
+        self.assertEqual(
+            status["required_any_missing"],
+            [["SAM_AZURE_CHAT_ENDPOINT", "SAM_AZURE_CHAT_URL"]],
+        )
+
+    def test_azure_chat_client_sends_model_messages_and_max_tokens(self) -> None:
+        class FakeResponse:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb) -> None:
+                return None
+
+            def read(self) -> bytes:
+                return json.dumps(
+                    {"choices": [{"message": {"content": "OK"}}]}
+                ).encode("utf-8")
+
+        captured: dict[str, object] = {}
+
+        def fake_urlopen(request, timeout=120):
+            captured["url"] = request.full_url
+            captured["payload"] = json.loads(request.data.decode("utf-8"))
+            captured["headers"] = dict(request.header_items())
+            return FakeResponse()
+
+        with patch.dict(
+            "os.environ",
+            {
+                "SAM_AZURE_CHAT_API_KEY": "test-key",
+                "SAM_AZURE_CHAT_URL": "https://example.test/custom/chat/completions",
+                "SAM_AZURE_CHAT_MODEL": "gpt-5.4-2026-03-05",
+            },
+            clear=True,
+        ), patch("urllib.request.urlopen", fake_urlopen):
+            answer = AzureOpenAIChatClient().complete(
+                [{"role": "user", "content": "What is 1+1?"}],
+                max_tokens=32,
+            )
+
+        self.assertEqual(answer, "OK")
+        self.assertEqual(captured["url"], "https://example.test/custom/chat/completions")
+        payload = captured["payload"]
+        assert isinstance(payload, dict)
+        self.assertEqual(payload["model"], "gpt-5.4-2026-03-05")
+        self.assertEqual(payload["max_tokens"], 32)
+        self.assertEqual(payload["stream"], False)
+        self.assertEqual(payload["messages"][0]["content"], "What is 1+1?")
 
     def test_azure_embedding_provider_batches_requests_with_model_and_dimensions(self) -> None:
         class FakeResponse:
