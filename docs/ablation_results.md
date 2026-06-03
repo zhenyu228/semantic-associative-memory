@@ -446,3 +446,25 @@ conda run -n sam python scripts/run_end_to_end_experiment.py \
 该 run 的检索阶段中，Embedding Top-k 与 SAM-full 的证据召回率均为 0.500，检索答案命中率均为 0.667；生成阶段由于使用本地启发式生成器，答案命中率为 0.000。该结果不用于汇报模型效果，主要验证端到端产物完整性。run 目录中同时包含 `metrics.json`、`cases.json`、`generated_answers.json`、`generation_bad_cases.json`、`pipeline_summary.json` 和 `pipeline_summary.md`。后续正式实验可以在该入口中切换 Azure embedding、GPT-5.4 生成和 GPT-5.4 答案判别。
 
 端到端入口随后补充了 `--query-planner`、`--relation-judge` 和 `--reranker-profile` 参数。高级参数 smoke run 位于 `outputs/runs/end_to_end_advanced_smoke/`，其中 `--query-planner heuristic` 成功写入 `cases.json` 的 `query_plan`，`--reranker-profile graph_heavy` 成功写入 SAM 命中结果。该 run 说明正式实验入口已经能够同时控制查询规划、建边判别、路径重排、生成模型和答案判别器。
+
+## 21. 桥接节点按需建边回归实验
+
+实验审计模块显示，前一阶段本地 smoke 的主要瓶颈是 `missing_support_evidence` 和 `weak_graph_gain`。进一步检查路径后发现，旧版 SAM 只在检索开始时围绕初始向量种子节点建边；当联想检索扩展到桥接节点后，不会继续围绕该桥接节点按需建边。这会影响典型 bridge-style 多跳问题中的路径：
+
+```text
+问题相关种子文档 -> 桥接实体文档 -> 答案证据文档
+```
+
+因此系统将按需建图机制改为“沿联想路径逐步触发”：初始阶段仍只围绕少量种子节点建边；BFS 扩展到新的桥接节点后，如果该节点本轮尚未触发过建边，则围绕该节点继续补边。同时，`PathReranker` 增加强图路径语义保底，避免高置信二跳路径因为答案文档和原问题表面语义不直接相似而被负向量相似度压低。
+
+HotpotQA 30 条回归 run 位于 `outputs/runs/bridge_expansion_hotpotqa30/`，实验设置为 `top-k=4`、`seed-k=1`、`hops=2`，并比较 Embedding Top-k、SAM-full 和 SAM-no-graph。结果如下：
+
+| 方法 | 证据命中数 | 证据召回率 | 答案命中数 | 答案命中率 |
+| --- | ---: | ---: | ---: | ---: |
+| Embedding Top-k | 30 | 0.500 | 17 | 0.567 |
+| SAM-full | 37 | 0.617 | 20 | 0.667 |
+| SAM-no-graph | 30 | 0.500 | 17 | 0.567 |
+
+该结果说明，桥接节点按需建边后，SAM-full 相比 Embedding Top-k 和 SAM-no-graph 多命中 7 条支持证据，证据召回率提升 0.117，答案命中率提升 0.100。平均路径长度提升到 2.48，说明更多结果确实通过多跳路径进入最终候选，而不是停留在一跳向量召回。
+
+审计报告 `experiment_audit.md` 仍识别出两个主要瓶颈：`graph_noise` 和 `missing_support_evidence`。30 条样本中仍有 19 个检索 bad case 缺失支持证据，且 19 个 bad case 包含图噪声。这说明桥接按需建边已经有效提升图扩展召回，但下一阶段重点应转向图边质量控制：使用 GPT-5.4 RelationJudge 过滤弱关键词边和偶然相似边，或降低 `context_cooccurrence` 与弱 `embedding_similarity` 边在二跳路径中的权重。
