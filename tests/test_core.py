@@ -1712,7 +1712,7 @@ class SamCoreTest(unittest.TestCase):
                 "SAM_AZURE_EMBEDDING_DIMENSIONS": "1024",
             },
             clear=True,
-        ):
+        ), patch("importlib.util.find_spec", return_value=object()):
             status = inspect_embedding_provider_config("azure_openai_sdk")
 
         rendered = json.dumps(status, ensure_ascii=False)
@@ -1720,6 +1720,20 @@ class SamCoreTest(unittest.TestCase):
         self.assertNotIn("sdk-secret", rendered)
         self.assertNotIn("https://example.test", rendered)
         self.assertIn("SAM_AZURE_EMBEDDING_DIMENSIONS", status["configured_optional"])
+
+    def test_embedding_config_diagnostic_reports_missing_openai_package_for_sdk(self) -> None:
+        with patch.dict(
+            "os.environ",
+            {
+                "SAM_AZURE_EMBEDDING_API_KEY": "sdk-secret",
+                "SAM_AZURE_EMBEDDING_ENDPOINT": "https://example.test/gpt/openapi/online/v2/crawl",
+            },
+            clear=True,
+        ), patch("importlib.util.find_spec", return_value=None):
+            status = inspect_embedding_provider_config("azure_openai_sdk")
+
+        self.assertFalse(status["ready"])
+        self.assertIn("openai", status["missing_packages"])
 
     def test_cached_embedding_provider_reuses_vectors(self) -> None:
         class CountingEmbeddingProvider(LocalHashEmbeddingProvider):

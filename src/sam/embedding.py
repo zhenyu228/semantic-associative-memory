@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import asyncio
+import importlib.util
 import json
 import math
 import os
@@ -402,6 +403,7 @@ def inspect_embedding_provider_config(name: str | None = None) -> dict[str, obje
         ]
     elif provider_name in {"azure_openai", "azure_openai_sdk", "azure_sdk"}:
         missing = _missing_env(["SAM_AZURE_EMBEDDING_API_KEY"])
+        missing_packages = []
         if provider_name == "azure_openai":
             required_any_missing = [
                 group
@@ -409,6 +411,8 @@ def inspect_embedding_provider_config(name: str | None = None) -> dict[str, obje
                 if not any(os.environ.get(item) for item in group)
             ]
         else:
+            if importlib.util.find_spec("openai") is None:
+                missing_packages.append("openai")
             required_any_missing = [
                 group
                 for group in [["SAM_AZURE_EMBEDDING_ENDPOINT"]]
@@ -433,14 +437,16 @@ def inspect_embedding_provider_config(name: str | None = None) -> dict[str, obje
             "ready": False,
             "error": f"未知 embedding provider: {provider_name}",
             "missing": [],
+            "missing_packages": [],
             "required_any_missing": [],
             "configured_optional": [],
             "cache_enabled": False,
         }
     return {
         "provider": provider_name,
-        "ready": not missing and not required_any_missing,
+        "ready": not missing and not required_any_missing and not locals().get("missing_packages", []),
         "missing": missing,
+        "missing_packages": locals().get("missing_packages", []),
         "required_any_missing": required_any_missing,
         "configured_optional": [key for key in optional if os.environ.get(key)],
         "cache_enabled": bool(os.environ.get("SAM_EMBEDDING_CACHE_PATH") or os.environ.get("SAM_EMBEDDING_CACHE") == "1"),

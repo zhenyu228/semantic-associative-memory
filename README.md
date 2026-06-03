@@ -192,6 +192,8 @@ conda run -n sam python scripts/run_end_to_end_experiment.py \
 使用 Azure OpenAI embedding 时不要把 key 写入仓库，使用环境变量配置。`azure_openai` 使用项目内置 HTTP client；`azure_openai_sdk` 使用 OpenAI SDK 的 `AsyncAzureOpenAI`，更接近公司内部示例代码：
 
 ```bash
+conda run -n sam python -m pip install -e .
+
 export SAM_EMBEDDING_PROVIDER=azure_openai_sdk
 export SAM_AZURE_EMBEDDING_ENDPOINT="https://search-va.byteintl.net/gpt/openapi/online/v2/crawl"
 export SAM_AZURE_EMBEDDING_API_VERSION="2023-07-01-preview"
@@ -223,6 +225,8 @@ export SAM_AZURE_EMBEDDING_SEND_MODEL="0"
 conda run -n sam python scripts/check_embedding_provider.py \
   --provider azure_openai_sdk
 ```
+
+如果诊断输出 `missing packages: openai`，说明当前 `sam` 环境还没有安装 OpenAI SDK，需要先执行上面的 `pip install -e .`。诊断脚本默认不会发起真实 embedding 请求，只有显式增加 `--probe` 时才会调用在线模型。
 
 如果要确认接口实际可用，可以显式增加 `--probe`。脚本只输出向量维度和范数，不打印向量内容、API key 或 endpoint 明文：
 
