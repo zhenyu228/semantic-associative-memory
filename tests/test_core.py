@@ -284,6 +284,98 @@ class SamCoreTest(unittest.TestCase):
         self.assertTrue(any("score_breakdown" in hit.metadata for hit in associative_hits))
         self.assertTrue(any(hit.metadata.get("candidate_path_count", 0) >= 1 for hit in associative_hits))
 
+    def test_associative_retrieval_builds_edges_for_expanded_bridge_nodes(self) -> None:
+        self.store.reset()
+        now = utc_now_iso()
+        seed = MemoryNode(
+            id="seed_doc",
+            text="The query starts from Alpha Film and mentions the actor Bridge Person.",
+            summary="Alpha Film mentions Bridge Person.",
+            keywords=["alpha", "film", "bridge"],
+            tags=[],
+            source="unit-test",
+            created_at=now,
+            last_accessed_at=None,
+            usage_count=0,
+            confidence=0.8,
+            embedding=[1.0, 0.0, 0.0],
+            metadata={"title": "Alpha Film", "entities": ["Bridge Person"]},
+        )
+        bridge = MemoryNode(
+            id="bridge_doc",
+            text="Bridge Person later served as the connector to Target Office.",
+            summary="Bridge Person connects to Target Office.",
+            keywords=["bridge", "person", "target"],
+            tags=[],
+            source="unit-test",
+            created_at=now,
+            last_accessed_at=None,
+            usage_count=0,
+            confidence=0.8,
+            embedding=[0.5, 0.5, 0.0],
+            metadata={"title": "Bridge Person", "entities": ["Bridge Person", "Target Office"]},
+        )
+        answer = MemoryNode(
+            id="answer_doc",
+            text="Target Office is the final answer.",
+            summary="Target Office is the answer.",
+            keywords=["target", "office", "answer"],
+            tags=[],
+            source="unit-test",
+            created_at=now,
+            last_accessed_at=None,
+            usage_count=0,
+            confidence=0.8,
+            embedding=[-1.0, 0.0, 0.0],
+            metadata={"title": "Target Office", "entities": ["Target Office"]},
+        )
+        distractor = MemoryNode(
+            id="distractor_doc",
+            text="Unrelated background text.",
+            summary="Unrelated background.",
+            keywords=["unrelated"],
+            tags=[],
+            source="unit-test",
+            created_at=now,
+            last_accessed_at=None,
+            usage_count=0,
+            confidence=0.8,
+            embedding=[0.05, -1.0, 0.0],
+            metadata={"title": "Distractor", "entities": ["Other"]},
+        )
+        distractor_two = MemoryNode(
+            id="distractor_two_doc",
+            text="Another unrelated background text.",
+            summary="Another unrelated background.",
+            keywords=["another"],
+            tags=[],
+            source="unit-test",
+            created_at=now,
+            last_accessed_at=None,
+            usage_count=0,
+            confidence=0.8,
+            embedding=[0.04, -1.0, 0.0],
+            metadata={"title": "Distractor Two", "entities": ["Other Two"]},
+        )
+        self.store.upsert_nodes([seed, bridge, answer, distractor, distractor_two])
+
+        class FixedEmbeddingProvider(LocalHashEmbeddingProvider):
+            def embed(self, text: str) -> list[float]:
+                return [1.0, 0.0, 0.0]
+
+        retriever = Retriever(self.store, FixedEmbeddingProvider(), GraphBuilder(self.store))
+        hits = retriever.retrieve(
+            "Alpha Film Bridge Person Target Office",
+            "sam_full",
+            top_k=3,
+            seed_k=1,
+            hops=2,
+        )
+
+        answer_hit = next(hit for hit in hits if hit.node.id == "answer_doc")
+        self.assertEqual(answer_hit.path, ["seed_doc", "bridge_doc", "answer_doc"])
+        self.assertIn("shared_entity", answer_hit.reason)
+
     def test_retrieval_updates_dynamic_memory_state(self) -> None:
         query = self.queries[0]
         retriever = Retriever(self.store, self.embedding, self.graph)

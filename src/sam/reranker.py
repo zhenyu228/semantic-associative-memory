@@ -110,6 +110,7 @@ class PathReranker:
         weights = self.weights
         path_support_score = _path_support_score(signals) if use_multipath else 0.0
         path_noise_penalty = _path_noise_penalty(signals, weights) if use_multipath else 0.0
+        effective_similarity = _effective_similarity(similarity, graph_score, path_support_score)
         edge_memory_score = _edge_memory_score(signals) if use_memory_state else 0.0
         usage_score = (
             min(weights.usage_cap, math.log1p(node.usage_count) * weights.usage_scale)
@@ -119,10 +120,12 @@ class PathReranker:
         recency_score = _recency_score(node.last_accessed_at, weights.recency) if use_memory_state else 0.0
         confidence_score = node.confidence * weights.confidence
         breakdown = {
-            "similarity_component": round(weights.similarity * similarity, 4),
+            "similarity_component": round(weights.similarity * effective_similarity, 4),
             "graph_component": round(weights.graph * graph_score, 4),
             "confidence_component": round(confidence_score, 4),
         }
+        if effective_similarity != similarity:
+            breakdown["similarity_floor"] = round(effective_similarity, 4)
         if use_multipath:
             breakdown["path_support_component"] = round(weights.path_support * path_support_score, 4)
             if path_noise_penalty > 0.0:
@@ -132,7 +135,7 @@ class PathReranker:
             breakdown["usage_component"] = round(usage_score, 4)
             breakdown["recency_component"] = round(recency_score, 4)
         total = (
-            weights.similarity * similarity
+            weights.similarity * effective_similarity
             + weights.graph * graph_score
             + weights.path_support * path_support_score
             + weights.edge_memory * edge_memory_score
@@ -166,6 +169,18 @@ def _path_support_score(signals: list[dict[str, object]]) -> float:
         depth = max(1, int(signal.get("depth", 1)))
         weighted += float(signal.get("graph_score", 0.0)) / depth
     return min(1.0, math.log1p(weighted + len(non_seed_paths) * 0.2))
+
+
+def _effective_similarity(
+    similarity: float,
+    graph_score: float,
+    path_support_score: float,
+) -> float:
+    """强图路径命中时，避免负向量相似度压制桥接证据。"""
+
+    if graph_score >= 0.8 and path_support_score >= 0.45:
+        return max(0.0, similarity)
+    return similarity
 
 
 def _edge_memory_score(signals: list[dict[str, object]]) -> float:

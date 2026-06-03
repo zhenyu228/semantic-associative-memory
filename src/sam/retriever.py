@@ -395,6 +395,7 @@ class Retriever:
         best_paths: dict[str, tuple[list[str], float, str]] = {}
         path_signals: dict[str, list[dict[str, object]]] = {}
         queue: deque[tuple[str, list[str], float, int, str]] = deque()
+        expanded_edge_node_ids: set[str] = {hit.node.id for hit in seed_hits}
         for vector_hit in vector_hits:
             best_paths[vector_hit.node.id] = ([vector_hit.node.id], 0.0, "向量候选节点")
             path_signals.setdefault(vector_hit.node.id, []).append(
@@ -422,6 +423,11 @@ class Retriever:
             current_id, path, graph_score, depth, reason = queue.popleft()
             if depth >= hops:
                 continue
+            if config.build_graph_on_demand and current_id not in expanded_edge_node_ids:
+                current_node = nodes_by_id.get(current_id)
+                if current_node is not None:
+                    self.graph_builder.build_edges_on_demand([current_node], candidates)
+                expanded_edge_node_ids.add(current_id)
             edges = self.store.get_edges_for([current_id])
             for edge in edges:
                 if edge.relation_type == "context_cooccurrence" and depth > 0:
