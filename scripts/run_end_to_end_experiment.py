@@ -30,7 +30,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--chat-provider", default=None, help="heuristic 或 azure_openai")
     parser.add_argument("--answer-judge", default="rule", choices=["rule", "gpt54"], help="答案判别器")
     parser.add_argument("--query-planner", default="disabled", choices=["disabled", "heuristic", "gpt54"], help="查询规划器")
-    parser.add_argument("--relation-judge", default="disabled", help="关系级建边判别器：disabled 或 gpt54")
+    parser.add_argument("--relation-judge", default="disabled", help="关系级建边判别器：disabled、gpt54 或 cached_gpt54")
     parser.add_argument(
         "--retrieval-methods",
         default="embedding_topk,sam_full",

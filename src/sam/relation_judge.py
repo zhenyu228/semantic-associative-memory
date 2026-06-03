@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import json
 import re
+import hashlib
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Protocol
 
 from sam.llm import ChatClient, create_chat_client
@@ -96,12 +98,62 @@ class ChatRelationJudge:
         return judgment
 
 
+class CachedRelationJudge:
+    """为关系判别器增加本地缓存，减少重复模型调用。"""
+
+    def __init__(
+        self,
+        base_judge: RelationJudge,
+        *,
+        cache_path: str | Path | None = None,
+    ) -> None:
+        self.base_judge = base_judge
+        self.cache_path = Path(cache_path) if cache_path else None
+        self._cache: dict[str, dict[str, object]] = {}
+        if self.cache_path and self.cache_path.exists():
+            self._cache = json.loads(self.cache_path.read_text(encoding="utf-8"))
+
+    def judge(
+        self,
+        seed: MemoryNode,
+        other: MemoryNode,
+        score_breakdown: dict[str, object],
+    ) -> RelationJudgment:
+        key = _relation_cache_key(seed, other, score_breakdown)
+        cached = self._cache.get(key)
+        if cached:
+            return RelationJudgment(
+                should_link=bool(cached.get("should_link", False)),
+                relation_type=str(cached.get("relation_type", "unrelated")),
+                confidence=max(0.0, min(1.0, float(cached.get("confidence", 0.0)))),
+                reason=str(cached.get("reason", "")),
+            )
+        judgment = self.base_judge.judge(seed, other, score_breakdown)
+        self._cache[key] = judgment.to_dict()
+        self._write_cache()
+        return judgment
+
+    def _write_cache(self) -> None:
+        if not self.cache_path:
+            return
+        self.cache_path.parent.mkdir(parents=True, exist_ok=True)
+        self.cache_path.write_text(
+            json.dumps(self._cache, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+
+
 def create_relation_judge(name: str | None = None) -> RelationJudge | None:
     provider = name or "disabled"
     if provider in {"disabled", "none", ""}:
         return None
     if provider in {"gpt", "gpt54", "azure_openai", "chat"}:
         return ChatRelationJudge()
+    if provider in {"cached_gpt", "cached_gpt54", "cached_azure_openai", "cached_chat"}:
+        return CachedRelationJudge(
+            ChatRelationJudge(),
+            cache_path=Path("outputs/cache/relation_judge_cache.json"),
+        )
     raise ValueError(f"未知关系判别器：{provider}")
 
 
@@ -157,3 +209,26 @@ def _extract_json_object(content: str) -> str:
     if match:
         return match.group(0)
     raise ValueError("模型输出中没有 JSON 对象")
+
+
+def _relation_cache_key(
+    seed: MemoryNode,
+    other: MemoryNode,
+    score_breakdown: dict[str, object],
+) -> str:
+    payload = {
+        "seed_id": seed.id,
+        "other_id": other.id,
+        "seed_text_hash": _text_hash(seed.text),
+        "other_text_hash": _text_hash(other.text),
+        "relation_type_hint": score_breakdown.get("relation_type_hint"),
+        "keyword_overlap": score_breakdown.get("keyword_overlap", []),
+        "shared_entities": score_breakdown.get("shared_entities", []),
+    }
+    return hashlib.sha256(
+        json.dumps(payload, ensure_ascii=False, sort_keys=True).encode("utf-8")
+    ).hexdigest()
+
+
+def _text_hash(text: str) -> str:
+    return hashlib.sha256(text[:1200].encode("utf-8")).hexdigest()[:16]

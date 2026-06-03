@@ -277,7 +277,7 @@ conda run -n sam python scripts/run_provider_smoke_experiment.py \
   --chat-provider azure_openai \
   --answer-judge gpt54 \
   --query-planner gpt54 \
-  --relation-judge gpt54 \
+  --relation-judge cached_gpt54 \
   --retrieval-methods embedding_topk,sam_full \
   --generation-method sam_full \
   --embedding-probe "SAM embedding connectivity test." \
@@ -294,7 +294,7 @@ conda run -n sam python scripts/audit_experiment_run.py \
   --baseline-method embedding_topk
 ```
 
-如果要使用 GPT-5.4 对候选语义边进行关系级判别，先配置聊天模型环境变量，然后在实验命令中增加 `--relation-judge gpt54`：
+如果要使用 GPT-5.4 对候选语义边进行关系级判别，先配置聊天模型环境变量，然后在实验命令中增加 `--relation-judge cached_gpt54`。该模式会把判别结果缓存到 `outputs/cache/relation_judge_cache.json`，避免同一候选边在多轮实验中重复调用模型：
 
 ```bash
 export SAM_CHAT_PROVIDER=azure_openai
@@ -308,7 +308,7 @@ conda run -n sam python scripts/run_demo.py \
   --dataset hotpotqa \
   --dataset-file data/processed/hotpotqa_sam_sample.json \
   --methods embedding_topk,sam_full \
-  --relation-judge gpt54
+  --relation-judge cached_gpt54
 ```
 
 正式启用 GPT-5.4 前，可以先检查聊天模型配置。默认只检查环境变量，不会发请求：

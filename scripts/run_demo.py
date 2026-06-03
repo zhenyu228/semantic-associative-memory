@@ -51,7 +51,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--embedding-cache", action="store_true", help="启用 SQLite embedding 缓存，默认写入 data/embedding_cache.sqlite")
     parser.add_argument("--embedding-cache-path", default=None, help="自定义 embedding 缓存 SQLite 路径")
     parser.add_argument("--embedding-concurrency", type=int, default=None, help="在线 embedding 最大并发数")
-    parser.add_argument("--relation-judge", default="disabled", help="关系级建边判别器：disabled 或 gpt54")
+    parser.add_argument("--relation-judge", default="disabled", help="关系级建边判别器：disabled、gpt54 或 cached_gpt54")
     parser.add_argument("--use-retrieval-query", action="store_true", help="使用数据集 metadata 中的 retrieval_query 扩展检索文本")
     parser.add_argument(
         "--query-planner",

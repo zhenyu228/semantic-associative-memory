@@ -59,7 +59,7 @@ from sam.reranker_experiment import (
     run_reranker_profile_comparison,
     write_reranker_profile_reports,
 )
-from sam.relation_judge import RelationJudgment
+from sam.relation_judge import CachedRelationJudge, RelationJudgment, create_relation_judge
 from sam.retriever import Retriever
 from sam.reuse_experiment import build_masked_queries, summarize_memory_reuse
 from sam.store import MemoryStore
@@ -249,6 +249,49 @@ class SamCoreTest(unittest.TestCase):
         self.assertEqual(score.relation_type, None)
         self.assertEqual(score.score_breakdown["relation_judge"]["should_link"], False)
         self.assertEqual(score.score_breakdown["relation_judge"]["relation_type"], "unrelated")
+
+    def test_cached_relation_judge_reuses_previous_judgment(self) -> None:
+        class CountingRelationJudge:
+            def __init__(self) -> None:
+                self.calls = 0
+
+            def judge(
+                self,
+                seed: MemoryNode,
+                other: MemoryNode,
+                score_breakdown: dict[str, object],
+            ) -> RelationJudgment:
+                self.calls += 1
+                return RelationJudgment(
+                    should_link=True,
+                    relation_type="shared_entity",
+                    confidence=0.8,
+                    reason="测试关系判别结果",
+                )
+
+        base_judge = CountingRelationJudge()
+        cache_path = Path(self.temp_dir.name) / "relation_cache.json"
+        judge = CachedRelationJudge(base_judge, cache_path=cache_path)
+        seed = self.nodes[0]
+        other = self.nodes[1]
+        score_breakdown = {"relation_type_hint": "shared_entity", "similarity": 0.5}
+
+        first = judge.judge(seed, other, score_breakdown)
+        second = judge.judge(seed, other, score_breakdown)
+        reloaded = CachedRelationJudge(base_judge, cache_path=cache_path)
+        third = reloaded.judge(seed, other, score_breakdown)
+
+        self.assertEqual(base_judge.calls, 1)
+        self.assertEqual(first.to_dict(), second.to_dict())
+        self.assertEqual(first.to_dict(), third.to_dict())
+        self.assertTrue(cache_path.exists())
+
+    def test_create_relation_judge_supports_cached_gpt54(self) -> None:
+        with patch("sam.relation_judge.ChatRelationJudge") as chat_judge:
+            chat_judge.return_value = object()
+            judge = create_relation_judge("cached_gpt54")
+
+        self.assertIsInstance(judge, CachedRelationJudge)
 
     def test_edge_creation_log_is_written(self) -> None:
         seed = self.store.get_nodes([self.nodes[0].id])
