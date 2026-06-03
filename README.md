@@ -285,6 +285,15 @@ conda run -n sam python scripts/run_provider_smoke_experiment.py \
   --run-name provider_smoke_gpt54_hotpotqa1
 ```
 
+该 smoke 脚本会自动生成 `experiment_audit.json` 和 `experiment_audit.md`，用于判断当前主要瓶颈是图检索增益不足、支持证据缺失、图噪声、生成失败还是答案判别问题。也可以对已有 run 单独执行审计：
+
+```bash
+conda run -n sam python scripts/audit_experiment_run.py \
+  outputs/runs/provider_smoke_gpt54_hotpotqa1 \
+  --primary-method sam_full \
+  --baseline-method embedding_topk
+```
+
 如果要使用 GPT-5.4 对候选语义边进行关系级判别，先配置聊天模型环境变量，然后在实验命令中增加 `--relation-judge gpt54`：
 
 ```bash

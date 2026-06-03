@@ -16,6 +16,7 @@ if str(SRC) not in sys.path:
 from sam.answer_judge import create_answer_judge  # noqa: E402
 from sam.dataset_format import load_sam_dataset, summarize_sam_dataset  # noqa: E402
 from sam.embedding import create_embedding_provider  # noqa: E402
+from sam.experiment_audit import audit_run_directory, write_experiment_audit  # noqa: E402
 from sam.llm import create_chat_client  # noqa: E402
 from sam.pipeline_experiment import run_retrieval_generation_pipeline  # noqa: E402
 from sam.query_planner import create_query_planner  # noqa: E402
@@ -119,9 +120,16 @@ def run_provider_smoke_experiment(
         hops=hops,
         max_context_chars=max_context_chars,
     )
+    audit = audit_run_directory(
+        target,
+        primary_method=generation_method,
+        baseline_method="embedding_topk",
+    )
+    write_experiment_audit(audit, target)
     summary = {
         "provider_status": provider_status,
         "pipeline": pipeline,
+        "audit": audit,
     }
     (target / "smoke_summary.json").write_text(
         json.dumps(summary, ensure_ascii=False, indent=2),

@@ -40,6 +40,7 @@ from sam.embedding import (
     inspect_embedding_provider_config,
 )
 from sam.evaluator import Evaluator
+from sam.experiment_audit import audit_run_directory, write_experiment_audit
 from sam.generation import (
     CaseAnalogyHintBuilder,
     ContextAnswerGenerator,
@@ -1335,9 +1336,80 @@ class SamCoreTest(unittest.TestCase):
 
         self.assertTrue(summary["provider_status"]["ready"])
         self.assertEqual(summary["pipeline"]["query_count"], 1)
+        self.assertIn("audit", summary)
         self.assertTrue((output_dir / "provider_status.json").exists())
         self.assertTrue((output_dir / "pipeline_summary.json").exists())
+        self.assertTrue((output_dir / "experiment_audit.json").exists())
         self.assertTrue((output_dir / "smoke_summary.md").exists())
+
+    def test_experiment_audit_identifies_weak_graph_gain_and_generation_failure(self) -> None:
+        run_dir = Path(self.temp_dir.name) / "audit_run"
+        run_dir.mkdir()
+        (run_dir / "metrics.json").write_text(
+            json.dumps(
+                {
+                    "method_metrics": {
+                        "embedding_topk": {
+                            "display_name": "Embedding Top-k",
+                            "evidence_recall": 0.50,
+                            "answer_hit_rate": 0.40,
+                        },
+                        "sam_full": {
+                            "display_name": "SAM-full",
+                            "evidence_recall": 0.50,
+                            "answer_hit_rate": 0.40,
+                        },
+                    }
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+        (run_dir / "cases.json").write_text(
+            json.dumps(
+                [
+                    {
+                        "query_id": "q1",
+                        "question": "question",
+                        "answer": "answer",
+                        "supporting_doc_ids": ["d1", "d2"],
+                        "support_hits_by_method": {"embedding_topk": 1, "sam_full": 1},
+                        "vector_support_hits": 1,
+                        "methods": {"sam_full": [{"is_supporting": False, "path": ["a", "b"]}]},
+                    }
+                ],
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+        (run_dir / "generated_answers.json").write_text(
+            json.dumps(
+                [
+                    {
+                        "query_id": "q1",
+                        "question": "question",
+                        "gold_answer": "answer",
+                        "method": "sam_full",
+                        "generated_answer": "证据不足",
+                        "answer_hit": False,
+                        "context_titles": ["doc"],
+                        "metadata": {"answer_judgment": {"status": "not_matched"}},
+                    }
+                ],
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+
+        audit = audit_run_directory(run_dir, primary_method="sam_full")
+        json_path, md_path = write_experiment_audit(audit, run_dir)
+
+        bottleneck_types = {item["type"] for item in audit["bottlenecks"]}
+        self.assertIn("weak_graph_gain", bottleneck_types)
+        self.assertIn("generation_failure", bottleneck_types)
+        self.assertIn("missing_support_evidence", audit["bad_case_summary"]["retrieval_categories"])
+        self.assertTrue(json_path.exists())
+        self.assertTrue(md_path.exists())
 
     def test_azure_embedding_provider_batches_requests_with_model_and_dimensions(self) -> None:
         class FakeResponse:
