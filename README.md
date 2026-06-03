@@ -228,6 +228,12 @@ conda run -n sam python scripts/check_embedding_provider.py \
 
 如果诊断输出 `missing packages: openai`，说明当前 `sam` 环境还没有安装 OpenAI SDK，需要先执行上面的 `pip install -e .`。诊断脚本默认不会发起真实 embedding 请求，只有显式增加 `--probe` 时才会调用在线模型。
 
+如果项目安装命令在当前网络环境下长时间无输出，可以先单独安装 SDK 依赖：
+
+```bash
+conda run -n sam python -m pip install "openai>=1.0.0"
+```
+
 如果要确认接口实际可用，可以显式增加 `--probe`。脚本只输出向量维度和范数，不打印向量内容、API key 或 endpoint 明文：
 
 ```bash

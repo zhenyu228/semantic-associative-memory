@@ -1734,6 +1734,7 @@ class SamCoreTest(unittest.TestCase):
 
         self.assertFalse(status["ready"])
         self.assertIn("openai", status["missing_packages"])
+        self.assertIn("python -m pip install", status["install_hint"])
 
     def test_cached_embedding_provider_reuses_vectors(self) -> None:
         class CountingEmbeddingProvider(LocalHashEmbeddingProvider):

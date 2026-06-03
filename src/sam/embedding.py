@@ -438,15 +438,18 @@ def inspect_embedding_provider_config(name: str | None = None) -> dict[str, obje
             "error": f"未知 embedding provider: {provider_name}",
             "missing": [],
             "missing_packages": [],
+            "install_hint": "",
             "required_any_missing": [],
             "configured_optional": [],
             "cache_enabled": False,
         }
+    missing_packages = locals().get("missing_packages", [])
     return {
         "provider": provider_name,
-        "ready": not missing and not required_any_missing and not locals().get("missing_packages", []),
+        "ready": not missing and not required_any_missing and not missing_packages,
         "missing": missing,
-        "missing_packages": locals().get("missing_packages", []),
+        "missing_packages": missing_packages,
+        "install_hint": _install_hint(missing_packages),
         "required_any_missing": required_any_missing,
         "configured_optional": [key for key in optional if os.environ.get(key)],
         "cache_enabled": bool(os.environ.get("SAM_EMBEDDING_CACHE_PATH") or os.environ.get("SAM_EMBEDDING_CACHE") == "1"),
@@ -462,6 +465,12 @@ def _require_env(key: str) -> str:
     if not value:
         raise ValueError(f"缺少环境变量 {key}")
     return value
+
+
+def _install_hint(missing_packages: list[str]) -> str:
+    if "openai" in missing_packages:
+        return "python -m pip install 'openai>=1.0.0'"
+    return ""
 
 
 def _parallel_embed(

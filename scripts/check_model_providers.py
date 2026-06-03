@@ -109,6 +109,8 @@ def _print_section(name: str, status: object) -> None:
         print(f"[{name}] missing: " + ", ".join(str(item) for item in status["missing"]))
     if status.get("missing_packages"):
         print(f"[{name}] missing packages: " + ", ".join(str(item) for item in status["missing_packages"]))
+    if status.get("install_hint"):
+        print(f"[{name}] install hint: {status.get('install_hint')}")
     if status.get("required_any_missing"):
         groups = [" 或 ".join(group) for group in status["required_any_missing"]]
         print(f"[{name}] missing one of: " + "; ".join(groups))
