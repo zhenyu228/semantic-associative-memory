@@ -644,6 +644,49 @@ class SamCoreTest(unittest.TestCase):
         self.assertGreater(dense_score.path_noise_penalty, 0.0)
         self.assertLess(dense_score.total, sparse_score.total)
 
+    def test_path_reranker_penalizes_weak_second_hop_paths(self) -> None:
+        node = self.nodes[0]
+        strong_signals = [
+            {
+                "path": ["seed", "bridge", node.id],
+                "graph_score": 0.9,
+                "depth": 2,
+                "edge_activation_count": 0,
+                "relation_type": "shared_entity",
+            }
+        ]
+        weak_signals = [
+            {
+                "path": ["seed", "bridge", node.id],
+                "graph_score": 0.9,
+                "depth": 2,
+                "edge_activation_count": 0,
+                "relation_type": "embedding_similarity",
+            }
+        ]
+
+        reranker = PathReranker(profile="semantic_heavy")
+        strong_score = reranker.score(
+            similarity=0.3,
+            graph_score=0.9,
+            signals=strong_signals,
+            node=node,
+            use_multipath=True,
+            use_memory_state=False,
+        )
+        weak_score = reranker.score(
+            similarity=0.3,
+            graph_score=0.9,
+            signals=weak_signals,
+            node=node,
+            use_multipath=True,
+            use_memory_state=False,
+        )
+
+        self.assertIn("weak_relation_penalty", weak_score.breakdown)
+        self.assertNotIn("weak_relation_penalty", strong_score.breakdown)
+        self.assertLess(weak_score.total, strong_score.total)
+
     def test_retriever_reads_reranker_profile_from_environment(self) -> None:
         query = self.queries[0]
         candidate_ids = [

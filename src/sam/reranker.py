@@ -21,6 +21,7 @@ class RerankerWeights:
     recency: float
     path_noise_cap: float = 0.12
     path_noise_threshold: int = 12
+    weak_relation_cap: float = 0.10
 
 
 RERANKER_PROFILES = {
@@ -78,6 +79,7 @@ class PathScore:
     path_support_score: float
     edge_memory_score: float
     path_noise_penalty: float
+    weak_relation_penalty: float
     usage_score: float
     recency_score: float
     confidence_score: float
@@ -110,6 +112,7 @@ class PathReranker:
         weights = self.weights
         path_support_score = _path_support_score(signals) if use_multipath else 0.0
         path_noise_penalty = _path_noise_penalty(signals, weights) if use_multipath else 0.0
+        weak_relation_penalty = _weak_relation_penalty(signals, weights) if use_multipath else 0.0
         effective_similarity = _effective_similarity(similarity, graph_score, path_support_score)
         edge_memory_score = _edge_memory_score(signals) if use_memory_state else 0.0
         usage_score = (
@@ -130,6 +133,8 @@ class PathReranker:
             breakdown["path_support_component"] = round(weights.path_support * path_support_score, 4)
             if path_noise_penalty > 0.0:
                 breakdown["path_noise_penalty"] = round(path_noise_penalty, 4)
+            if weak_relation_penalty > 0.0:
+                breakdown["weak_relation_penalty"] = round(weak_relation_penalty, 4)
         if use_memory_state:
             breakdown["edge_memory_component"] = round(weights.edge_memory * edge_memory_score, 4)
             breakdown["usage_component"] = round(usage_score, 4)
@@ -143,6 +148,7 @@ class PathReranker:
             + recency_score
             + confidence_score
             - path_noise_penalty
+            - weak_relation_penalty
         )
         return PathScore(
             profile=self.profile,
@@ -150,6 +156,7 @@ class PathReranker:
             path_support_score=path_support_score,
             edge_memory_score=edge_memory_score,
             path_noise_penalty=path_noise_penalty,
+            weak_relation_penalty=weak_relation_penalty,
             usage_score=usage_score,
             recency_score=recency_score,
             confidence_score=confidence_score,
@@ -203,6 +210,23 @@ def _path_noise_penalty(signals: list[dict[str, object]], weights: RerankerWeigh
         return 0.0
     overflow = non_seed_path_count - weights.path_noise_threshold
     return min(weights.path_noise_cap, math.log1p(overflow) * 0.035)
+
+
+def _weak_relation_penalty(signals: list[dict[str, object]], weights: RerankerWeights) -> float:
+    weak_relation_types = {"embedding_similarity", "context_cooccurrence"}
+    penalty = 0.0
+    for signal in signals:
+        relation_type = str(signal.get("relation_type", ""))
+        path = signal.get("path", [])
+        fallback_depth = max(0, len(path) - 1) if isinstance(path, list) else 0
+        depth = int(signal.get("depth", fallback_depth))
+        if depth < 2:
+            continue
+        if relation_type in weak_relation_types:
+            penalty += 0.045
+        elif relation_type == "keyword_overlap":
+            penalty += 0.02
+    return min(weights.weak_relation_cap, penalty)
 
 
 def _recency_score(last_accessed_at: str | None, weight: float) -> float:
