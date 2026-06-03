@@ -22,6 +22,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--embedding-probe", default=None, help="可选：发送一条 embedding 测试文本")
     parser.add_argument("--chat-probe", default=None, help="可选：发送一条聊天模型测试消息")
     parser.add_argument("--chat-max-tokens", type=int, default=64, help="chat probe 最大输出 token")
+    parser.add_argument(
+        "--require",
+        default="both",
+        choices=["both", "embedding", "chat"],
+        help="本次检查要求哪些 provider ready；默认两者都要求",
+    )
     parser.add_argument("--json", action="store_true", help="以 JSON 输出诊断结果")
     return parser.parse_args()
 
@@ -33,6 +39,7 @@ def build_provider_status(
     embedding_probe: str | None = None,
     chat_probe: str | None = None,
     chat_max_tokens: int = 64,
+    required_providers: str = "both",
 ) -> dict[str, object]:
     """构建模型 provider 诊断结果。
 
@@ -61,8 +68,14 @@ def build_provider_status(
             "answer_preview": answer[:200],
             "answer_chars": len(answer),
         }
+    required_ready = {
+        "both": bool(embedding_status.get("ready") and chat_status.get("ready")),
+        "embedding": bool(embedding_status.get("ready")),
+        "chat": bool(chat_status.get("ready")),
+    }
     return {
-        "ready": bool(embedding_status.get("ready") and chat_status.get("ready")),
+        "ready": required_ready[required_providers],
+        "required_providers": required_providers,
         "embedding": embedding_status,
         "chat": chat_status,
     }
@@ -76,6 +89,7 @@ def main() -> None:
         embedding_probe=args.embedding_probe,
         chat_probe=args.chat_probe,
         chat_max_tokens=args.chat_max_tokens,
+        required_providers=args.require,
     )
     if args.json:
         print(json.dumps(status, ensure_ascii=False, indent=2))

@@ -1298,6 +1298,17 @@ class SamCoreTest(unittest.TestCase):
         self.assertNotIn("https://example.test/custom/embeddings", rendered)
         self.assertNotIn("https://example.test/custom/chat/completions", rendered)
 
+    def test_combined_provider_diagnostic_can_require_only_embedding(self) -> None:
+        status = build_provider_status(
+            embedding_provider="local",
+            chat_provider="azure_openai",
+            required_providers="embedding",
+        )
+
+        self.assertTrue(status["ready"])
+        self.assertTrue(status["embedding"]["ready"])
+        self.assertFalse(status["chat"]["ready"])
+
     def test_azure_embedding_provider_batches_requests_with_model_and_dimensions(self) -> None:
         class FakeResponse:
             def __init__(self, payload: dict[str, object]) -> None:

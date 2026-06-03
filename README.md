@@ -248,6 +248,15 @@ conda run -n sam python scripts/check_model_providers.py \
   --chat-provider azure_openai
 ```
 
+如果只想先检查其中一个 provider，可以使用 `--require embedding` 或 `--require chat`，避免另一个尚未配置的 provider 阻塞调试：
+
+```bash
+conda run -n sam python scripts/check_model_providers.py \
+  --embedding-provider azure_openai \
+  --chat-provider heuristic \
+  --require embedding
+```
+
 低额度 smoke test 时再显式增加 probe：
 
 ```bash
