@@ -26,7 +26,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output-root", default="outputs/runs", help="运行产物根目录")
     parser.add_argument("--run-name", default=None, help="本次运行名称")
     parser.add_argument("--limit", type=int, default=8, help="参与实验的查询数量")
-    parser.add_argument("--embedding-provider", default=None, help="local、openai 或 azure_openai")
+    parser.add_argument("--embedding-provider", default=None, help="local、openai、azure_openai 或 azure_openai_sdk")
     parser.add_argument("--chat-provider", default=None, help="heuristic 或 azure_openai")
     parser.add_argument("--answer-judge", default="rule", choices=["rule", "gpt54"], help="答案判别器")
     parser.add_argument("--query-planner", default="disabled", choices=["disabled", "heuristic", "gpt54"], help="查询规划器")

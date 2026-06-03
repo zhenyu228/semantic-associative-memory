@@ -40,7 +40,7 @@ def parse_args() -> argparse.Namespace:
         help="用于比较支持证据增益的 baseline 方法",
     )
     parser.add_argument("--chat-provider", default=None, help="heuristic 或 azure_openai")
-    parser.add_argument("--embedding-provider", default=None, help="local、openai 或 azure_openai")
+    parser.add_argument("--embedding-provider", default=None, help="local、openai、azure_openai 或 azure_openai_sdk")
     parser.add_argument("--limit", type=int, default=None, help="最多运行多少条 case")
     parser.add_argument(
         "--output-dir",

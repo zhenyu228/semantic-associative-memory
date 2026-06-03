@@ -481,7 +481,7 @@ final_score = semantic_score + graph_score + path_quality + memory_state + feedb
 - `MultiAgentResearchWorkflow`：将 planner、retriever、writer、verifier 四个角色串成一个可运行协作流程。planner 写入全局规划记忆，retriever 将检索证据 handoff 给 writer，writer 读取共享记忆并生成答案，verifier 再读取 writer 的 handoff 进行验证。脚本 `scripts/run_agent_workflow.py` 会输出 `agent_workflow.json` 和 `agent_workflow.md`，用于检查每个角色是否实际读写了共享记忆。
 - `run_agent_memory_reuse_experiment.py`：读取连续记忆复用实验中的 probe cases，进一步统计共享记忆是否真正承接 SAM 相对 baseline 的证据增益。该实验会检查 retriever 的证据 handoff 是否被 writer 读取、writer 的结果 handoff 是否被 verifier 读取，以及有效证据增益是否通过多智能体链路传递。
 - `run_agent_generation_experiment.py`：对比“无共享记忆”“共享记忆”“共享记忆+类比提示”三种答案生成设置。该脚本用于把共享记忆机制推进到最终答案层面，后续可直接切换 GPT-5.4 生成器运行正式实验。
-- `AzureOpenAIEmbeddingProvider`：支持通过环境变量接入 Azure OpenAI 兼容 embedding 服务，使后续实验可以从本地哈希 embedding 切换到正式语义表示模型。
+- `AzureOpenAIEmbeddingProvider` / `AzureOpenAISDKEmbeddingProvider`：支持通过环境变量接入 Azure OpenAI 兼容 embedding 服务。前者使用项目内置 HTTP client，后者使用 OpenAI SDK 的 `AsyncAzureOpenAI` 并通过异步信号量控制并发，使后续实验可以从本地哈希 embedding 切换到正式语义表示模型。
 
 当前 P6 已从“接口占位”推进到“可测试原型”：单元测试覆盖了关系路径匹配优先级、智能体定向 handoff 过滤和四角色协作流程。后续需要增加：
 
@@ -506,7 +506,7 @@ final_score = semantic_score + graph_score + path_quality + memory_state + feedb
 - `GenerationBadCaseAnalyzer`：生成式评测会自动输出 `generation_bad_cases.json` 与 `generation_bad_cases.md`，将生成阶段失败进一步归因为空答案、语义不等价、判别低置信、已有上下文但生成失败、判别器回退等类型。
 - `run_end_to_end_experiment.py`：新增端到端实验入口，将检索评测、生成答案、答案判别和生成 bad case 分析写入同一个 run 目录，避免正式实验时手动拼接多个脚本造成配置不一致。该入口已支持 query planner、relation judge、reranker profile、chat provider 和 answer judge，能够覆盖当前正式实验所需的主要变量。
 - `BadCaseAnalyzer`：每次实验自动输出 `bad_cases.json` 与 `bad_cases.md`，将失败样本归因为支持证据缺失、答案未覆盖、图扩展未使用、图噪声、弱于向量召回等类型。
-- `CachedEmbeddingProvider`：为在线 embedding 增加 SQLite 缓存和批量去重，`AzureOpenAIEmbeddingProvider` 和 `OpenAIEmbeddingProvider` 支持并发 `embed_many()`。在线 provider 会按照 batch size 把多条文本合并进一次 embedding 请求，并通过并发 batch 提高实验吞吐；同时 payload 支持 `model` 和 `dimensions` 字段，适配公司网关的 text-embedding-3-large 降维调用。这使 HotpotQA 300 条和 NovelQA chunk 实验可以重复运行而不重复消耗同一批文本的 embedding 额度。
+- `CachedEmbeddingProvider`：为在线 embedding 增加 SQLite 缓存和批量去重，`AzureOpenAIEmbeddingProvider`、`AzureOpenAISDKEmbeddingProvider` 和 `OpenAIEmbeddingProvider` 支持并发 `embed_many()`。在线 provider 会按照 batch size 把多条文本合并进一次 embedding 请求，并通过并发 batch 提高实验吞吐；同时 payload 支持 `model` 和 `dimensions` 字段，适配公司网关的 text-embedding-3-large 降维调用。这使 HotpotQA 300 条和 NovelQA chunk 实验可以重复运行而不重复消耗同一批文本的 embedding 额度。
 
 类比提示生成 smoke run 已完成，路径为 `outputs/runs/analogy_generation_smoke/`。在启发式本地生成器下，无类比提示与有类比提示的答案命中率均为 0.000；该 smoke run 不用于汇报模型效果，只用于验证链路是否完整。产物中可以看到：
 

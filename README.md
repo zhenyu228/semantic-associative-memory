@@ -189,10 +189,10 @@ conda run -n sam python scripts/run_end_to_end_experiment.py \
 
 该脚本会在同一个 run 目录中输出 `metrics.json`、`cases.json`、`generated_answers.json`、`generation_bad_cases.json` 和 `pipeline_summary.json`。正式实验可以把 `--chat-provider`、`--answer-judge`、`--query-planner` 和 `--relation-judge` 切换为 GPT-5.4 配置。
 
-使用 Azure OpenAI embedding 时不要把 key 写入仓库，使用环境变量配置：
+使用 Azure OpenAI embedding 时不要把 key 写入仓库，使用环境变量配置。`azure_openai` 使用项目内置 HTTP client；`azure_openai_sdk` 使用 OpenAI SDK 的 `AsyncAzureOpenAI`，更接近公司内部示例代码：
 
 ```bash
-export SAM_EMBEDDING_PROVIDER=azure_openai
+export SAM_EMBEDDING_PROVIDER=azure_openai_sdk
 export SAM_AZURE_EMBEDDING_ENDPOINT="https://search-va.byteintl.net/gpt/openapi/online/v2/crawl"
 export SAM_AZURE_EMBEDDING_API_VERSION="2023-07-01-preview"
 export SAM_AZURE_EMBEDDING_MODEL="text-embedding-3-large"
@@ -204,7 +204,7 @@ export SAM_AZURE_EMBEDDING_API_KEY="..."
 conda run -n sam python scripts/run_demo.py \
   --reset \
   --dataset hotpotqa \
-  --embedding-provider azure_openai \
+  --embedding-provider azure_openai_sdk \
   --embedding-cache \
   --embedding-concurrency 10
 ```
@@ -221,7 +221,7 @@ export SAM_AZURE_EMBEDDING_SEND_MODEL="0"
 
 ```bash
 conda run -n sam python scripts/check_embedding_provider.py \
-  --provider azure_openai
+  --provider azure_openai_sdk
 ```
 
 如果要确认接口实际可用，可以显式增加 `--probe`。脚本只输出向量维度和范数，不打印向量内容、API key 或 endpoint 明文：

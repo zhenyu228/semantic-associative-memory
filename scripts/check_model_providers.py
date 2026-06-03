@@ -17,7 +17,7 @@ from sam.llm import create_chat_client, inspect_chat_provider_config  # noqa: E4
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="统一检查 SAM embedding 与 GPT-5.4 provider 配置")
-    parser.add_argument("--embedding-provider", default=None, help="local、openai 或 azure_openai；默认读取 SAM_EMBEDDING_PROVIDER")
+    parser.add_argument("--embedding-provider", default=None, help="local、openai、azure_openai 或 azure_openai_sdk；默认读取 SAM_EMBEDDING_PROVIDER")
     parser.add_argument("--chat-provider", default=None, help="heuristic 或 azure_openai；默认读取 SAM_CHAT_PROVIDER")
     parser.add_argument("--embedding-probe", default=None, help="可选：发送一条 embedding 测试文本")
     parser.add_argument("--chat-probe", default=None, help="可选：发送一条聊天模型测试消息")

@@ -28,7 +28,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--run-name", default=None, help="本次运行名称")
     parser.add_argument("--db", default=None, help="SQLite 数据库路径，默认写入 run 目录")
     parser.add_argument("--limit", type=int, default=30, help="参与 warmup/probe 的查询数量")
-    parser.add_argument("--embedding-provider", default=None, help="local、openai 或 azure_openai")
+    parser.add_argument("--embedding-provider", default=None, help="local、openai、azure_openai 或 azure_openai_sdk")
     parser.add_argument("--top-k", type=int, default=3, help="类比候选案例数量")
     parser.add_argument("--retrieval-top-k", type=int, default=4, help="warmup 检索返回文档数")
     parser.add_argument("--seed-k", type=int, default=1, help="SAM warmup 种子节点数")

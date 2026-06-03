@@ -28,7 +28,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--all-cases-file", default=None, help="用于类比提示检索的完整 cases 文件")
     parser.add_argument("--method", default="sam_full", help="使用哪个检索方法的上下文")
     parser.add_argument("--chat-provider", default=None, help="heuristic 或 azure_openai")
-    parser.add_argument("--embedding-provider", default=None, help="local、openai 或 azure_openai")
+    parser.add_argument("--embedding-provider", default=None, help="local、openai、azure_openai 或 azure_openai_sdk")
     parser.add_argument("--limit", type=int, default=None, help="最多运行多少条 case")
     parser.add_argument("--analogy-top-k", type=int, default=2, help="每条样本最多使用多少个类比案例")
     parser.add_argument(

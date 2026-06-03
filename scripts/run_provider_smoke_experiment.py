@@ -30,7 +30,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output-root", default="outputs/runs", help="运行产物根目录")
     parser.add_argument("--run-name", default=None, help="本次运行名称")
     parser.add_argument("--limit", type=int, default=2, help="参与 smoke 的查询数量，建议 1-3")
-    parser.add_argument("--embedding-provider", default=None, help="local、openai 或 azure_openai")
+    parser.add_argument("--embedding-provider", default=None, help="local、openai、azure_openai 或 azure_openai_sdk")
     parser.add_argument("--chat-provider", default=None, help="heuristic 或 azure_openai")
     parser.add_argument("--embedding-probe", default=None, help="可选：先发一条 embedding 连通性测试")
     parser.add_argument("--chat-probe", default=None, help="可选：先发一条 chat 连通性测试")

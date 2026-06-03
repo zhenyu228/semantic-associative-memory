@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import asyncio
 import json
 import math
 import os
@@ -195,6 +196,81 @@ class AzureOpenAIEmbeddingProvider(EmbeddingProvider):
         raise RuntimeError("embedding 请求失败")
 
 
+class AzureOpenAISDKEmbeddingProvider(EmbeddingProvider):
+    """基于 OpenAI SDK AsyncAzureOpenAI 的 Azure embedding provider。"""
+
+    def __init__(self) -> None:
+        try:
+            import openai
+        except ImportError as exc:
+            raise RuntimeError("使用 azure_openai_sdk 需要安装 openai 包") from exc
+        self.api_key = _require_env("SAM_AZURE_EMBEDDING_API_KEY")
+        self.azure_endpoint = _require_env("SAM_AZURE_EMBEDDING_ENDPOINT").rstrip("/")
+        self.api_version = os.environ.get("SAM_AZURE_EMBEDDING_API_VERSION", "2023-07-01-preview")
+        self.model = os.environ.get("SAM_AZURE_EMBEDDING_MODEL", "text-embedding-3-large")
+        self.max_concurrency = int(os.environ.get("SAM_AZURE_EMBEDDING_CONCURRENCY", "4"))
+        self.batch_size = int(os.environ.get("SAM_AZURE_EMBEDDING_BATCH_SIZE", "16"))
+        self.max_retries = int(os.environ.get("SAM_AZURE_EMBEDDING_MAX_RETRIES", "5"))
+        dimensions = os.environ.get("SAM_AZURE_EMBEDDING_DIMENSIONS")
+        self.dimensions = int(dimensions) if dimensions else None
+        self.client = openai.AsyncAzureOpenAI(
+            azure_endpoint=self.azure_endpoint,
+            api_version=self.api_version,
+            api_key=self.api_key,
+        )
+
+    @property
+    def cache_namespace(self) -> str:
+        return f"azure_sdk:{self.azure_endpoint}:{self.api_version}:{self.model}:{self.dimensions or 'default'}"
+
+    def embed(self, text: str) -> list[float]:
+        return self.embed_many([text])[0]
+
+    def embed_many(self, texts: list[str]) -> list[list[float]]:
+        return asyncio.run(self._embed_many_async(texts))
+
+    async def _embed_many_async(self, texts: list[str]) -> list[list[float]]:
+        if not texts:
+            return []
+        safe_batch_size = max(1, self.batch_size)
+        batches = [
+            texts[index : index + safe_batch_size]
+            for index in range(0, len(texts), safe_batch_size)
+        ]
+        semaphore = asyncio.Semaphore(max(1, self.max_concurrency))
+
+        async def embed_batch(batch: list[str]) -> list[list[float]]:
+            async with semaphore:
+                return await self._embed_batch_async(batch)
+
+        batch_results = await asyncio.gather(*(embed_batch(batch) for batch in batches))
+        return [
+            embedding
+            for batch in batch_results
+            for embedding in batch
+        ]
+
+    async def _embed_batch_async(self, texts: list[str]) -> list[list[float]]:
+        payload: dict[str, object] = {
+            "input": texts,
+            "model": self.model,
+        }
+        if self.dimensions is not None:
+            payload["dimensions"] = self.dimensions
+        for attempt in range(self.max_retries):
+            try:
+                response = await self.client.embeddings.create(**payload)
+                return [
+                    [float(value) for value in item.embedding]
+                    for item in response.data
+                ]
+            except Exception:
+                if attempt == self.max_retries - 1:
+                    raise
+                await asyncio.sleep(min(8.0, 1.0 + attempt))
+        raise RuntimeError("embedding SDK 请求失败")
+
+
 class CachedEmbeddingProvider(EmbeddingProvider):
     """SQLite embedding 缓存，避免重复请求在线模型。"""
 
@@ -285,6 +361,8 @@ def create_embedding_provider(name: str | None = None) -> EmbeddingProvider:
         provider: EmbeddingProvider = OpenAIEmbeddingProvider()
     elif provider_name in {"azure_openai", "azure"}:
         provider = AzureOpenAIEmbeddingProvider()
+    elif provider_name in {"azure_openai_sdk", "azure_sdk"}:
+        provider = AzureOpenAISDKEmbeddingProvider()
     elif provider_name == "local":
         provider = LocalHashEmbeddingProvider()
     else:
@@ -322,13 +400,20 @@ def inspect_embedding_provider_config(name: str | None = None) -> dict[str, obje
             "SAM_EMBEDDING_CACHE",
             "SAM_EMBEDDING_CACHE_PATH",
         ]
-    elif provider_name == "azure_openai":
+    elif provider_name in {"azure_openai", "azure_openai_sdk", "azure_sdk"}:
         missing = _missing_env(["SAM_AZURE_EMBEDDING_API_KEY"])
-        required_any_missing = [
-            group
-            for group in [["SAM_AZURE_EMBEDDING_ENDPOINT", "SAM_AZURE_EMBEDDING_URL"]]
-            if not any(os.environ.get(item) for item in group)
-        ]
+        if provider_name == "azure_openai":
+            required_any_missing = [
+                group
+                for group in [["SAM_AZURE_EMBEDDING_ENDPOINT", "SAM_AZURE_EMBEDDING_URL"]]
+                if not any(os.environ.get(item) for item in group)
+            ]
+        else:
+            required_any_missing = [
+                group
+                for group in [["SAM_AZURE_EMBEDDING_ENDPOINT"]]
+                if not any(os.environ.get(item) for item in group)
+            ]
         optional = [
             "SAM_AZURE_EMBEDDING_API_VERSION",
             "SAM_AZURE_EMBEDDING_MODEL",

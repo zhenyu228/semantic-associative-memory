@@ -16,7 +16,7 @@ from sam.embedding import create_embedding_provider, inspect_embedding_provider_
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="检查 SAM embedding provider 配置")
-    parser.add_argument("--provider", default=None, help="local、openai 或 azure_openai；默认读取 SAM_EMBEDDING_PROVIDER")
+    parser.add_argument("--provider", default=None, help="local、openai、azure_openai 或 azure_openai_sdk；默认读取 SAM_EMBEDDING_PROVIDER")
     parser.add_argument("--probe", default=None, help="可选：发送一条测试文本并返回维度和范数，不打印向量内容")
     parser.add_argument("--json", action="store_true", help="以 JSON 输出诊断结果")
     return parser.parse_args()

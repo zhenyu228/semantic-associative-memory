@@ -33,6 +33,7 @@ from sam.badcase import (
 from sam.answer_judge import AnswerJudgment, RuleBasedAnswerJudge
 from sam.consolidation import MemoryConsolidator
 from sam.embedding import (
+    AzureOpenAISDKEmbeddingProvider,
     AzureOpenAIEmbeddingProvider,
     CachedEmbeddingProvider,
     LocalHashEmbeddingProvider,
@@ -1641,6 +1642,84 @@ class SamCoreTest(unittest.TestCase):
         self.assertEqual(requests[0]["model"], "text-embedding-3-large")
         self.assertEqual(requests[0]["dimensions"], 1024)
         self.assertEqual(embeddings, [[0.0, 5.0], [1.0, 4.0], [0.0, 5.0]])
+
+    def test_azure_embedding_sdk_provider_uses_async_client_with_dimensions(self) -> None:
+        captured: dict[str, object] = {}
+
+        class FakeEmbeddingResponse:
+            def __init__(self, texts: list[str]) -> None:
+                self.data = [
+                    type("EmbeddingItem", (), {"embedding": [float(index), float(len(text))]})()
+                    for index, text in enumerate(texts)
+                ]
+
+        class FakeEmbeddings:
+            async def create(self, **kwargs):
+                captured["payload"] = kwargs
+                return FakeEmbeddingResponse(list(kwargs["input"]))
+
+        class FakeAsyncAzureOpenAI:
+            def __init__(self, **kwargs) -> None:
+                captured["client"] = kwargs
+                self.embeddings = FakeEmbeddings()
+
+        fake_openai = type("FakeOpenAI", (), {"AsyncAzureOpenAI": FakeAsyncAzureOpenAI})()
+
+        with patch.dict(
+            "os.environ",
+            {
+                "SAM_AZURE_EMBEDDING_API_KEY": "test-key",
+                "SAM_AZURE_EMBEDDING_ENDPOINT": "https://example.test/gpt/openapi/online/v2/crawl",
+                "SAM_AZURE_EMBEDDING_API_VERSION": "2023-07-01-preview",
+                "SAM_AZURE_EMBEDDING_MODEL": "text-embedding-3-large",
+                "SAM_AZURE_EMBEDDING_DIMENSIONS": "1024",
+                "SAM_AZURE_EMBEDDING_BATCH_SIZE": "4",
+                "SAM_AZURE_EMBEDDING_CONCURRENCY": "2",
+            },
+            clear=False,
+        ), patch.dict("sys.modules", {"openai": fake_openai}):
+            provider = AzureOpenAISDKEmbeddingProvider()
+            embeddings = provider.embed_many(["alpha", "beta"])
+
+        self.assertEqual(captured["client"]["azure_endpoint"], "https://example.test/gpt/openapi/online/v2/crawl")
+        self.assertEqual(captured["client"]["api_version"], "2023-07-01-preview")
+        self.assertEqual(captured["client"]["api_key"], "test-key")
+        self.assertEqual(captured["payload"]["model"], "text-embedding-3-large")
+        self.assertEqual(captured["payload"]["dimensions"], 1024)
+        self.assertEqual(captured["payload"]["input"], ["alpha", "beta"])
+        self.assertEqual(embeddings, [[0.0, 5.0], [1.0, 4.0]])
+
+    def test_create_embedding_provider_supports_azure_openai_sdk(self) -> None:
+        fake_openai = type("FakeOpenAI", (), {"AsyncAzureOpenAI": staticmethod(lambda **kwargs: object())})()
+        with patch.dict(
+            "os.environ",
+            {
+                "SAM_AZURE_EMBEDDING_API_KEY": "test-key",
+                "SAM_AZURE_EMBEDDING_ENDPOINT": "https://example.test/gpt/openapi/online/v2/crawl",
+            },
+            clear=True,
+        ), patch.dict("sys.modules", {"openai": fake_openai}):
+            provider = create_embedding_provider("azure_openai_sdk")
+
+        self.assertIsInstance(provider, AzureOpenAISDKEmbeddingProvider)
+
+    def test_embedding_config_diagnostic_supports_azure_openai_sdk(self) -> None:
+        with patch.dict(
+            "os.environ",
+            {
+                "SAM_AZURE_EMBEDDING_API_KEY": "sdk-secret",
+                "SAM_AZURE_EMBEDDING_ENDPOINT": "https://example.test/gpt/openapi/online/v2/crawl",
+                "SAM_AZURE_EMBEDDING_DIMENSIONS": "1024",
+            },
+            clear=True,
+        ):
+            status = inspect_embedding_provider_config("azure_openai_sdk")
+
+        rendered = json.dumps(status, ensure_ascii=False)
+        self.assertTrue(status["ready"])
+        self.assertNotIn("sdk-secret", rendered)
+        self.assertNotIn("https://example.test", rendered)
+        self.assertIn("SAM_AZURE_EMBEDDING_DIMENSIONS", status["configured_optional"])
 
     def test_cached_embedding_provider_reuses_vectors(self) -> None:
         class CountingEmbeddingProvider(LocalHashEmbeddingProvider):
