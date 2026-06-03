@@ -240,6 +240,24 @@ export SAM_AZURE_EMBEDDING_URL="https://你的完整/embeddings/请求地址"
 
 设置 `SAM_AZURE_EMBEDDING_URL` 后，系统会优先使用该地址；否则使用 `SAM_AZURE_EMBEDDING_ENDPOINT`、`SAM_AZURE_EMBEDDING_MODEL` 和 `SAM_AZURE_EMBEDDING_API_VERSION` 拼接请求地址。
 
+也可以用统一诊断入口同时检查 embedding 和聊天模型配置。这个命令默认只检查配置，不会发请求：
+
+```bash
+conda run -n sam python scripts/check_model_providers.py \
+  --embedding-provider azure_openai \
+  --chat-provider azure_openai
+```
+
+低额度 smoke test 时再显式增加 probe：
+
+```bash
+conda run -n sam python scripts/check_model_providers.py \
+  --embedding-provider azure_openai \
+  --chat-provider azure_openai \
+  --embedding-probe "SAM embedding connectivity test." \
+  --chat-probe "What is the result of 1+1?"
+```
+
 如果要使用 GPT-5.4 对候选语义边进行关系级判别，先配置聊天模型环境变量，然后在实验命令中增加 `--relation-judge gpt54`：
 
 ```bash

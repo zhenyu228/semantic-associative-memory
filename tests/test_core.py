@@ -63,6 +63,7 @@ from sam.retriever import Retriever
 from sam.reuse_experiment import build_masked_queries, summarize_memory_reuse
 from sam.store import MemoryStore
 from scripts.run_demo import _nodes_for_graph_export
+from scripts.check_model_providers import build_provider_status
 
 
 class SamCoreTest(unittest.TestCase):
@@ -1257,6 +1258,45 @@ class SamCoreTest(unittest.TestCase):
         self.assertEqual(payload["max_tokens"], 32)
         self.assertEqual(payload["stream"], False)
         self.assertEqual(payload["messages"][0]["content"], "What is 1+1?")
+
+    def test_combined_provider_diagnostic_supports_local_probes(self) -> None:
+        status = build_provider_status(
+            embedding_provider="local",
+            chat_provider="heuristic",
+            embedding_probe="SAM combined diagnostic",
+            chat_probe="The answer is ready.",
+        )
+
+        self.assertTrue(status["ready"])
+        embedding = status["embedding"]
+        chat = status["chat"]
+        assert isinstance(embedding, dict)
+        assert isinstance(chat, dict)
+        self.assertEqual(embedding["probe"]["dimension"], 256)
+        self.assertEqual(chat["probe"]["answer_preview"], "ready")
+
+    def test_combined_provider_diagnostic_does_not_expose_secret_values(self) -> None:
+        with patch.dict(
+            "os.environ",
+            {
+                "SAM_AZURE_EMBEDDING_API_KEY": "embedding-secret",
+                "SAM_AZURE_EMBEDDING_URL": "https://example.test/custom/embeddings",
+                "SAM_AZURE_CHAT_API_KEY": "chat-secret",
+                "SAM_AZURE_CHAT_URL": "https://example.test/custom/chat/completions",
+            },
+            clear=True,
+        ):
+            status = build_provider_status(
+                embedding_provider="azure_openai",
+                chat_provider="azure_openai",
+            )
+
+        rendered = json.dumps(status, ensure_ascii=False)
+        self.assertTrue(status["ready"])
+        self.assertNotIn("embedding-secret", rendered)
+        self.assertNotIn("chat-secret", rendered)
+        self.assertNotIn("https://example.test/custom/embeddings", rendered)
+        self.assertNotIn("https://example.test/custom/chat/completions", rendered)
 
     def test_azure_embedding_provider_batches_requests_with_model_and_dimensions(self) -> None:
         class FakeResponse:
