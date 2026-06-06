@@ -1,0 +1,115 @@
+# SAM 开题计划进度审计
+
+- 模块数量：5
+- 估算总体进度：58.0%
+
+| 模块 | 状态 | 估算进度 | 代码证据 | 实验证据 |
+| --- | --- | ---: | ---: | ---: |
+| 知识提取与动态知识图谱构建 | 已完成阶段性目标 | 70% | 6/6 | 3/3 |
+| 语义激活与联想检索机制 | 已完成阶段性目标 | 75% | 5/5 | 3/3 |
+| 类比推理触发与应用 | 已完成阶段性目标 | 45% | 4/4 | 2/2 |
+| 多智能体语义记忆协调机制 | 已完成阶段性目标 | 45% | 5/5 | 2/2 |
+| 评测体系与检索-生成闭环 | 已完成阶段性目标 | 55% | 5/5 | 3/3 |
+
+## 模块明细
+
+### 知识提取与动态知识图谱构建
+
+- 开题要求：抽取关键信息单元及语义关系，将知识表示为带属性的记忆节点，并支持图谱动态生长、更新和记忆重构。
+- 当前状态：已完成阶段性目标，估算进度 70%
+- 代码证据：
+  - 已存在：`src/sam/models.py`，MemoryNode / MemoryEdge 数据结构
+  - 已存在：`src/sam/store.py`，SQLite 记忆存储与事件表
+  - 已存在：`src/sam/graph.py`，按需建图与边质量控制
+  - 已存在：`src/sam/feedback.py`，反馈更新
+  - 已存在：`src/sam/consolidation.py`，记忆巩固
+  - 已存在：`src/sam/relation_judge.py`，GPT-5.4 关系判别接口
+- 实验证据：
+  - 已存在：`outputs/runs/memory_events_30_smoke/metrics.json`，记忆事件 smoke
+  - 已存在：`outputs/runs/memory_consolidation_hotpotqa30_v2/metrics.json`，记忆巩固实验
+  - 已存在：`outputs/runs/weak_relation_penalty_hotpotqa30/metrics.json`，弱关系惩罚实验
+- 剩余工作：
+  - GPT-5.4 RelationJudge 尚未形成正式规模实验。
+  - 图谱边权仍以经验公式为主，缺少学习式或系统化参数搜索。
+  - 记忆重构需要更多跨任务连续验证。
+
+### 语义激活与联想检索机制
+
+- 开题要求：先用语义相似度锁定候选，再沿知识图谱关联路径扩展邻近记忆，形成与当前问题相关的记忆子图。
+- 当前状态：已完成阶段性目标，估算进度 75%
+- 代码证据：
+  - 已存在：`src/sam/retriever.py`，两阶段检索与消融模式
+  - 已存在：`src/sam/reranker.py`，路径重排
+  - 已存在：`src/sam/query_planner.py`，查询规划
+  - 已存在：`src/sam/evaluator.py`，评测器
+  - 已存在：`scripts/run_demo.py`，主实验入口
+- 实验证据：
+  - 已存在：`outputs/runs/fair_ablation_hotpotqa_300/ablation_metrics.json`，HotpotQA 300 条消融，摘要：{"sam_evidence_recall": 0.6033, "sam_answer_hit_rate": 0.5967}
+  - 已存在：`outputs/runs/feedback_ablation_hotpotqa_300_isolated/ablation_metrics.json`，反馈消融 300 条，摘要：{"sam_evidence_recall": 0.6033, "sam_answer_hit_rate": 0.5967}
+  - 已存在：`outputs/runs/reranker_profile_hotpotqa300_noise_penalty/reranker_profile_comparison.json`，PathReranker 300 条 profile 对比，摘要：{"best_profile": "semantic_heavy", "profile_count": 4}
+- 剩余工作：
+  - 正式 embedding 尚未重跑 HotpotQA 300 条和 NovelQA。
+  - 多路径与记忆状态在单轮 HotpotQA 上收益不明显，需要更适合动态记忆的实验。
+  - 仍需进一步降低图噪声和缺失支持证据问题。
+
+### 类比推理触发与应用
+
+- 开题要求：在新问题激活子图与历史问题-解答链条结构相似时触发类比，检索类似案例并向 LLM 提供提示。
+- 当前状态：已完成阶段性目标，估算进度 45%
+- 代码证据：
+  - 已存在：`src/sam/analogy.py`，类比检索引擎
+  - 已存在：`src/sam/analogy_experiment.py`，类比复用实验逻辑
+  - 已存在：`src/sam/generation.py`，类比提示注入
+  - 已存在：`scripts/run_analogy_reuse_experiment.py`，类比复用脚本
+- 实验证据：
+  - 已存在：`outputs/runs/analogy_reuse_hotpotqa30/analogy_reuse_results.json`，类比复用 30 条
+  - 已存在：`outputs/runs/analogy_generation_smoke/metrics.json`，类比生成 smoke
+- 剩余工作：
+  - 类比提示对最终答案质量的提升尚未用 GPT-5.4 正式验证。
+  - 当前类比触发偏规则化，缺少更强的子图结构匹配。
+  - 需要扩展到真实多轮或跨任务类比场景。
+
+### 多智能体语义记忆协调机制
+
+- 开题要求：构建全局洞察层、会话层、交互细节层，支持多智能体共享中间结果和经验以重建推理链。
+- 当前状态：已完成阶段性目标，估算进度 45%
+- 代码证据：
+  - 已存在：`src/sam/agents.py`，共享记忆协调器
+  - 已存在：`src/sam/agent_workflow.py`，多智能体研究流程
+  - 已存在：`src/sam/agent_reuse_experiment.py`，多智能体复用实验
+  - 已存在：`scripts/run_agent_workflow.py`，多智能体 workflow 脚本
+  - 已存在：`scripts/run_agent_memory_reuse_experiment.py`，共享记忆复用脚本
+- 实验证据：
+  - 已存在：`outputs/runs/agent_memory_reuse_hotpotqa30/agent_memory_reuse_results.json`，多智能体共享记忆复用
+  - 已存在：`outputs/runs/agent_generation_hotpotqa30_smoke/agent_generation_comparison.json`，多智能体生成对照 smoke
+- 剩余工作：
+  - 当前多智能体实验仍偏受控流程，不是完整 Deep Research 任务。
+  - 跨角色冲突解决、版本控制和协作效率指标还不充分。
+  - 需要用 GPT-5.4 比较共享记忆与类比提示对最终答案质量的影响。
+
+### 评测体系与检索-生成闭环
+
+- 开题要求：设计正式实验和评测体系，覆盖跨文档语义整合、推理链重建、多智能体协作和生成结果反馈。
+- 当前状态：已完成阶段性目标，估算进度 55%
+- 代码证据：
+  - 已存在：`scripts/run_end_to_end_experiment.py`，端到端实验入口
+  - 已存在：`src/sam/answer_judge.py`，答案判别
+  - 已存在：`src/sam/badcase.py`，Bad Case 分析
+  - 已存在：`src/sam/llm.py`，GPT-5.4 SDK provider
+  - 已存在：`src/sam/embedding.py`，Embedding provider 与缓存
+- 实验证据：
+  - 已存在：`outputs/runs/provider_smoke_gpt54_sdk_hotpotqa1/pipeline_summary.json`，GPT-5.4 SDK HotpotQA smoke，摘要：{"answer_hit_rate": 0.0}
+  - 已存在：`outputs/runs/novelqa_demo_eval12_edge_filter/metrics.json`，NovelQA 小样本
+  - 已存在：`outputs/runs/end_to_end_smoke/pipeline_summary.json`，端到端本地 smoke，摘要：{"answer_hit_rate": 0.0}
+- 剩余工作：
+  - 正式 embedding endpoint/key 未在本地安全配置中提供，无法完成正式 embedding 主实验。
+  - GPT-5.4 生成和答案判别需要扩大到多样本正式结果。
+  - 官方 baseline 严格复现尚未完成。
+
+## 下一步优先事项
+
+- 类比推理触发与应用：类比提示对最终答案质量的提升尚未用 GPT-5.4 正式验证。
+- 多智能体语义记忆协调机制：当前多智能体实验仍偏受控流程，不是完整 Deep Research 任务。
+- 评测体系与检索-生成闭环：正式 embedding endpoint/key 未在本地安全配置中提供，无法完成正式 embedding 主实验。
+- 知识提取与动态知识图谱构建：GPT-5.4 RelationJudge 尚未形成正式规模实验。
+- 语义激活与联想检索机制：正式 embedding 尚未重跑 HotpotQA 300 条和 NovelQA。

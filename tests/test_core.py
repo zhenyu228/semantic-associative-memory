@@ -62,6 +62,7 @@ from sam.llm import (
     inspect_chat_provider_config,
 )
 from sam.models import DatasetDocument, EvaluationQuery, MemoryEdge, MemoryNode, RetrievalHit, utc_now_iso
+from sam.opening_audit import build_opening_plan_audit, write_opening_plan_audit
 from sam.query_planner import ChatQueryPlanner, HeuristicQueryPlanner, QueryPlan
 from sam.pipeline_experiment import run_retrieval_generation_pipeline
 from sam.reranker import PathReranker
@@ -2025,6 +2026,34 @@ class SamCoreTest(unittest.TestCase):
         self.assertNotIn("real-chat-api-key", content)
         with self.assertRaises(FileExistsError):
             write_env_template(env_path)
+
+    def test_opening_plan_audit_writes_progress_reports(self) -> None:
+        root = Path(self.temp_dir.name) / "repo"
+        (root / "src/sam").mkdir(parents=True)
+        (root / "outputs/runs/fair_ablation_hotpotqa_300").mkdir(parents=True)
+        (root / "src/sam/models.py").write_text("# model", encoding="utf-8")
+        (root / "src/sam/store.py").write_text("# store", encoding="utf-8")
+        (root / "src/sam/graph.py").write_text("# graph", encoding="utf-8")
+        (root / "src/sam/retriever.py").write_text("# retriever", encoding="utf-8")
+        (root / "src/sam/reranker.py").write_text("# reranker", encoding="utf-8")
+        (root / "outputs/runs/fair_ablation_hotpotqa_300/ablation_metrics.json").write_text(
+            json.dumps({"sam_full": {"evidence_recall": 0.6, "answer_hit_rate": 0.5}}),
+            encoding="utf-8",
+        )
+
+        audit = build_opening_plan_audit(root)
+        output_dir = Path(self.temp_dir.name) / "audit_docs"
+        json_path, markdown_path = write_opening_plan_audit(audit, output_dir)
+
+        self.assertEqual(audit["module_count"], 5)
+        self.assertTrue(json_path.exists())
+        self.assertTrue(markdown_path.exists())
+        self.assertIn("SAM 开题计划进度审计", markdown_path.read_text(encoding="utf-8"))
+        associative = [
+            module for module in audit["modules"]
+            if module["module_id"] == "associative_retrieval"
+        ][0]
+        self.assertTrue(any(item["exists"] for item in associative["experiment_evidence"]))
 
     def test_cached_embedding_provider_reuses_vectors(self) -> None:
         class CountingEmbeddingProvider(LocalHashEmbeddingProvider):

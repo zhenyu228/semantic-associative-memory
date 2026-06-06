@@ -1,0 +1,345 @@
+{
+  "title": "SAM 开题计划进度审计",
+  "overall_progress": 58.0,
+  "module_count": 5,
+  "modules": [
+    {
+      "module_id": "dynamic_graph_memory",
+      "title": "知识提取与动态知识图谱构建",
+      "opening_requirement": "抽取关键信息单元及语义关系，将知识表示为带属性的记忆节点，并支持图谱动态生长、更新和记忆重构。",
+      "status": "已完成阶段性目标",
+      "target_progress": 70,
+      "estimated_progress": 70,
+      "code_evidence": [
+        {
+          "label": "MemoryNode / MemoryEdge 数据结构",
+          "path": "src/sam/models.py",
+          "kind": "code",
+          "exists": true
+        },
+        {
+          "label": "SQLite 记忆存储与事件表",
+          "path": "src/sam/store.py",
+          "kind": "code",
+          "exists": true
+        },
+        {
+          "label": "按需建图与边质量控制",
+          "path": "src/sam/graph.py",
+          "kind": "code",
+          "exists": true
+        },
+        {
+          "label": "反馈更新",
+          "path": "src/sam/feedback.py",
+          "kind": "code",
+          "exists": true
+        },
+        {
+          "label": "记忆巩固",
+          "path": "src/sam/consolidation.py",
+          "kind": "code",
+          "exists": true
+        },
+        {
+          "label": "GPT-5.4 关系判别接口",
+          "path": "src/sam/relation_judge.py",
+          "kind": "code",
+          "exists": true
+        }
+      ],
+      "experiment_evidence": [
+        {
+          "label": "记忆事件 smoke",
+          "path": "outputs/runs/memory_events_30_smoke/metrics.json",
+          "kind": "experiment",
+          "exists": true
+        },
+        {
+          "label": "记忆巩固实验",
+          "path": "outputs/runs/memory_consolidation_hotpotqa30_v2/metrics.json",
+          "kind": "experiment",
+          "exists": true
+        },
+        {
+          "label": "弱关系惩罚实验",
+          "path": "outputs/runs/weak_relation_penalty_hotpotqa30/metrics.json",
+          "kind": "experiment",
+          "exists": true
+        }
+      ],
+      "remaining_work": [
+        "GPT-5.4 RelationJudge 尚未形成正式规模实验。",
+        "图谱边权仍以经验公式为主，缺少学习式或系统化参数搜索。",
+        "记忆重构需要更多跨任务连续验证。"
+      ]
+    },
+    {
+      "module_id": "associative_retrieval",
+      "title": "语义激活与联想检索机制",
+      "opening_requirement": "先用语义相似度锁定候选，再沿知识图谱关联路径扩展邻近记忆，形成与当前问题相关的记忆子图。",
+      "status": "已完成阶段性目标",
+      "target_progress": 75,
+      "estimated_progress": 75,
+      "code_evidence": [
+        {
+          "label": "两阶段检索与消融模式",
+          "path": "src/sam/retriever.py",
+          "kind": "code",
+          "exists": true
+        },
+        {
+          "label": "路径重排",
+          "path": "src/sam/reranker.py",
+          "kind": "code",
+          "exists": true
+        },
+        {
+          "label": "查询规划",
+          "path": "src/sam/query_planner.py",
+          "kind": "code",
+          "exists": true
+        },
+        {
+          "label": "评测器",
+          "path": "src/sam/evaluator.py",
+          "kind": "code",
+          "exists": true
+        },
+        {
+          "label": "主实验入口",
+          "path": "scripts/run_demo.py",
+          "kind": "code",
+          "exists": true
+        }
+      ],
+      "experiment_evidence": [
+        {
+          "label": "HotpotQA 300 条消融",
+          "path": "outputs/runs/fair_ablation_hotpotqa_300/ablation_metrics.json",
+          "kind": "experiment",
+          "exists": true,
+          "summary": {
+            "sam_evidence_recall": 0.6033,
+            "sam_answer_hit_rate": 0.5967
+          }
+        },
+        {
+          "label": "反馈消融 300 条",
+          "path": "outputs/runs/feedback_ablation_hotpotqa_300_isolated/ablation_metrics.json",
+          "kind": "experiment",
+          "exists": true,
+          "summary": {
+            "sam_evidence_recall": 0.6033,
+            "sam_answer_hit_rate": 0.5967
+          }
+        },
+        {
+          "label": "PathReranker 300 条 profile 对比",
+          "path": "outputs/runs/reranker_profile_hotpotqa300_noise_penalty/reranker_profile_comparison.json",
+          "kind": "experiment",
+          "exists": true,
+          "summary": {
+            "best_profile": "semantic_heavy",
+            "profile_count": 4
+          }
+        }
+      ],
+      "remaining_work": [
+        "正式 embedding 尚未重跑 HotpotQA 300 条和 NovelQA。",
+        "多路径与记忆状态在单轮 HotpotQA 上收益不明显，需要更适合动态记忆的实验。",
+        "仍需进一步降低图噪声和缺失支持证据问题。"
+      ]
+    },
+    {
+      "module_id": "analogy_reasoning",
+      "title": "类比推理触发与应用",
+      "opening_requirement": "在新问题激活子图与历史问题-解答链条结构相似时触发类比，检索类似案例并向 LLM 提供提示。",
+      "status": "已完成阶段性目标",
+      "target_progress": 45,
+      "estimated_progress": 45,
+      "code_evidence": [
+        {
+          "label": "类比检索引擎",
+          "path": "src/sam/analogy.py",
+          "kind": "code",
+          "exists": true
+        },
+        {
+          "label": "类比复用实验逻辑",
+          "path": "src/sam/analogy_experiment.py",
+          "kind": "code",
+          "exists": true
+        },
+        {
+          "label": "类比提示注入",
+          "path": "src/sam/generation.py",
+          "kind": "code",
+          "exists": true
+        },
+        {
+          "label": "类比复用脚本",
+          "path": "scripts/run_analogy_reuse_experiment.py",
+          "kind": "code",
+          "exists": true
+        }
+      ],
+      "experiment_evidence": [
+        {
+          "label": "类比复用 30 条",
+          "path": "outputs/runs/analogy_reuse_hotpotqa30/analogy_reuse_results.json",
+          "kind": "experiment",
+          "exists": true
+        },
+        {
+          "label": "类比生成 smoke",
+          "path": "outputs/runs/analogy_generation_smoke/metrics.json",
+          "kind": "experiment",
+          "exists": true
+        }
+      ],
+      "remaining_work": [
+        "类比提示对最终答案质量的提升尚未用 GPT-5.4 正式验证。",
+        "当前类比触发偏规则化，缺少更强的子图结构匹配。",
+        "需要扩展到真实多轮或跨任务类比场景。"
+      ]
+    },
+    {
+      "module_id": "multi_agent_shared_memory",
+      "title": "多智能体语义记忆协调机制",
+      "opening_requirement": "构建全局洞察层、会话层、交互细节层，支持多智能体共享中间结果和经验以重建推理链。",
+      "status": "已完成阶段性目标",
+      "target_progress": 45,
+      "estimated_progress": 45,
+      "code_evidence": [
+        {
+          "label": "共享记忆协调器",
+          "path": "src/sam/agents.py",
+          "kind": "code",
+          "exists": true
+        },
+        {
+          "label": "多智能体研究流程",
+          "path": "src/sam/agent_workflow.py",
+          "kind": "code",
+          "exists": true
+        },
+        {
+          "label": "多智能体复用实验",
+          "path": "src/sam/agent_reuse_experiment.py",
+          "kind": "code",
+          "exists": true
+        },
+        {
+          "label": "多智能体 workflow 脚本",
+          "path": "scripts/run_agent_workflow.py",
+          "kind": "code",
+          "exists": true
+        },
+        {
+          "label": "共享记忆复用脚本",
+          "path": "scripts/run_agent_memory_reuse_experiment.py",
+          "kind": "code",
+          "exists": true
+        }
+      ],
+      "experiment_evidence": [
+        {
+          "label": "多智能体共享记忆复用",
+          "path": "outputs/runs/agent_memory_reuse_hotpotqa30/agent_memory_reuse_results.json",
+          "kind": "experiment",
+          "exists": true
+        },
+        {
+          "label": "多智能体生成对照 smoke",
+          "path": "outputs/runs/agent_generation_hotpotqa30_smoke/agent_generation_comparison.json",
+          "kind": "experiment",
+          "exists": true
+        }
+      ],
+      "remaining_work": [
+        "当前多智能体实验仍偏受控流程，不是完整 Deep Research 任务。",
+        "跨角色冲突解决、版本控制和协作效率指标还不充分。",
+        "需要用 GPT-5.4 比较共享记忆与类比提示对最终答案质量的影响。"
+      ]
+    },
+    {
+      "module_id": "evaluation_and_generation",
+      "title": "评测体系与检索-生成闭环",
+      "opening_requirement": "设计正式实验和评测体系，覆盖跨文档语义整合、推理链重建、多智能体协作和生成结果反馈。",
+      "status": "已完成阶段性目标",
+      "target_progress": 55,
+      "estimated_progress": 55,
+      "code_evidence": [
+        {
+          "label": "端到端实验入口",
+          "path": "scripts/run_end_to_end_experiment.py",
+          "kind": "code",
+          "exists": true
+        },
+        {
+          "label": "答案判别",
+          "path": "src/sam/answer_judge.py",
+          "kind": "code",
+          "exists": true
+        },
+        {
+          "label": "Bad Case 分析",
+          "path": "src/sam/badcase.py",
+          "kind": "code",
+          "exists": true
+        },
+        {
+          "label": "GPT-5.4 SDK provider",
+          "path": "src/sam/llm.py",
+          "kind": "code",
+          "exists": true
+        },
+        {
+          "label": "Embedding provider 与缓存",
+          "path": "src/sam/embedding.py",
+          "kind": "code",
+          "exists": true
+        }
+      ],
+      "experiment_evidence": [
+        {
+          "label": "GPT-5.4 SDK HotpotQA smoke",
+          "path": "outputs/runs/provider_smoke_gpt54_sdk_hotpotqa1/pipeline_summary.json",
+          "kind": "experiment",
+          "exists": true,
+          "summary": {
+            "answer_hit_rate": 0.0
+          }
+        },
+        {
+          "label": "NovelQA 小样本",
+          "path": "outputs/runs/novelqa_demo_eval12_edge_filter/metrics.json",
+          "kind": "experiment",
+          "exists": true
+        },
+        {
+          "label": "端到端本地 smoke",
+          "path": "outputs/runs/end_to_end_smoke/pipeline_summary.json",
+          "kind": "experiment",
+          "exists": true,
+          "summary": {
+            "answer_hit_rate": 0.0
+          }
+        }
+      ],
+      "remaining_work": [
+        "正式 embedding endpoint/key 未在本地安全配置中提供，无法完成正式 embedding 主实验。",
+        "GPT-5.4 生成和答案判别需要扩大到多样本正式结果。",
+        "官方 baseline 严格复现尚未完成。"
+      ]
+    }
+  ],
+  "next_actions": [
+    "类比推理触发与应用：类比提示对最终答案质量的提升尚未用 GPT-5.4 正式验证。",
+    "多智能体语义记忆协调机制：当前多智能体实验仍偏受控流程，不是完整 Deep Research 任务。",
+    "评测体系与检索-生成闭环：正式 embedding endpoint/key 未在本地安全配置中提供，无法完成正式 embedding 主实验。",
+    "知识提取与动态知识图谱构建：GPT-5.4 RelationJudge 尚未形成正式规模实验。",
+    "语义激活与联想检索机制：正式 embedding 尚未重跑 HotpotQA 300 条和 NovelQA。"
+  ]
+}
