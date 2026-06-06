@@ -103,6 +103,10 @@ class MultiAgentResearchWorkflow:
         )
         memory_node_ids.append(verifier_record.node_id)
         steps.append(_step("verifier", "验证答案是否覆盖标准答案", [node.id for node in verifier_memory]))
+        collaboration_metrics = self.coordinator.collaboration_metrics(
+            session_id=session_id,
+            task_id=task_id,
+        )
 
         return {
             "query_id": query_id,
@@ -114,6 +118,7 @@ class MultiAgentResearchWorkflow:
             "verifier_memory": [_serialize_memory(node) for node in verifier_memory],
             "final_answer": answer.to_dict(),
             "verifier": verifier,
+            "collaboration_metrics": collaboration_metrics,
         }
 
 
@@ -149,8 +154,8 @@ def write_agent_workflow_reports(
         f"- 验证通过数：{passed}",
         f"- 验证通过率：{passed / len(results):.3f}" if results else "- 验证通过率：N/A",
         "",
-        "| Query | 最终状态 | 共享记忆数 | 角色步骤 |",
-        "| --- | --- | ---: | --- |",
+        "| Query | 最终状态 | 共享记忆数 | Handoff 数 | 冲突裁决数 | 最大版本 | 角色步骤 |",
+        "| --- | --- | ---: | ---: | ---: | ---: | --- |",
     ]
     for result in results:
         steps = result.get("agent_steps", [])
@@ -161,9 +166,16 @@ def write_agent_workflow_reports(
         )
         verifier = result.get("verifier", {})
         status = verifier.get("status", "") if isinstance(verifier, dict) else ""
+        metrics = result.get("collaboration_metrics", {})
+        if not isinstance(metrics, dict):
+            metrics = {}
         lines.append(
             f"| {result.get('query_id', '')} | {status} | "
-            f"{len(result.get('shared_memory_node_ids', []))} | {step_text} |"
+            f"{len(result.get('shared_memory_node_ids', []))} | "
+            f"{metrics.get('handoff_count', 0)} | "
+            f"{metrics.get('conflict_resolution_count', 0)} | "
+            f"{metrics.get('max_memory_version', 0)} | "
+            f"{step_text} |"
         )
     markdown_path.write_text("\n".join(lines), encoding="utf-8")
     return json_path, markdown_path

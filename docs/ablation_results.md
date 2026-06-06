@@ -532,3 +532,7 @@ HotpotQA 30 条回归 run 位于 `outputs/runs/weak_relation_penalty_hotpotqa30/
 同时新增 `collaboration_metrics`，用于统计某个 session 或 task 内的共享记忆数量、handoff 数、冲突裁决数量、最大版本号和参与 agent 数。这一步让多智能体协作不只是“共享了几段文本”，而是能够追踪任务过程中的角色分歧、版本演化和裁决结果。
 
 当前已补充单元测试 `test_shared_memory_coordinator_resolves_conflicting_handoffs_with_versions`，验证两个 agent 给 writer 的冲突 handoff 可以被 verifier 裁决，且指标能正确统计 handoff 数、冲突裁决数、最大记忆版本和参与 agent 数。下一步需要把该机制接入 `MultiAgentResearchWorkflow` 的完整运行结果中，让 workflow 报告自动输出冲突案例和协作效率指标。
+
+随后系统将 `collaboration_metrics` 接入 `MultiAgentResearchWorkflow`。每条 case 运行结束后，workflow 会输出该任务内的共享记忆数量、handoff 数、冲突裁决数、最大版本号和参与 agent 列表。报告表格也新增 Handoff 数、冲突裁决数和最大版本。
+
+5 条 HotpotQA workflow smoke 位于 `outputs/runs/agent_workflow_metrics_smoke/`，使用 `SAM-with-analogy` 检索结果和本地启发式生成器。该 run 的生成验证通过率为 0.000，原因仍是启发式生成器不能代表正式 GPT-5.4 生成能力；但每条样本都形成了完整 planner -> retriever -> writer -> verifier 流程，并记录 4 条共享记忆、2 次 handoff、最大版本号 4、参与 agent 数 4。该结果说明多智能体协作轨迹和版本指标已经进入完整实验产物。下一步应构造真实冲突任务集，使 `resolve_conflict` 在 workflow 中被自动触发，再比较冲突裁决前后的答案质量和协作效率。

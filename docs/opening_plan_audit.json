@@ -274,11 +274,17 @@
           "path": "outputs/runs/agent_generation_hotpotqa30_smoke/agent_generation_comparison.json",
           "kind": "experiment",
           "exists": true
+        },
+        {
+          "label": "多智能体 workflow 协作指标 smoke",
+          "path": "outputs/runs/agent_workflow_metrics_smoke/agent_workflow.json",
+          "kind": "experiment",
+          "exists": true
         }
       ],
       "remaining_work": [
         "当前多智能体实验仍偏受控流程，不是完整 Deep Research 任务。",
-        "冲突裁决和版本指标已有基础实现，但仍需接入完整 workflow 实验。",
+        "冲突裁决和版本指标已接入 workflow 产物，但仍需设计真实冲突任务集。",
         "需要用 GPT-5.4 比较共享记忆与类比提示对最终答案质量的影响。"
       ]
     },

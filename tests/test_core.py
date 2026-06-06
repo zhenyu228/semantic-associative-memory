@@ -2475,10 +2475,16 @@ class SamCoreTest(unittest.TestCase):
         self.assertTrue(result["writer_memory"])
         self.assertTrue(result["verifier"]["answer_hit"])
         self.assertEqual(result["verifier"]["status"], "passed")
+        self.assertEqual(result["collaboration_metrics"]["handoff_count"], 2)
+        self.assertEqual(result["collaboration_metrics"]["max_memory_version"], 4)
+        self.assertEqual(result["collaboration_metrics"]["participating_agent_count"], 4)
         output_dir = Path(self.temp_dir.name) / "agent_workflow"
         json_path, markdown_path = write_agent_workflow_reports([result], output_dir)
         self.assertTrue(json_path.exists())
         self.assertTrue(markdown_path.exists())
+        markdown = markdown_path.read_text(encoding="utf-8")
+        self.assertIn("Handoff 数", markdown)
+        self.assertIn("最大版本", markdown)
 
     def test_agent_memory_reuse_probe_reports_cross_agent_reuse(self) -> None:
         class EvidenceAwareChatClient(ChatClient):

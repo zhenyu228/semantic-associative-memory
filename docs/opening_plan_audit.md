@@ -8,7 +8,7 @@
 | 知识提取与动态知识图谱构建 | 已完成阶段性目标 | 70% | 6/6 | 3/3 |
 | 语义激活与联想检索机制 | 已完成阶段性目标 | 75% | 5/5 | 3/3 |
 | 类比推理触发与应用 | 已完成阶段性目标 | 50% | 5/5 | 3/3 |
-| 多智能体语义记忆协调机制 | 已完成阶段性目标 | 52% | 6/6 | 2/2 |
+| 多智能体语义记忆协调机制 | 已完成阶段性目标 | 52% | 6/6 | 3/3 |
 | 评测体系与检索-生成闭环 | 已完成阶段性目标 | 55% | 5/5 | 3/3 |
 
 ## 模块明细
@@ -86,9 +86,10 @@
 - 实验证据：
   - 已存在：`outputs/runs/agent_memory_reuse_hotpotqa30/agent_memory_reuse_results.json`，多智能体共享记忆复用
   - 已存在：`outputs/runs/agent_generation_hotpotqa30_smoke/agent_generation_comparison.json`，多智能体生成对照 smoke
+  - 已存在：`outputs/runs/agent_workflow_metrics_smoke/agent_workflow.json`，多智能体 workflow 协作指标 smoke
 - 剩余工作：
   - 当前多智能体实验仍偏受控流程，不是完整 Deep Research 任务。
-  - 冲突裁决和版本指标已有基础实现，但仍需接入完整 workflow 实验。
+  - 冲突裁决和版本指标已接入 workflow 产物，但仍需设计真实冲突任务集。
   - 需要用 GPT-5.4 比较共享记忆与类比提示对最终答案质量的影响。
 
 ### 评测体系与检索-生成闭环
