@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -10,12 +11,14 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
+from sam.env import load_env_file  # noqa: E402
 from sam.llm import create_chat_client, inspect_chat_provider_config  # noqa: E402
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="检查 SAM GPT-5.4 聊天模型配置")
-    parser.add_argument("--provider", default=None, help="heuristic 或 azure_openai；默认读取 SAM_CHAT_PROVIDER")
+    parser.add_argument("--provider", default=None, help="heuristic、azure_openai 或 azure_openai_sdk；默认读取 SAM_CHAT_PROVIDER")
+    parser.add_argument("--env-file", default=None, help="可选：加载本地 .env.local；文件已被 gitignore 忽略")
     parser.add_argument("--probe", default=None, help="可选：发送一条测试消息并返回截断后的输出")
     parser.add_argument("--max-tokens", type=int, default=64, help="probe 最大输出 token")
     parser.add_argument("--json", action="store_true", help="以 JSON 输出诊断结果")
@@ -24,17 +27,23 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
+    if args.env_file:
+        load_env_file(ROOT / args.env_file)
     status = inspect_chat_provider_config(args.provider)
     if args.probe and status.get("ready"):
         client = create_chat_client(args.provider)
-        answer = client.complete(
-            [{"role": "user", "content": args.probe}],
-            max_tokens=args.max_tokens,
-        )
-        status["probe"] = {
-            "answer_preview": answer[:200],
-            "answer_chars": len(answer),
-        }
+        try:
+            answer = client.complete(
+                [{"role": "user", "content": args.probe}],
+                max_tokens=args.max_tokens,
+            )
+            status["probe"] = {
+                "answer_preview": answer[:200],
+                "answer_chars": len(answer),
+            }
+        except Exception as exc:
+            status["ready"] = False
+            status["probe_error"] = _safe_probe_error(exc)
 
     if args.json:
         print(json.dumps(status, ensure_ascii=False, indent=2))
@@ -48,15 +57,33 @@ def main() -> None:
             print("missing one of: " + "; ".join(groups))
         if status.get("configured_optional"):
             print("configured optional: " + ", ".join(str(item) for item in status["configured_optional"]))
+        if status.get("alias_sources"):
+            aliases = [
+                f"{target}<-{source}"
+                for target, source in dict(status["alias_sources"]).items()
+            ]
+            print("aliases: " + ", ".join(aliases))
         if status.get("probe"):
             probe = status["probe"]
             print(f"probe answer chars: {probe['answer_chars']}")
             print(f"probe answer preview: {probe['answer_preview']}")
+        if status.get("probe_error"):
+            print(f"probe error: {json.dumps(status['probe_error'], ensure_ascii=False)}")
         if status.get("error"):
             print(f"error: {status.get('error')}")
 
     if not status.get("ready"):
         raise SystemExit(2)
+
+
+def _safe_probe_error(exc: Exception) -> dict[str, str]:
+    message = str(exc)
+    message = re.sub(r"https?://[^\s)]+", "<redacted-url>", message)
+    message = re.sub(r"api[_-]?key[=:]\s*[^,\s]+", "api_key=<redacted>", message, flags=re.IGNORECASE)
+    return {
+        "type": type(exc).__name__,
+        "message": message[:300],
+    }
 
 
 if __name__ == "__main__":

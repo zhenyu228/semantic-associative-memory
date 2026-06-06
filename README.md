@@ -210,7 +210,7 @@ export SAM_AZURE_EMBEDDING_BATCH_SIZE="16"
 export SAM_AZURE_EMBEDDING_API_KEY="replace-with-embedding-api-key"
 ```
 
-如果已经在 `evaluation/official_baselines/.env.local` 里配置了官方 baseline 使用的 `GPT54_API_KEY`、`GPT54_BASE_URL`、`GPT54_API_VERSION`、`GPT54_MODEL`，SAM 会在运行时自动把它们映射为 `SAM_AZURE_CHAT_*` 聊天模型配置，不需要再复制一份 GPT-5.4 key。Embedding 仍需要单独配置 `SAM_AZURE_EMBEDDING_*`，也可以使用通用别名 `EMBEDDING_API_KEY`、`EMBEDDING_BASE_URL`、`EMBEDDING_MODEL`、`EMBEDDING_DIMENSIONS`。
+如果已经在 `evaluation/official_baselines/.env.local` 里配置了官方 baseline 使用的 `GPT54_API_KEY`、`GPT54_BASE_URL`、`GPT54_API_VERSION`、`GPT54_MODEL`，SAM 会在运行时自动把它们映射为 `SAM_AZURE_CHAT_*` 聊天模型配置，不需要再复制一份 GPT-5.4 key。聊天模型推荐使用 `azure_openai_sdk`，它通过 OpenAI SDK 的 `AzureOpenAI` 调用方式接入公司网关。Embedding 仍需要单独配置 `SAM_AZURE_EMBEDDING_*`，也可以使用通用别名 `EMBEDDING_API_KEY`、`EMBEDDING_BASE_URL`、`EMBEDDING_MODEL`、`EMBEDDING_DIMENSIONS`。
 
 ```bash
 conda run -n sam python scripts/run_demo.py \
@@ -270,7 +270,7 @@ export SAM_AZURE_EMBEDDING_URL="https://你的完整/embeddings/请求地址"
 ```bash
 conda run -n sam python scripts/check_model_providers.py \
   --embedding-provider azure_openai \
-  --chat-provider azure_openai
+  --chat-provider azure_openai_sdk
 ```
 
 如果只想先检查其中一个 provider，可以使用 `--require embedding` 或 `--require chat`，避免另一个尚未配置的 provider 阻塞调试：
@@ -289,7 +289,7 @@ conda run -n sam python scripts/check_model_providers.py \
 conda run -n sam python scripts/check_model_providers.py \
   --env-file .env.local \
   --embedding-provider azure_openai_sdk \
-  --chat-provider azure_openai \
+  --chat-provider azure_openai_sdk \
   --embedding-probe "SAM embedding connectivity test." \
   --chat-probe "What is the result of 1+1?"
 ```
@@ -304,7 +304,7 @@ conda run -n sam python scripts/run_provider_smoke_experiment.py \
   --limit 1 \
   --env-file .env.local \
   --embedding-provider azure_openai_sdk \
-  --chat-provider azure_openai \
+  --chat-provider azure_openai_sdk \
   --answer-judge gpt54 \
   --query-planner gpt54 \
   --relation-judge cached_gpt54 \
@@ -327,7 +327,7 @@ conda run -n sam python scripts/audit_experiment_run.py \
 如果要使用 GPT-5.4 对候选语义边进行关系级判别，先配置聊天模型环境变量，然后在实验命令中增加 `--relation-judge cached_gpt54`。该模式会把判别结果缓存到 `outputs/cache/relation_judge_cache.json`，避免同一候选边在多轮实验中重复调用模型：
 
 ```bash
-export SAM_CHAT_PROVIDER=azure_openai
+export SAM_CHAT_PROVIDER=azure_openai_sdk
 export SAM_AZURE_CHAT_ENDPOINT="https://你的公司网关地址"
 export SAM_AZURE_CHAT_API_VERSION="2024-02-01"
 export SAM_AZURE_CHAT_MODEL="gpt-5.4-2026-03-05"
@@ -345,14 +345,16 @@ conda run -n sam python scripts/run_demo.py \
 
 ```bash
 conda run -n sam python scripts/check_chat_provider.py \
-  --provider azure_openai
+  --env-file .env.local \
+  --provider azure_openai_sdk
 ```
 
 如果要做一次最小连通性测试，显式增加 `--probe`：
 
 ```bash
 conda run -n sam python scripts/check_chat_provider.py \
-  --provider azure_openai \
+  --env-file .env.local \
+  --provider azure_openai_sdk \
   --probe "What is the result of 1+1?"
 ```
 
@@ -397,7 +399,7 @@ export SAM_AZURE_CHAT_URL="https://你的完整 chat/completions 地址"
 使用 GPT-5.4 生成答案时同样使用 `.env.local` 配置，不把 key 写入仓库：
 
 ```bash
-export SAM_CHAT_PROVIDER=azure_openai
+export SAM_CHAT_PROVIDER=azure_openai_sdk
 export SAM_AZURE_CHAT_ENDPOINT="https://aidp-i18ntt-sg.byteintl.net/api/modelhub/online/v2/crawl"
 export SAM_AZURE_CHAT_API_VERSION="2024-02-01"
 export SAM_AZURE_CHAT_MODEL="gpt-5.4-2026-03-05"
@@ -409,7 +411,7 @@ conda run -n sam python scripts/generate_answers.py \
   --cases-file outputs/runs/<run_name>/cases.json \
   --method sam_full \
   --env-file .env.local \
-  --chat-provider azure_openai \
+  --chat-provider azure_openai_sdk \
   --answer-judge gpt54
 ```
 
@@ -424,7 +426,7 @@ conda run -n sam python scripts/generate_answers.py \
   --cases-file outputs/runs/<run_name>/cases.json \
   --method sam_full \
   --env-file .env.local \
-  --chat-provider azure_openai \
+  --chat-provider azure_openai_sdk \
   --use-analogy-hints \
   --analogy-top-k 2 \
   --output-dir outputs/runs/<run_name>/generated_with_analogy
@@ -437,7 +439,7 @@ conda run -n sam python scripts/generate_answers.py \
   --cases-file outputs/runs/<run_name>/cases.json \
   --method sam_full \
   --env-file .env.local \
-  --chat-provider azure_openai \
+  --chat-provider azure_openai_sdk \
   --compare-analogy \
   --analogy-top-k 2 \
   --output-dir outputs/runs/<run_name>/generation_comparison
@@ -451,7 +453,7 @@ conda run -n sam python scripts/generate_answers.py \
 conda run -n sam python scripts/run_agent_workflow.py \
   --cases-file outputs/runs/<run_name>/cases.json \
   --method sam_full \
-  --chat-provider azure_openai \
+  --chat-provider azure_openai_sdk \
   --output-dir outputs/runs/<run_name>/agent_workflow
 ```
 
@@ -478,7 +480,7 @@ conda run -n sam python scripts/run_agent_generation_experiment.py \
   --output-dir outputs/runs/agent_generation_hotpotqa30_smoke
 ```
 
-该命令会输出 `agent_generation_comparison.json` 和 `agent_generation_comparison.md`，对比 `baseline`、`shared_memory`、`shared_memory_with_analogy` 三种设置。默认本地启发式生成器只用于检查链路和产物格式；正式答案质量实验应增加 `--chat-provider azure_openai` 并配置 GPT-5.4 环境变量。
+该命令会输出 `agent_generation_comparison.json` 和 `agent_generation_comparison.md`，对比 `baseline`、`shared_memory`、`shared_memory_with_analogy` 三种设置。默认本地启发式生成器只用于检查链路和产物格式；正式答案质量实验应增加 `--chat-provider azure_openai_sdk` 并配置 GPT-5.4 环境变量。
 
 运行连续记忆复用实验：
 

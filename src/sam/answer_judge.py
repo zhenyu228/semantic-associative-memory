@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import dataclass, field
 from typing import Protocol
 
@@ -79,7 +80,7 @@ class ChatAnswerJudge:
     """基于聊天模型的答案语义等价判别器。"""
 
     def __init__(self, client: ChatClient | None = None) -> None:
-        self.client = client or create_chat_client("azure_openai")
+        self.client = client or create_chat_client(os.environ.get("SAM_CHAT_PROVIDER", "azure_openai_sdk"))
         self.fallback = RuleBasedAnswerJudge()
 
     def judge(self, question: str, gold_answer: str, generated_answer: str) -> AnswerJudgment:

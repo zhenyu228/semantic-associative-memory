@@ -91,6 +91,7 @@ class ContextAnswerGenerator:
         ]
         answer = self.chat_client.complete(messages, max_tokens=500)
         judgment = self.answer_judge.judge(question, gold_answer, answer)
+        context_judgment = RuleBasedAnswerJudge().judge(question, gold_answer, context_text)
         return GeneratedAnswer(
             query_id=query_id,
             method=method,
@@ -103,6 +104,7 @@ class ContextAnswerGenerator:
             metadata={
                 "analogy_hints": analogy_hints or [],
                 "answer_judgment": judgment.to_dict(),
+                "context_answer_judgment": context_judgment.to_dict(),
             },
         )
 

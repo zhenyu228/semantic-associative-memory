@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 from dataclasses import dataclass, field
 from typing import Protocol
@@ -78,7 +79,7 @@ class ChatQueryPlanner:
     """
 
     def __init__(self, client: ChatClient | None = None) -> None:
-        self.client = client or create_chat_client("azure_openai")
+        self.client = client or create_chat_client(os.environ.get("SAM_CHAT_PROVIDER", "azure_openai_sdk"))
         self.fallback = HeuristicQueryPlanner()
 
     def plan(self, query: EvaluationQuery) -> QueryPlan:

@@ -484,3 +484,21 @@ HotpotQA 30 条回归 run 位于 `outputs/runs/weak_relation_penalty_hotpotqa30/
 | SAM-no-graph | 30 | 0.500 | 17 | 0.567 |
 
 本轮指标与桥接扩展回归保持一致，说明弱关系惩罚没有损伤当前已获得的召回收益。审计报告仍显示 `graph_noise` 和 `missing_support_evidence` 是主要瓶颈，因此后续需要继续推进两类改造：第一，接入更强 embedding 模型提升初始种子质量；第二，使用 GPT-5.4 RelationJudge 对候选边进行语义关系判别，从建边阶段减少噪声。
+
+## 23. GPT-5.4 SDK 低额度端到端 smoke
+
+为对齐公司网关的 SDK 调用方式，系统新增 `azure_openai_sdk` 聊天模型 provider，通过 OpenAI SDK 的 `AzureOpenAI` 接入 GPT-5.4。该 provider 支持从官方 baseline 使用的 `GPT54_API_KEY`、`GPT54_BASE_URL`、`GPT54_API_VERSION`、`GPT54_MODEL` 自动映射到 SAM 的 `SAM_AZURE_CHAT_*` 配置。
+
+配置级诊断已验证：`azure_openai_sdk` provider 可以读取本地 official baseline env，并在最小 probe 中返回 `2`。随后运行 1 条 HotpotQA 低额度端到端 smoke，路径为 `outputs/runs/provider_smoke_gpt54_sdk_hotpotqa1/`。该 run 使用 local embedding、GPT-5.4 SDK 生成、规则答案判别，结果如下：
+
+| 指标 | 数值 |
+| --- | ---: |
+| 查询数量 | 1 |
+| 文档数量 | 300 |
+| Embedding Top-k 证据召回率 | 0.500 |
+| SAM-full 证据召回率 | 0.500 |
+| 生成答案命中率 | 0.000 |
+
+该样本的问题是：`What government position was held by the woman who portrayed Corliss Archer in the film Kiss and Tell?`，标准答案为 `Chief of Protocol`。GPT-5.4 生成答案为 `United States Ambassador to Ghana`，说明模型根据上下文识别出 Shirley Temple，但检索上下文没有覆盖其担任 `Chief of Protocol` 的支持证据。将 `top-k` 提升到 4、`hops` 提升到 2 后仍未补回完整证据链，bad case 被归因为 `missing_support_evidence`、`answer_not_covered` 和 `graph_noise`。
+
+该结果说明，GPT-5.4 生成链路已经进入实验闭环，但当前瓶颈仍在检索侧：local embedding 初始召回不足，图扩展没有稳定补回第二条支持证据。下一步应优先接入正式 embedding，并使用 GPT-5.4 RelationJudge 对候选边进行关系有效性判别，再重跑同一条样本和 HotpotQA 300 条主实验。

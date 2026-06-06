@@ -53,7 +53,14 @@ from sam.generation import (
     write_generation_reports,
 )
 from sam.graph import GraphBuilder
-from sam.llm import AzureOpenAIChatClient, ChatClient, HeuristicChatClient, inspect_chat_provider_config
+from sam.llm import (
+    AzureOpenAIChatClient,
+    AzureOpenAISDKChatClient,
+    ChatClient,
+    HeuristicChatClient,
+    create_chat_client,
+    inspect_chat_provider_config,
+)
 from sam.models import DatasetDocument, EvaluationQuery, MemoryEdge, MemoryNode, RetrievalHit, utc_now_iso
 from sam.query_planner import ChatQueryPlanner, HeuristicQueryPlanner, QueryPlan
 from sam.pipeline_experiment import run_retrieval_generation_pipeline
@@ -1443,6 +1450,87 @@ class SamCoreTest(unittest.TestCase):
         self.assertEqual(payload["stream"], False)
         self.assertEqual(payload["messages"][0]["content"], "What is 1+1?")
 
+    def test_azure_chat_sdk_client_uses_openai_sdk(self) -> None:
+        captured: dict[str, object] = {}
+
+        class FakeMessage:
+            content = "OK"
+
+        class FakeChoice:
+            message = FakeMessage()
+
+        class FakeChatResponse:
+            choices = [FakeChoice()]
+
+        class FakeCompletions:
+            def create(self, **kwargs):
+                captured["payload"] = kwargs
+                return FakeChatResponse()
+
+        class FakeChat:
+            def __init__(self) -> None:
+                self.completions = FakeCompletions()
+
+        class FakeAzureOpenAI:
+            def __init__(self, **kwargs) -> None:
+                captured["client"] = kwargs
+                self.chat = FakeChat()
+
+        fake_openai = type("FakeOpenAI", (), {"AzureOpenAI": FakeAzureOpenAI})()
+
+        with patch.dict(
+            "os.environ",
+            {
+                "SAM_AZURE_CHAT_API_KEY": "test-key",
+                "SAM_AZURE_CHAT_ENDPOINT": "https://example.test/api/modelhub/online/v2/crawl",
+                "SAM_AZURE_CHAT_API_VERSION": "2024-02-01",
+                "SAM_AZURE_CHAT_MODEL": "gpt-5.4-2026-03-05",
+            },
+            clear=True,
+        ), patch.dict("sys.modules", {"openai": fake_openai}):
+            answer = AzureOpenAISDKChatClient().complete(
+                [{"role": "user", "content": [{"type": "text", "text": "What is 1+1?"}]}],
+                max_tokens=32,
+            )
+
+        self.assertEqual(answer, "OK")
+        self.assertEqual(captured["client"]["azure_endpoint"], "https://example.test/api/modelhub/online/v2/crawl")
+        self.assertEqual(captured["client"]["api_version"], "2024-02-01")
+        self.assertEqual(captured["client"]["api_key"], "test-key")
+        self.assertEqual(captured["payload"]["model"], "gpt-5.4-2026-03-05")
+        self.assertEqual(captured["payload"]["max_tokens"], 32)
+        self.assertFalse(captured["payload"]["stream"])
+        self.assertEqual(captured["payload"]["messages"][0]["content"][0]["text"], "What is 1+1?")
+
+    def test_create_chat_client_supports_azure_openai_sdk(self) -> None:
+        fake_openai = type("FakeOpenAI", (), {"AzureOpenAI": staticmethod(lambda **kwargs: object())})()
+        with patch.dict(
+            "os.environ",
+            {
+                "SAM_AZURE_CHAT_API_KEY": "test-key",
+                "SAM_AZURE_CHAT_ENDPOINT": "https://example.test/api/modelhub/online/v2/crawl",
+            },
+            clear=True,
+        ), patch.dict("sys.modules", {"openai": fake_openai}):
+            client = create_chat_client("azure_openai_sdk")
+
+        self.assertIsInstance(client, AzureOpenAISDKChatClient)
+
+    def test_chat_sdk_config_diagnostic_reports_missing_openai_package(self) -> None:
+        with patch.dict(
+            "os.environ",
+            {
+                "SAM_AZURE_CHAT_API_KEY": "test-key",
+                "SAM_AZURE_CHAT_ENDPOINT": "https://example.test/api/modelhub/online/v2/crawl",
+            },
+            clear=True,
+        ), patch("importlib.util.find_spec", return_value=None):
+            status = inspect_chat_provider_config("azure_openai_sdk")
+
+        self.assertFalse(status["ready"])
+        self.assertIn("openai", status["missing_packages"])
+        self.assertIn("python -m pip install", status["install_hint"])
+
     def test_combined_provider_diagnostic_supports_local_probes(self) -> None:
         status = build_provider_status(
             embedding_provider="local",
@@ -2625,6 +2713,38 @@ class SamCoreTest(unittest.TestCase):
         self.assertTrue(json_path.exists())
         self.assertIn("生成 Bad Case 分析", markdown_path.read_text(encoding="utf-8"))
 
+    def test_generation_badcase_analyzer_distinguishes_missing_context_answer(self) -> None:
+        answers = [
+            {
+                "query_id": "gen-q2",
+                "method": "sam_full",
+                "question": "What role did she hold?",
+                "gold_answer": "Chief of Protocol",
+                "generated_answer": "United States Ambassador to Ghana",
+                "answer_hit": False,
+                "context_titles": ["Kiss and Tell (1945 film)"],
+                "metadata": {
+                    "answer_judgment": {
+                        "answer_hit": False,
+                        "status": "not_matched",
+                        "score": 0.0,
+                    },
+                    "context_answer_judgment": {
+                        "answer_hit": False,
+                        "status": "not_matched",
+                        "score": 0.0,
+                    },
+                },
+            }
+        ]
+
+        bad_cases = GenerationBadCaseAnalyzer().analyze(answers)
+
+        self.assertEqual(len(bad_cases), 1)
+        self.assertIn("retrieval_context_missing_answer", bad_cases[0].categories)
+        self.assertNotIn("context_available_but_generation_failed", bad_cases[0].categories)
+        self.assertIn("context_answer_judgment", bad_cases[0].metadata)
+
     def test_retrieval_generation_pipeline_writes_end_to_end_outputs(self) -> None:
         documents, queries = load_builtin_benchmark_sample()
         output_dir = Path(self.temp_dir.name) / "pipeline"
@@ -2651,6 +2771,8 @@ class SamCoreTest(unittest.TestCase):
         self.assertTrue((output_dir / "generated_answers.json").exists())
         self.assertTrue((output_dir / "generation_bad_cases.json").exists())
         self.assertTrue((output_dir / "pipeline_summary.json").exists())
+        generated = json.loads((output_dir / "generated_answers.json").read_text(encoding="utf-8"))
+        self.assertIn("context_answer_judgment", generated[0]["metadata"])
 
     def test_retrieval_generation_pipeline_passes_query_planner_and_reranker_profile(self) -> None:
         class FixedQueryPlanner:

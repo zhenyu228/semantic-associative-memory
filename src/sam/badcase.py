@@ -91,6 +91,7 @@ class GenerationBadCaseAnalyzer:
                         "generated_answer": answer.get("generated_answer", ""),
                         "context_titles": answer.get("context_titles", []),
                         "answer_judgment": judgment,
+                        "context_answer_judgment": _context_answer_judgment(answer),
                     },
                 )
             )
@@ -265,10 +266,12 @@ def _generation_categories(answer: dict[str, object]) -> list[str]:
     generated_answer = str(answer.get("generated_answer", "")).strip()
     answer_hit = bool(answer.get("answer_hit", False))
     judgment = _answer_judgment(answer)
+    context_judgment = _context_answer_judgment(answer)
     status = str(judgment.get("status", ""))
     score = _safe_float(judgment.get("score", 0.0))
     context_titles = answer.get("context_titles", [])
     has_context = isinstance(context_titles, list) and len(context_titles) > 0
+    context_answer_hit = context_judgment.get("answer_hit")
 
     if not generated_answer:
         categories.append("empty_generated_answer")
@@ -276,7 +279,9 @@ def _generation_categories(answer: dict[str, object]) -> list[str]:
         categories.append("generated_answer_not_equivalent")
     if judgment and score < 0.5:
         categories.append("judge_low_confidence")
-    if has_context and not answer_hit:
+    if has_context and context_answer_hit is False and not answer_hit:
+        categories.append("retrieval_context_missing_answer")
+    elif has_context and not answer_hit:
         categories.append("context_available_but_generation_failed")
     if status.startswith("chat_fallback"):
         categories.append("judge_fallback_used")
@@ -291,9 +296,19 @@ def _answer_judgment(answer: dict[str, object]) -> dict[str, object]:
     return judgment if isinstance(judgment, dict) else {}
 
 
+def _context_answer_judgment(answer: dict[str, object]) -> dict[str, object]:
+    metadata = answer.get("metadata", {})
+    if not isinstance(metadata, dict):
+        return {}
+    judgment = metadata.get("context_answer_judgment", {})
+    return judgment if isinstance(judgment, dict) else {}
+
+
 def _generation_diagnosis(categories: list[str]) -> str:
     if "empty_generated_answer" in categories:
         return "生成阶段没有产出有效答案。"
+    if "retrieval_context_missing_answer" in categories:
+        return "检索上下文没有覆盖标准答案，生成阶段缺少必要证据。"
     if "context_available_but_generation_failed" in categories:
         return "检索上下文已经进入生成阶段，但生成答案未通过语义等价判别。"
     if "judge_fallback_used" in categories:
@@ -308,6 +323,8 @@ def _generation_diagnosis(categories: list[str]) -> str:
 def _generation_recommendation(categories: list[str]) -> str:
     if "empty_generated_answer" in categories:
         return "检查聊天模型调用和提示词，必要时降低上下文长度或增加重试。"
+    if "retrieval_context_missing_answer" in categories:
+        return "优先改进检索召回、图扩展和路径重排，而不是只调整生成提示词。"
     if "context_available_but_generation_failed" in categories:
         return "优化生成提示词，要求模型显式引用上下文编号并覆盖标准答案关键实体。"
     if "judge_fallback_used" in categories:

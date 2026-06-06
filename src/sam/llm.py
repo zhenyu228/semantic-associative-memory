@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import importlib.util
 import os
 import re
 import urllib.request
@@ -114,6 +115,38 @@ class AzureOpenAIChatClient(ChatClient):
         return str(data["choices"][0]["message"]["content"]).strip()
 
 
+class AzureOpenAISDKChatClient(ChatClient):
+    """基于 OpenAI SDK AzureOpenAI 的 GPT 聊天接口。"""
+
+    def __init__(self) -> None:
+        apply_provider_env_aliases(target_prefix="SAM_AZURE_CHAT_")
+        try:
+            import openai
+        except ImportError as exc:
+            raise RuntimeError("使用 azure_openai_sdk 需要安装 openai 包") from exc
+        self.api_key = _require_env("SAM_AZURE_CHAT_API_KEY")
+        self.azure_endpoint = _require_env("SAM_AZURE_CHAT_ENDPOINT").rstrip("/")
+        self.api_version = os.environ.get("SAM_AZURE_CHAT_API_VERSION", "2024-02-01")
+        self.model = os.environ.get("SAM_AZURE_CHAT_MODEL", "gpt-5.4-2026-03-05")
+        self.client = openai.AzureOpenAI(
+            api_key=self.api_key,
+            api_version=self.api_version,
+            azure_endpoint=self.azure_endpoint,
+        )
+
+    def complete(self, messages: list[dict[str, object]], max_tokens: int = 500) -> str:
+        response = self.client.chat.completions.create(
+            model=self.model,
+            messages=messages,
+            max_tokens=max_tokens,
+            stream=False,
+        )
+        content = response.choices[0].message.content
+        if isinstance(content, list):
+            return "".join(str(item.get("text", item)) for item in content).strip()
+        return str(content or "").strip()
+
+
 def create_chat_client(name: str | None = None) -> ChatClient:
     provider_name = name or os.environ.get("SAM_CHAT_PROVIDER", "heuristic")
     if provider_name in {"heuristic", "local"}:
@@ -121,6 +154,9 @@ def create_chat_client(name: str | None = None) -> ChatClient:
     if provider_name in {"azure_openai", "azure"}:
         apply_provider_env_aliases(target_prefix="SAM_AZURE_CHAT_")
         return AzureOpenAIChatClient()
+    if provider_name in {"azure_openai_sdk", "azure_sdk"}:
+        apply_provider_env_aliases(target_prefix="SAM_AZURE_CHAT_")
+        return AzureOpenAISDKChatClient()
     raise ValueError(f"未知 chat provider: {provider_name}")
 
 
@@ -131,19 +167,26 @@ def inspect_chat_provider_config(name: str | None = None) -> dict[str, object]:
     """
 
     provider_name = name or os.environ.get("SAM_CHAT_PROVIDER", "heuristic")
-    aliases = {"azure": "azure_openai", "local": "heuristic"}
+    aliases = {"azure": "azure_openai", "local": "heuristic", "azure_sdk": "azure_openai_sdk"}
     provider_name = aliases.get(provider_name, provider_name)
     alias_sources: dict[str, str] = {}
     if provider_name == "heuristic":
         missing: list[str] = []
+        missing_packages: list[str] = []
         required_any_missing: list[list[str]] = []
         optional: list[str] = []
-    elif provider_name == "azure_openai":
+    elif provider_name in {"azure_openai", "azure_openai_sdk"}:
         alias_sources = apply_provider_env_aliases(target_prefix="SAM_AZURE_CHAT_")
         missing = _missing_env(["SAM_AZURE_CHAT_API_KEY"])
+        missing_packages = []
+        if provider_name == "azure_openai_sdk" and importlib.util.find_spec("openai") is None:
+            missing_packages.append("openai")
         required_any_missing = [
             group
-            for group in [["SAM_AZURE_CHAT_ENDPOINT", "SAM_AZURE_CHAT_URL"]]
+            for group in [[
+                "SAM_AZURE_CHAT_ENDPOINT",
+                *([] if provider_name == "azure_openai_sdk" else ["SAM_AZURE_CHAT_URL"]),
+            ]]
             if not any(os.environ.get(item) for item in group)
         ]
         optional = [
@@ -159,13 +202,17 @@ def inspect_chat_provider_config(name: str | None = None) -> dict[str, object]:
             "ready": False,
             "error": f"未知 chat provider: {provider_name}",
             "missing": [],
+            "missing_packages": [],
+            "install_hint": "",
             "required_any_missing": [],
             "configured_optional": [],
         }
     return {
         "provider": provider_name,
-        "ready": not missing and not required_any_missing,
+        "ready": not missing and not required_any_missing and not missing_packages,
         "missing": missing,
+        "missing_packages": missing_packages,
+        "install_hint": _install_hint(missing_packages),
         "required_any_missing": required_any_missing,
         "configured_optional": [key for key in optional if os.environ.get(key)],
         "alias_sources": {
@@ -192,3 +239,9 @@ def _is_missing_env_value(value: str | None) -> bool:
         return True
     stripped = value.strip()
     return not stripped or stripped.startswith("replace-with-")
+
+
+def _install_hint(missing_packages: list[str]) -> str:
+    if "openai" in missing_packages:
+        return "python -m pip install 'openai>=1.0.0'"
+    return ""
