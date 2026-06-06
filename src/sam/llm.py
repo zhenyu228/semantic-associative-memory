@@ -166,11 +166,18 @@ def inspect_chat_provider_config(name: str | None = None) -> dict[str, object]:
 
 
 def _missing_env(keys: list[str]) -> list[str]:
-    return [key for key in keys if not os.environ.get(key)]
+    return [key for key in keys if _is_missing_env_value(os.environ.get(key))]
 
 
 def _require_env(key: str) -> str:
     value = os.environ.get(key)
-    if not value:
+    if _is_missing_env_value(value):
         raise ValueError(f"缺少环境变量 {key}")
     return value
+
+
+def _is_missing_env_value(value: str | None) -> bool:
+    if value is None:
+        return True
+    stripped = value.strip()
+    return not stripped or stripped.startswith("replace-with-")

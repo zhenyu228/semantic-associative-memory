@@ -194,7 +194,12 @@ conda run -n sam python scripts/run_end_to_end_experiment.py \
 ```bash
 conda run -n sam python -m pip install -e .
 
-cat > .env.local <<'EOF'
+conda run -n sam python scripts/create_env_template.py --output .env.local
+```
+
+然后打开 `.env.local`，把 `replace-with-*` 占位符替换成真实 key。模板中的 embedding 配置如下：
+
+```bash
 export SAM_EMBEDDING_PROVIDER=azure_openai_sdk
 export SAM_AZURE_EMBEDDING_ENDPOINT="https://search-va.byteintl.net/gpt/openapi/online/v2/crawl"
 export SAM_AZURE_EMBEDDING_API_VERSION="2023-07-01-preview"
@@ -202,9 +207,10 @@ export SAM_AZURE_EMBEDDING_MODEL="text-embedding-3-large"
 export SAM_AZURE_EMBEDDING_DIMENSIONS="1024"
 export SAM_AZURE_EMBEDDING_CONCURRENCY="10"
 export SAM_AZURE_EMBEDDING_BATCH_SIZE="16"
-export SAM_AZURE_EMBEDDING_API_KEY="..."
-EOF
+export SAM_AZURE_EMBEDDING_API_KEY="replace-with-embedding-api-key"
+```
 
+```bash
 conda run -n sam python scripts/run_demo.py \
   --reset \
   --dataset hotpotqa \
@@ -384,14 +390,14 @@ export SAM_AZURE_CHAT_URL="https://你的完整 chat/completions 地址"
 使用 GPT-5.4 生成答案时同样使用 `.env.local` 配置，不把 key 写入仓库：
 
 ```bash
-cat >> .env.local <<'EOF'
 export SAM_CHAT_PROVIDER=azure_openai
 export SAM_AZURE_CHAT_ENDPOINT="https://aidp-i18ntt-sg.byteintl.net/api/modelhub/online/v2/crawl"
 export SAM_AZURE_CHAT_API_VERSION="2024-02-01"
 export SAM_AZURE_CHAT_MODEL="gpt-5.4-2026-03-05"
-export SAM_AZURE_CHAT_API_KEY="..."
-EOF
+export SAM_AZURE_CHAT_API_KEY="replace-with-chat-api-key"
+```
 
+```bash
 conda run -n sam python scripts/generate_answers.py \
   --cases-file outputs/runs/<run_name>/cases.json \
   --method sam_full \

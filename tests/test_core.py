@@ -68,6 +68,7 @@ from sam.reuse_experiment import build_masked_queries, summarize_memory_reuse
 from sam.store import MemoryStore
 from scripts.run_demo import _nodes_for_graph_export
 from scripts.check_model_providers import build_provider_status
+from scripts.create_env_template import write_env_template
 from scripts.run_provider_smoke_experiment import run_provider_smoke_experiment
 
 
@@ -1738,6 +1739,34 @@ class SamCoreTest(unittest.TestCase):
         self.assertIn("openai", status["missing_packages"])
         self.assertIn("python -m pip install", status["install_hint"])
 
+    def test_embedding_config_diagnostic_treats_placeholder_key_as_missing(self) -> None:
+        with patch.dict(
+            "os.environ",
+            {
+                "SAM_AZURE_EMBEDDING_API_KEY": "replace-with-embedding-api-key",
+                "SAM_AZURE_EMBEDDING_ENDPOINT": "https://example.test/gpt/openapi/online/v2/crawl",
+            },
+            clear=True,
+        ), patch("importlib.util.find_spec", return_value=object()):
+            status = inspect_embedding_provider_config("azure_openai_sdk")
+
+        self.assertFalse(status["ready"])
+        self.assertIn("SAM_AZURE_EMBEDDING_API_KEY", status["missing"])
+
+    def test_chat_config_diagnostic_treats_placeholder_key_as_missing(self) -> None:
+        with patch.dict(
+            "os.environ",
+            {
+                "SAM_AZURE_CHAT_API_KEY": "replace-with-chat-api-key",
+                "SAM_AZURE_CHAT_ENDPOINT": "https://example.test/api/modelhub/online/v2/crawl",
+            },
+            clear=True,
+        ):
+            status = inspect_chat_provider_config("azure_openai")
+
+        self.assertFalse(status["ready"])
+        self.assertIn("SAM_AZURE_CHAT_API_KEY", status["missing"])
+
     def test_load_env_file_ignores_comments_and_preserves_existing_values(self) -> None:
         env_path = Path(self.temp_dir.name) / ".env.local"
         env_path.write_text(
@@ -1767,6 +1796,19 @@ class SamCoreTest(unittest.TestCase):
                 "EMPTY_VALUE": True,
             },
         )
+
+    def test_create_env_template_writes_placeholders_without_overwrite(self) -> None:
+        env_path = Path(self.temp_dir.name) / ".env.local"
+
+        write_env_template(env_path)
+        content = env_path.read_text(encoding="utf-8")
+
+        self.assertIn("replace-with-embedding-api-key", content)
+        self.assertIn("replace-with-chat-api-key", content)
+        self.assertNotIn("real-embedding-api-key", content)
+        self.assertNotIn("real-chat-api-key", content)
+        with self.assertRaises(FileExistsError):
+            write_env_template(env_path)
 
     def test_cached_embedding_provider_reuses_vectors(self) -> None:
         class CountingEmbeddingProvider(LocalHashEmbeddingProvider):
