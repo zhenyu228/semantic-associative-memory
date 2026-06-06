@@ -1,6 +1,6 @@
 {
   "title": "SAM 开题计划进度审计",
-  "overall_progress": 59.0,
+  "overall_progress": 60.4,
   "module_count": 5,
   "modules": [
     {
@@ -222,11 +222,17 @@
       "title": "多智能体语义记忆协调机制",
       "opening_requirement": "构建全局洞察层、会话层、交互细节层，支持多智能体共享中间结果和经验以重建推理链。",
       "status": "已完成阶段性目标",
-      "target_progress": 45,
-      "estimated_progress": 45,
+      "target_progress": 52,
+      "estimated_progress": 52,
       "code_evidence": [
         {
           "label": "共享记忆协调器",
+          "path": "src/sam/agents.py",
+          "kind": "code",
+          "exists": true
+        },
+        {
+          "label": "共享记忆冲突裁决与版本指标",
           "path": "src/sam/agents.py",
           "kind": "code",
           "exists": true
@@ -272,7 +278,7 @@
       ],
       "remaining_work": [
         "当前多智能体实验仍偏受控流程，不是完整 Deep Research 任务。",
-        "跨角色冲突解决、版本控制和协作效率指标还不充分。",
+        "冲突裁决和版本指标已有基础实现，但仍需接入完整 workflow 实验。",
         "需要用 GPT-5.4 比较共享记忆与类比提示对最终答案质量的影响。"
       ]
     },
@@ -349,8 +355,8 @@
     }
   ],
   "next_actions": [
-    "多智能体语义记忆协调机制：当前多智能体实验仍偏受控流程，不是完整 Deep Research 任务。",
     "类比推理触发与应用：类比提示对最终答案质量的提升尚未用 GPT-5.4 正式验证。",
+    "多智能体语义记忆协调机制：当前多智能体实验仍偏受控流程，不是完整 Deep Research 任务。",
     "评测体系与检索-生成闭环：正式 embedding endpoint/key 未在本地安全配置中提供，无法完成正式 embedding 主实验。",
     "知识提取与动态知识图谱构建：GPT-5.4 RelationJudge 尚未形成正式规模实验。",
     "语义激活与联想检索机制：正式 embedding 尚未重跑 HotpotQA 300 条和 NovelQA。"

@@ -2378,6 +2378,59 @@ class SamCoreTest(unittest.TestCase):
         self.assertEqual(writer_hits[0].metadata["source_agent_id"], "planner")
         self.assertEqual(writer_hits[0].metadata["task_id"], "task-bridge")
 
+    def test_shared_memory_coordinator_resolves_conflicting_handoffs_with_versions(self) -> None:
+        coordinator = SharedMemoryCoordinator(self.store, self.embedding)
+        weak = coordinator.write_handoff(
+            source_agent_id="planner",
+            target_agent_id="writer",
+            text="候选答案应写成 Alpha，但证据链不完整。",
+            session_id="s-conflict",
+            task_id="task-conflict",
+            confidence=0.55,
+        )
+        strong = coordinator.write_handoff(
+            source_agent_id="retriever",
+            target_agent_id="writer",
+            text="候选答案应写成 Beta，证据链覆盖两个 supporting facts。",
+            session_id="s-conflict",
+            task_id="task-conflict",
+            confidence=0.92,
+        )
+
+        resolution = coordinator.resolve_conflict(
+            resolver_agent_id="verifier",
+            session_id="s-conflict",
+            task_id="task-conflict",
+            topic="final_answer",
+            candidate_node_ids=[weak.node_id, strong.node_id],
+        )
+
+        resolution_node = self.store.get_nodes([resolution.node_id])[0]
+        self.assertEqual(resolution_node.metadata["node_type"], "agent_conflict_resolution")
+        self.assertEqual(resolution_node.metadata["selected_node_id"], strong.node_id)
+        self.assertEqual(resolution_node.metadata["rejected_node_ids"], [weak.node_id])
+        self.assertEqual(resolution_node.metadata["memory_version"], 3)
+
+        updated = {
+            node.id: node
+            for node in self.store.get_nodes([weak.node_id, strong.node_id])
+        }
+        self.assertEqual(updated[strong.node_id].metadata["conflict_status"], "selected")
+        self.assertEqual(updated[weak.node_id].metadata["conflict_status"], "rejected")
+        self.assertEqual(
+            updated[weak.node_id].metadata["resolved_by_node_id"],
+            resolution.node_id,
+        )
+
+        metrics = coordinator.collaboration_metrics(
+            session_id="s-conflict",
+            task_id="task-conflict",
+        )
+        self.assertEqual(metrics["handoff_count"], 2)
+        self.assertEqual(metrics["conflict_resolution_count"], 1)
+        self.assertEqual(metrics["max_memory_version"], 3)
+        self.assertEqual(metrics["participating_agent_count"], 3)
+
     def test_multi_agent_workflow_uses_shared_handoffs(self) -> None:
         class EvidenceAwareChatClient(ChatClient):
             def complete(self, messages: list[dict[str, object]], max_tokens: int = 500) -> str:

@@ -522,3 +522,13 @@ HotpotQA 30 条回归 run 位于 `outputs/runs/weak_relation_penalty_hotpotqa30/
 这个结果说明，在当前 30 条连续评测设置中，类比支持证据注入比 SAM-full 多命中 1 条支持证据，但答案命中数暂时没有变化。原因是该实验仍然以 HotpotQA 独立样本为主，历史案例之间的可复用性有限；类比模块已经能进入检索排序层，但它更适合在连续任务、同主题追问或跨任务经验复用场景中验证。
 
 下一步需要将 `SAM-with-analogy` 加入连续任务实验，与 `SAM-full`、`SAM-no-graph` 和多智能体共享记忆方法一起比较。重点指标应包括类比支持证据命中数、答案命中率变化、错误类比比例，以及类比路径是否降低多跳证据缺失。
+
+## 25. 多智能体共享记忆冲突裁决
+
+为补齐开题计划中“多智能体语义记忆协调机制”的协作控制部分，`SharedMemoryCoordinator` 新增冲突裁决和版本统计能力。此前系统可以让 planner、retriever、writer、verifier 在全局洞察层、会话层和交互层写入共享记忆，也可以按目标 agent 查询 handoff；但当两个角色对同一任务给出不一致结论时，系统没有明确记录哪个版本被采纳、哪个版本被废弃。
+
+新增接口 `resolve_conflict` 会读取同一任务下的候选记忆节点，按置信度和版本号选择当前采用版本，并写入一个 `agent_conflict_resolution` 记忆节点。该节点记录冲突主题、候选节点、采纳节点、废弃节点和裁决 agent。原候选记忆也会被更新为 selected 或 rejected，并保留 `resolved_by_node_id`，从而形成可追踪的版本链。
+
+同时新增 `collaboration_metrics`，用于统计某个 session 或 task 内的共享记忆数量、handoff 数、冲突裁决数量、最大版本号和参与 agent 数。这一步让多智能体协作不只是“共享了几段文本”，而是能够追踪任务过程中的角色分歧、版本演化和裁决结果。
+
+当前已补充单元测试 `test_shared_memory_coordinator_resolves_conflicting_handoffs_with_versions`，验证两个 agent 给 writer 的冲突 handoff 可以被 verifier 裁决，且指标能正确统计 handoff 数、冲突裁决数、最大记忆版本和参与 agent 数。下一步需要把该机制接入 `MultiAgentResearchWorkflow` 的完整运行结果中，让 workflow 报告自动输出冲突案例和协作效率指标。

@@ -105,9 +105,10 @@ OPENING_MODULE_SPECS: list[ModuleSpec] = [
         module_id="multi_agent_shared_memory",
         title="多智能体语义记忆协调机制",
         opening_requirement="构建全局洞察层、会话层、交互细节层，支持多智能体共享中间结果和经验以重建推理链。",
-        target_progress=45,
+        target_progress=52,
         code_evidence=[
             EvidenceSpec("共享记忆协调器", "src/sam/agents.py", "code"),
+            EvidenceSpec("共享记忆冲突裁决与版本指标", "src/sam/agents.py", "code"),
             EvidenceSpec("多智能体研究流程", "src/sam/agent_workflow.py", "code"),
             EvidenceSpec("多智能体复用实验", "src/sam/agent_reuse_experiment.py", "code"),
             EvidenceSpec("多智能体 workflow 脚本", "scripts/run_agent_workflow.py", "code"),
@@ -119,7 +120,7 @@ OPENING_MODULE_SPECS: list[ModuleSpec] = [
         ],
         remaining_work=[
             "当前多智能体实验仍偏受控流程，不是完整 Deep Research 任务。",
-            "跨角色冲突解决、版本控制和协作效率指标还不充分。",
+            "冲突裁决和版本指标已有基础实现，但仍需接入完整 workflow 实验。",
             "需要用 GPT-5.4 比较共享记忆与类比提示对最终答案质量的影响。",
         ],
     ),
