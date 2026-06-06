@@ -117,11 +117,11 @@ OPENING_MODULE_SPECS: list[ModuleSpec] = [
         experiment_evidence=[
             EvidenceSpec("多智能体共享记忆复用", "outputs/runs/agent_memory_reuse_hotpotqa30/agent_memory_reuse_results.json", "experiment"),
             EvidenceSpec("多智能体生成对照 smoke", "outputs/runs/agent_generation_hotpotqa30_smoke/agent_generation_comparison.json", "experiment"),
-            EvidenceSpec("多智能体 workflow 协作指标 smoke", "outputs/runs/agent_workflow_metrics_smoke/agent_workflow.json", "experiment"),
+            EvidenceSpec("多智能体 workflow 自动冲突裁决 smoke", "outputs/runs/agent_workflow_conflict_smoke/agent_workflow.json", "experiment"),
         ],
         remaining_work=[
             "当前多智能体实验仍偏受控流程，不是完整 Deep Research 任务。",
-            "冲突裁决和版本指标已接入 workflow 产物，但仍需设计真实冲突任务集。",
+            "workflow 已能在答案验证失败时自动触发冲突裁决，但仍需设计更真实的多角色分歧任务集。",
             "需要用 GPT-5.4 比较共享记忆与类比提示对最终答案质量的影响。",
         ],
     ),

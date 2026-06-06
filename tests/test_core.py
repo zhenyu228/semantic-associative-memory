@@ -2486,6 +2486,46 @@ class SamCoreTest(unittest.TestCase):
         self.assertIn("Handoff 数", markdown)
         self.assertIn("最大版本", markdown)
 
+    def test_multi_agent_workflow_auto_resolves_failed_writer_conflict(self) -> None:
+        class WrongAnswerChatClient(ChatClient):
+            def complete(self, messages: list[dict[str, object]], max_tokens: int = 500) -> str:
+                return "wrong-answer"
+
+        case = {
+            "query_id": "workflow_conflict_case",
+            "question": "Which answer is identified by the retriever handoff?",
+            "answer": "author",
+            "support_hits_by_method": {"sam_full": 1},
+            "final_answers": {"sam_full": {"status": "found_in_retrieved_context"}},
+            "methods": {
+                "sam_full": [
+                    {
+                        "title": "Workflow evidence",
+                        "text": "The retriever handoff says the answer is author.",
+                        "reason": "向量种子节点 -> shared_entity",
+                        "candidate_paths": [{"relation_type": "shared_entity"}],
+                        "is_supporting": True,
+                    }
+                ]
+            },
+        }
+        coordinator = SharedMemoryCoordinator(self.store, self.embedding)
+        workflow = MultiAgentResearchWorkflow(
+            coordinator=coordinator,
+            generator=ContextAnswerGenerator(WrongAnswerChatClient()),
+            method="sam_full",
+        )
+
+        result = workflow.run_case(case)
+
+        self.assertEqual(result["verifier"]["status"], "failed")
+        self.assertTrue(result["conflict_resolution_node_ids"])
+        self.assertEqual(result["collaboration_metrics"]["conflict_resolution_count"], 1)
+        self.assertEqual(result["collaboration_metrics"]["max_memory_version"], 5)
+        resolution = self.store.get_nodes(result["conflict_resolution_node_ids"])[0]
+        self.assertEqual(resolution.metadata["node_type"], "agent_conflict_resolution")
+        self.assertEqual(resolution.metadata["topic"], "answer_generation")
+
     def test_agent_memory_reuse_probe_reports_cross_agent_reuse(self) -> None:
         class EvidenceAwareChatClient(ChatClient):
             def complete(self, messages: list[dict[str, object]], max_tokens: int = 500) -> str:

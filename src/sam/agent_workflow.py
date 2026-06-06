@@ -77,6 +77,7 @@ class MultiAgentResearchWorkflow:
             session_id=session_id,
             task_id=task_id,
             text=f"writer 生成答案：{answer.generated_answer}",
+            confidence=0.9 if answer.answer_hit else 0.58,
         )
         memory_node_ids.append(writer_record.node_id)
         steps.append(_step("writer", "读取共享记忆并生成答案", [node.id for node in writer_memory]))
@@ -103,6 +104,18 @@ class MultiAgentResearchWorkflow:
         )
         memory_node_ids.append(verifier_record.node_id)
         steps.append(_step("verifier", "验证答案是否覆盖标准答案", [node.id for node in verifier_memory]))
+        conflict_resolution_node_ids: list[str] = []
+        if not answer.answer_hit:
+            conflict_record = self.coordinator.resolve_conflict(
+                resolver_agent_id="verifier",
+                session_id=session_id,
+                task_id=task_id,
+                topic="answer_generation",
+                candidate_node_ids=[retriever_record.node_id, writer_record.node_id],
+            )
+            memory_node_ids.append(conflict_record.node_id)
+            conflict_resolution_node_ids.append(conflict_record.node_id)
+            steps.append(_step("verifier", "裁决检索交接与写作答案的冲突", [conflict_record.node_id]))
         collaboration_metrics = self.coordinator.collaboration_metrics(
             session_id=session_id,
             task_id=task_id,
@@ -118,6 +131,7 @@ class MultiAgentResearchWorkflow:
             "verifier_memory": [_serialize_memory(node) for node in verifier_memory],
             "final_answer": answer.to_dict(),
             "verifier": verifier,
+            "conflict_resolution_node_ids": conflict_resolution_node_ids,
             "collaboration_metrics": collaboration_metrics,
         }
 

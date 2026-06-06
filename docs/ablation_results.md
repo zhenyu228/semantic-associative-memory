@@ -536,3 +536,5 @@ HotpotQA 30 条回归 run 位于 `outputs/runs/weak_relation_penalty_hotpotqa30/
 随后系统将 `collaboration_metrics` 接入 `MultiAgentResearchWorkflow`。每条 case 运行结束后，workflow 会输出该任务内的共享记忆数量、handoff 数、冲突裁决数、最大版本号和参与 agent 列表。报告表格也新增 Handoff 数、冲突裁决数和最大版本。
 
 5 条 HotpotQA workflow smoke 位于 `outputs/runs/agent_workflow_metrics_smoke/`，使用 `SAM-with-analogy` 检索结果和本地启发式生成器。该 run 的生成验证通过率为 0.000，原因仍是启发式生成器不能代表正式 GPT-5.4 生成能力；但每条样本都形成了完整 planner -> retriever -> writer -> verifier 流程，并记录 4 条共享记忆、2 次 handoff、最大版本号 4、参与 agent 数 4。该结果说明多智能体协作轨迹和版本指标已经进入完整实验产物。下一步应构造真实冲突任务集，使 `resolve_conflict` 在 workflow 中被自动触发，再比较冲突裁决前后的答案质量和协作效率。
+
+在此基础上，workflow 进一步加入自动冲突裁决：当 writer 生成答案未通过 verifier 检查时，系统会把 retriever handoff 和 writer handoff 作为候选记忆，由 verifier 写入一次 `agent_conflict_resolution` 裁决节点。5 条 HotpotQA 自动冲突 smoke 位于 `outputs/runs/agent_workflow_conflict_smoke/`，每条样本都记录 5 条共享记忆、2 次 handoff、1 次冲突裁决、最大版本号 5、参与 agent 数 4。该结果说明冲突裁决不再只是 coordinator 的手动接口，而是已经进入完整多智能体 workflow。后续需要把本地启发式生成器替换为 GPT-5.4，并构造包含多角色证据分歧的任务集，评估自动裁决是否能降低错误答案传播。
