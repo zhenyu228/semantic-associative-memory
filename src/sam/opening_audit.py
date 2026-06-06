@@ -129,18 +129,20 @@ OPENING_MODULE_SPECS: list[ModuleSpec] = [
         module_id="evaluation_and_generation",
         title="评测体系与检索-生成闭环",
         opening_requirement="设计正式实验和评测体系，覆盖跨文档语义整合、推理链重建、多智能体协作和生成结果反馈。",
-        target_progress=55,
+        target_progress=58,
         code_evidence=[
             EvidenceSpec("端到端实验入口", "scripts/run_end_to_end_experiment.py", "code"),
             EvidenceSpec("答案判别", "src/sam/answer_judge.py", "code"),
             EvidenceSpec("Bad Case 分析", "src/sam/badcase.py", "code"),
             EvidenceSpec("GPT-5.4 SDK provider", "src/sam/llm.py", "code"),
             EvidenceSpec("Embedding provider 与缓存", "src/sam/embedding.py", "code"),
+            EvidenceSpec("Embedding 正式运行前请求量规划", "scripts/plan_embedding_run.py", "code"),
         ],
         experiment_evidence=[
             EvidenceSpec("GPT-5.4 SDK HotpotQA smoke", "outputs/runs/provider_smoke_gpt54_sdk_hotpotqa1/pipeline_summary.json", "experiment"),
             EvidenceSpec("NovelQA 小样本", "outputs/runs/novelqa_demo_eval12_edge_filter/metrics.json", "experiment"),
             EvidenceSpec("端到端本地 smoke", "outputs/runs/end_to_end_smoke/pipeline_summary.json", "experiment"),
+            EvidenceSpec("HotpotQA embedding 请求量计划", "outputs/plans/hotpotqa_embedding_plan/embedding_run_plan.json", "experiment"),
         ],
         remaining_work=[
             "正式 embedding endpoint/key 未在本地安全配置中提供，无法完成正式 embedding 主实验。",

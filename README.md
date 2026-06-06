@@ -208,6 +208,17 @@ conda run -n sam python scripts/run_end_to_end_experiment.py \
 
 `scripts/run_reranker_profile_experiment.py` 和 `scripts/run_memory_reuse_experiment.py` 也支持同样的 `--env-file`、`--embedding-cache-path` 和 `--embedding-concurrency` 参数，方便用同一套正式 embedding 配置重跑 profile 对比和连续记忆复用实验。
 
+正式发送 embedding 请求前，先用规划脚本估算唯一文本数、缓存命中数和预计 batch 数。该命令只读取本地数据集和缓存，不调用在线 API：
+
+```bash
+conda run -n sam python scripts/plan_embedding_run.py \
+  --dataset-file data/processed/hotpotqa_midterm300_sam_sample.json \
+  --provider azure_openai_sdk \
+  --cache-path outputs/runs/e2e_hotpotqa300_embedding/embedding_cache.sqlite \
+  --batch-size 16 \
+  --output-dir outputs/plans/hotpotqa300_embedding_plan
+```
+
 使用 Azure OpenAI embedding 时不要把 key 写入仓库，使用环境变量配置。`azure_openai` 使用项目内置 HTTP client；`azure_openai_sdk` 使用 OpenAI SDK 的 `AsyncAzureOpenAI`，更接近公司内部示例代码：
 
 ```bash

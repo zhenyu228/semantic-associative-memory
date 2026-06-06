@@ -41,6 +41,7 @@ from sam.embedding import (
     create_embedding_provider,
     inspect_embedding_provider_config,
 )
+from sam.embedding_plan import build_embedding_run_plan
 from sam.env import apply_provider_env_aliases, load_env_file
 from sam.evaluator import Evaluator
 from sam.experiment_audit import audit_run_directory, write_experiment_audit
@@ -2077,6 +2078,41 @@ class SamCoreTest(unittest.TestCase):
         self.assertEqual(first[0], first[2])
         self.assertEqual(first[:2], second)
         self.assertEqual(inner.calls, 2)
+
+    def test_embedding_run_plan_counts_dataset_texts_and_cache_hits(self) -> None:
+        dataset_path = Path(self.temp_dir.name) / "sample.json"
+        documents, queries = load_builtin_benchmark_sample()
+        save_sam_dataset(
+            dataset_path,
+            documents=documents[:3],
+            queries=queries[:1],
+            dataset_info={"name": "unit"},
+            processing={"source_script": "test"},
+        )
+        cache_path = Path(self.temp_dir.name) / "embedding_cache.sqlite"
+        provider = CachedEmbeddingProvider(LocalHashEmbeddingProvider(), cache_path)
+        provider.embed_many(
+            [
+                f"{documents[0].title}\n{documents[0].text}",
+                f"{documents[1].title}\n{documents[1].text}",
+            ]
+        )
+        provider.close()
+
+        plan = build_embedding_run_plan(
+            dataset_path=dataset_path,
+            provider_name="local",
+            cache_path=cache_path,
+            batch_size=2,
+        )
+
+        self.assertEqual(plan["document_text_count"], 3)
+        self.assertEqual(plan["summary_text_count"], 1)
+        self.assertEqual(plan["unique_text_count"], 4)
+        self.assertEqual(plan["cache_hit_count"], 2)
+        self.assertEqual(plan["cache_miss_count"], 2)
+        self.assertEqual(plan["estimated_batch_count"], 1)
+        self.assertEqual(plan["will_call_provider"], True)
 
     def test_analogy_engine_returns_case_hints(self) -> None:
         engine = AnalogyEngine(self.store, self.embedding, self.graph)

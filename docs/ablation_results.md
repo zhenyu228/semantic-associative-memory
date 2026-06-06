@@ -538,3 +538,9 @@ HotpotQA 30 条回归 run 位于 `outputs/runs/weak_relation_penalty_hotpotqa30/
 5 条 HotpotQA workflow smoke 位于 `outputs/runs/agent_workflow_metrics_smoke/`，使用 `SAM-with-analogy` 检索结果和本地启发式生成器。该 run 的生成验证通过率为 0.000，原因仍是启发式生成器不能代表正式 GPT-5.4 生成能力；但每条样本都形成了完整 planner -> retriever -> writer -> verifier 流程，并记录 4 条共享记忆、2 次 handoff、最大版本号 4、参与 agent 数 4。该结果说明多智能体协作轨迹和版本指标已经进入完整实验产物。下一步应构造真实冲突任务集，使 `resolve_conflict` 在 workflow 中被自动触发，再比较冲突裁决前后的答案质量和协作效率。
 
 在此基础上，workflow 进一步加入自动冲突裁决：当 writer 生成答案未通过 verifier 检查时，系统会把 retriever handoff 和 writer handoff 作为候选记忆，由 verifier 写入一次 `agent_conflict_resolution` 裁决节点。5 条 HotpotQA 自动冲突 smoke 位于 `outputs/runs/agent_workflow_conflict_smoke/`，每条样本都记录 5 条共享记忆、2 次 handoff、1 次冲突裁决、最大版本号 5、参与 agent 数 4。该结果说明冲突裁决不再只是 coordinator 的手动接口，而是已经进入完整多智能体 workflow。后续需要把本地启发式生成器替换为 GPT-5.4，并构造包含多角色证据分歧的任务集，评估自动裁决是否能降低错误答案传播。
+
+## 26. Embedding 正式实验请求量规划
+
+为避免正式 embedding 实验直接消耗较多额度，系统新增 `scripts/plan_embedding_run.py`。该脚本只读取 SAM 统一数据文件和本地 SQLite embedding cache，不实例化在线 provider，也不发送网络请求。它复用当前 ingest 的文本构造方式，统计文档记忆节点和 query summary 节点分别需要多少 embedding，并根据 cache 命中情况估算还需要请求多少唯一文本和多少 batch。
+
+HotpotQA 30 条样本的规划结果位于 `outputs/plans/hotpotqa_embedding_plan/`。在 `azure_openai_sdk`、`batch_size=16`、未指定 cache 的设置下，结果为：文档 embedding 文本数 300，summary embedding 文本数 30，唯一文本数 330，缓存命中数 0，预计需要请求文本数 330，预计 batch 数 21。该结果说明正式重跑 HotpotQA 30 条并不会只请求 300 个段落，还会额外请求 30 个查询上下文摘要节点。后续正式 300 条实验前，需要先开启 `SAM_EMBEDDING_CACHE_PATH`，并用该计划确认缓存命中和预计 batch 数，再决定是否扩大规模。
