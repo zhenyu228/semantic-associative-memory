@@ -194,6 +194,7 @@ conda run -n sam python scripts/run_end_to_end_experiment.py \
 ```bash
 conda run -n sam python -m pip install -e .
 
+cat > .env.local <<'EOF'
 export SAM_EMBEDDING_PROVIDER=azure_openai_sdk
 export SAM_AZURE_EMBEDDING_ENDPOINT="https://search-va.byteintl.net/gpt/openapi/online/v2/crawl"
 export SAM_AZURE_EMBEDDING_API_VERSION="2023-07-01-preview"
@@ -202,10 +203,12 @@ export SAM_AZURE_EMBEDDING_DIMENSIONS="1024"
 export SAM_AZURE_EMBEDDING_CONCURRENCY="10"
 export SAM_AZURE_EMBEDDING_BATCH_SIZE="16"
 export SAM_AZURE_EMBEDDING_API_KEY="..."
+EOF
 
 conda run -n sam python scripts/run_demo.py \
   --reset \
   --dataset hotpotqa \
+  --env-file .env.local \
   --embedding-provider azure_openai_sdk \
   --embedding-cache \
   --embedding-concurrency 10
@@ -223,8 +226,11 @@ export SAM_AZURE_EMBEDDING_SEND_MODEL="0"
 
 ```bash
 conda run -n sam python scripts/check_embedding_provider.py \
+  --env-file .env.local \
   --provider azure_openai_sdk
 ```
+
+`.env.local` 会被 `.gitignore` 忽略，不要把真实 key 写进 README、代码或提交历史。
 
 如果诊断输出 `missing packages: openai`，说明当前 `sam` 环境还没有安装 OpenAI SDK，需要先执行上面的 `pip install -e .`。诊断脚本默认不会发起真实 embedding 请求，只有显式增加 `--probe` 时才会调用在线模型。
 
@@ -238,6 +244,7 @@ conda run -n sam python -m pip install "openai>=1.0.0"
 
 ```bash
 conda run -n sam python scripts/check_embedding_provider.py \
+  --env-file .env.local \
   --provider azure_openai \
   --probe "SAM embedding connectivity test."
 ```

@@ -3,6 +3,7 @@ from __future__ import annotations
 import tempfile
 import unittest
 from pathlib import Path
+import os
 import sys
 import json
 from unittest.mock import patch
@@ -40,6 +41,7 @@ from sam.embedding import (
     create_embedding_provider,
     inspect_embedding_provider_config,
 )
+from sam.env import load_env_file
 from sam.evaluator import Evaluator
 from sam.experiment_audit import audit_run_directory, write_experiment_audit
 from sam.generation import (
@@ -1735,6 +1737,36 @@ class SamCoreTest(unittest.TestCase):
         self.assertFalse(status["ready"])
         self.assertIn("openai", status["missing_packages"])
         self.assertIn("python -m pip install", status["install_hint"])
+
+    def test_load_env_file_ignores_comments_and_preserves_existing_values(self) -> None:
+        env_path = Path(self.temp_dir.name) / ".env.local"
+        env_path.write_text(
+            "\n".join(
+                [
+                    "# SAM 本地模型配置",
+                    "SAM_AZURE_EMBEDDING_API_KEY=file-secret",
+                    "export SAM_AZURE_EMBEDDING_ENDPOINT=\"https://example.test/embedding\"",
+                    "EMPTY_VALUE=",
+                ]
+            ),
+            encoding="utf-8",
+        )
+
+        with patch.dict("os.environ", {"SAM_AZURE_EMBEDDING_API_KEY": "existing-secret"}, clear=True):
+            loaded = load_env_file(env_path)
+
+            self.assertEqual(os.environ["SAM_AZURE_EMBEDDING_API_KEY"], "existing-secret")
+            self.assertEqual(os.environ["SAM_AZURE_EMBEDDING_ENDPOINT"], "https://example.test/embedding")
+            self.assertEqual(os.environ["EMPTY_VALUE"], "")
+
+        self.assertEqual(
+            loaded,
+            {
+                "SAM_AZURE_EMBEDDING_API_KEY": False,
+                "SAM_AZURE_EMBEDDING_ENDPOINT": True,
+                "EMPTY_VALUE": True,
+            },
+        )
 
     def test_cached_embedding_provider_reuses_vectors(self) -> None:
         class CountingEmbeddingProvider(LocalHashEmbeddingProvider):

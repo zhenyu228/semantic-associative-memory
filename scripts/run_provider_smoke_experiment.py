@@ -16,6 +16,7 @@ if str(SRC) not in sys.path:
 from sam.answer_judge import create_answer_judge  # noqa: E402
 from sam.dataset_format import load_sam_dataset, summarize_sam_dataset  # noqa: E402
 from sam.embedding import create_embedding_provider  # noqa: E402
+from sam.env import load_env_file  # noqa: E402
 from sam.experiment_audit import audit_run_directory, write_experiment_audit  # noqa: E402
 from sam.llm import create_chat_client  # noqa: E402
 from sam.pipeline_experiment import run_retrieval_generation_pipeline  # noqa: E402
@@ -30,6 +31,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output-root", default="outputs/runs", help="运行产物根目录")
     parser.add_argument("--run-name", default=None, help="本次运行名称")
     parser.add_argument("--limit", type=int, default=2, help="参与 smoke 的查询数量，建议 1-3")
+    parser.add_argument("--env-file", default=None, help="可选：加载本地 .env.local；文件已被 gitignore 忽略")
     parser.add_argument("--embedding-provider", default=None, help="local、openai、azure_openai 或 azure_openai_sdk")
     parser.add_argument("--chat-provider", default=None, help="heuristic 或 azure_openai")
     parser.add_argument("--embedding-probe", default=None, help="可选：先发一条 embedding 连通性测试")
@@ -144,6 +146,8 @@ def run_provider_smoke_experiment(
 
 def main() -> None:
     args = parse_args()
+    if args.env_file:
+        load_env_file(ROOT / args.env_file)
     run_name = args.run_name or f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_provider_smoke"
     run_dir = ROOT / args.output_root / run_name
     methods = [method.strip() for method in args.retrieval_methods.split(",") if method.strip()]

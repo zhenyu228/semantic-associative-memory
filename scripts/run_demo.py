@@ -21,6 +21,7 @@ from sam.datasets import (  # noqa: E402
 from sam.dataset_format import load_sam_dataset, save_sam_dataset, summarize_sam_dataset  # noqa: E402
 from sam.datasets import DATASET_REFERENCES, download_hotpotqa_dev, load_hotpotqa_real_sample  # noqa: E402
 from sam.embedding import create_embedding_provider  # noqa: E402
+from sam.env import load_env_file  # noqa: E402
 from sam.evaluator import Evaluator  # noqa: E402
 from sam.graph import GraphBuilder  # noqa: E402
 from sam.query_planner import create_query_planner  # noqa: E402
@@ -47,6 +48,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--novelqa-split", choices=["data", "demonstration"], default="data", help="NovelQA 子集；data 通常没有公开答案，demonstration 带答案和证据")
     parser.add_argument("--case-index", type=int, default=None, help="HTML 页面默认聚焦的 HotpotQA 原始 index")
     parser.add_argument("--rebuild-dataset", action="store_true", help="重新生成 SAM 统一数据格式文件")
+    parser.add_argument("--env-file", default=None, help="可选：加载本地 .env.local；文件已被 gitignore 忽略")
     parser.add_argument("--embedding-provider", default=None, help="local、openai、azure_openai 或 azure_openai_sdk")
     parser.add_argument("--embedding-cache", action="store_true", help="启用 SQLite embedding 缓存，默认写入 data/embedding_cache.sqlite")
     parser.add_argument("--embedding-cache-path", default=None, help="自定义 embedding 缓存 SQLite 路径")
@@ -120,6 +122,8 @@ def _nodes_for_graph_export(store: MemoryStore):
 
 def main() -> None:
     args = parse_args()
+    if args.env_file:
+        load_env_file(ROOT / args.env_file)
     if args.dataset == "novelqa" and args.dataset_file == "data/processed/hotpotqa_sam_sample.json":
         args.dataset_file = "data/processed/novelqa_sam_sample.json"
     store = MemoryStore(ROOT / args.db)

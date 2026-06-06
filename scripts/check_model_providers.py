@@ -12,6 +12,7 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from sam.embedding import create_embedding_provider, inspect_embedding_provider_config  # noqa: E402
+from sam.env import load_env_file  # noqa: E402
 from sam.llm import create_chat_client, inspect_chat_provider_config  # noqa: E402
 
 
@@ -19,6 +20,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="统一检查 SAM embedding 与 GPT-5.4 provider 配置")
     parser.add_argument("--embedding-provider", default=None, help="local、openai、azure_openai 或 azure_openai_sdk；默认读取 SAM_EMBEDDING_PROVIDER")
     parser.add_argument("--chat-provider", default=None, help="heuristic 或 azure_openai；默认读取 SAM_CHAT_PROVIDER")
+    parser.add_argument("--env-file", default=None, help="可选：加载本地 .env.local；文件已被 gitignore 忽略")
     parser.add_argument("--embedding-probe", default=None, help="可选：发送一条 embedding 测试文本")
     parser.add_argument("--chat-probe", default=None, help="可选：发送一条聊天模型测试消息")
     parser.add_argument("--chat-max-tokens", type=int, default=64, help="chat probe 最大输出 token")
@@ -83,6 +85,8 @@ def build_provider_status(
 
 def main() -> None:
     args = parse_args()
+    if args.env_file:
+        load_env_file(ROOT / args.env_file)
     status = build_provider_status(
         embedding_provider=args.embedding_provider,
         chat_provider=args.chat_provider,
