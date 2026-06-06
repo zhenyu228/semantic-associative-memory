@@ -210,6 +210,8 @@ export SAM_AZURE_EMBEDDING_BATCH_SIZE="16"
 export SAM_AZURE_EMBEDDING_API_KEY="replace-with-embedding-api-key"
 ```
 
+如果已经在 `evaluation/official_baselines/.env.local` 里配置了官方 baseline 使用的 `GPT54_API_KEY`、`GPT54_BASE_URL`、`GPT54_API_VERSION`、`GPT54_MODEL`，SAM 会在运行时自动把它们映射为 `SAM_AZURE_CHAT_*` 聊天模型配置，不需要再复制一份 GPT-5.4 key。Embedding 仍需要单独配置 `SAM_AZURE_EMBEDDING_*`，也可以使用通用别名 `EMBEDDING_API_KEY`、`EMBEDDING_BASE_URL`、`EMBEDDING_MODEL`、`EMBEDDING_DIMENSIONS`。
+
 ```bash
 conda run -n sam python scripts/run_demo.py \
   --reset \
@@ -291,6 +293,8 @@ conda run -n sam python scripts/check_model_providers.py \
   --embedding-probe "SAM embedding connectivity test." \
   --chat-probe "What is the result of 1+1?"
 ```
+
+如果 probe 被限流或网关返回错误，诊断脚本会输出结构化的 `probe_error`，不会打印 traceback、API key 或 endpoint 明文。`HTTP Error 429` 表示请求已经到达网关但当前被限流，应降低并发或稍后重试。
 
 确认 provider 可用后，可以运行 1-2 条样本的低额度端到端 smoke。该脚本会先执行 provider gate，再运行检索、生成和答案判别，并把 `provider_status.json`、`pipeline_summary.json`、`metrics.json`、`cases.json`、`generated_answers.json` 写入本次 run 目录：
 

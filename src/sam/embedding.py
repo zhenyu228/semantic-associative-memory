@@ -13,6 +13,7 @@ from abc import ABC, abstractmethod
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
+from sam.env import apply_provider_env_aliases
 from sam.text import tokenize
 
 
@@ -126,6 +127,7 @@ class AzureOpenAIEmbeddingProvider(EmbeddingProvider):
     """
 
     def __init__(self) -> None:
+        apply_provider_env_aliases(target_prefix="SAM_AZURE_EMBEDDING_")
         self.api_key = _require_env("SAM_AZURE_EMBEDDING_API_KEY")
         self.api_version = os.environ.get("SAM_AZURE_EMBEDDING_API_VERSION", "2023-07-01-preview")
         self.model = os.environ.get("SAM_AZURE_EMBEDDING_MODEL", "text-embedding-3-large")
@@ -201,6 +203,7 @@ class AzureOpenAISDKEmbeddingProvider(EmbeddingProvider):
     """基于 OpenAI SDK AsyncAzureOpenAI 的 Azure embedding provider。"""
 
     def __init__(self) -> None:
+        apply_provider_env_aliases(target_prefix="SAM_AZURE_EMBEDDING_")
         try:
             import openai
         except ImportError as exc:
@@ -361,8 +364,10 @@ def create_embedding_provider(name: str | None = None) -> EmbeddingProvider:
     if provider_name == "openai":
         provider: EmbeddingProvider = OpenAIEmbeddingProvider()
     elif provider_name in {"azure_openai", "azure"}:
+        apply_provider_env_aliases(target_prefix="SAM_AZURE_EMBEDDING_")
         provider = AzureOpenAIEmbeddingProvider()
     elif provider_name in {"azure_openai_sdk", "azure_sdk"}:
+        apply_provider_env_aliases(target_prefix="SAM_AZURE_EMBEDDING_")
         provider = AzureOpenAISDKEmbeddingProvider()
     elif provider_name == "local":
         provider = LocalHashEmbeddingProvider()
@@ -385,6 +390,7 @@ def inspect_embedding_provider_config(name: str | None = None) -> dict[str, obje
     provider_name = name or os.environ.get("SAM_EMBEDDING_PROVIDER", "local")
     aliases = {"azure": "azure_openai"}
     provider_name = aliases.get(provider_name, provider_name)
+    alias_sources: dict[str, str] = {}
     if provider_name == "local":
         missing: list[str] = []
         required_any_missing: list[list[str]] = []
@@ -402,6 +408,7 @@ def inspect_embedding_provider_config(name: str | None = None) -> dict[str, obje
             "SAM_EMBEDDING_CACHE_PATH",
         ]
     elif provider_name in {"azure_openai", "azure_openai_sdk", "azure_sdk"}:
+        alias_sources = apply_provider_env_aliases(target_prefix="SAM_AZURE_EMBEDDING_")
         missing = _missing_env(["SAM_AZURE_EMBEDDING_API_KEY"])
         missing_packages = []
         if provider_name == "azure_openai":
@@ -453,6 +460,11 @@ def inspect_embedding_provider_config(name: str | None = None) -> dict[str, obje
         "required_any_missing": required_any_missing,
         "configured_optional": [key for key in optional if os.environ.get(key)],
         "cache_enabled": bool(os.environ.get("SAM_EMBEDDING_CACHE_PATH") or os.environ.get("SAM_EMBEDDING_CACHE") == "1"),
+        "alias_sources": {
+            key: value
+            for key, value in alias_sources.items()
+            if key.startswith("SAM_AZURE_EMBEDDING_")
+        },
     }
 
 

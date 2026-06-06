@@ -41,7 +41,7 @@ from sam.embedding import (
     create_embedding_provider,
     inspect_embedding_provider_config,
 )
-from sam.env import load_env_file
+from sam.env import apply_provider_env_aliases, load_env_file
 from sam.evaluator import Evaluator
 from sam.experiment_audit import audit_run_directory, write_experiment_audit
 from sam.generation import (
@@ -1458,6 +1458,8 @@ class SamCoreTest(unittest.TestCase):
         assert isinstance(chat, dict)
         self.assertEqual(embedding["probe"]["dimension"], 256)
         self.assertEqual(chat["probe"]["answer_preview"], "ready")
+        self.assertEqual(embedding["alias_sources"], {})
+        self.assertEqual(chat["alias_sources"], {})
 
     def test_combined_provider_diagnostic_does_not_expose_secret_values(self) -> None:
         with patch.dict(
@@ -1481,6 +1483,33 @@ class SamCoreTest(unittest.TestCase):
         self.assertNotIn("chat-secret", rendered)
         self.assertNotIn("https://example.test/custom/embeddings", rendered)
         self.assertNotIn("https://example.test/custom/chat/completions", rendered)
+
+    def test_combined_provider_diagnostic_reports_probe_errors_without_traceback(self) -> None:
+        class FailingChatClient(ChatClient):
+            def complete(self, messages: list[dict[str, object]], max_tokens: int = 500) -> str:
+                raise RuntimeError("HTTP 429 from https://example.test/custom/chat/completions")
+
+        with patch.dict(
+            "os.environ",
+            {
+                "SAM_AZURE_CHAT_API_KEY": "chat-secret",
+                "SAM_AZURE_CHAT_URL": "https://example.test/custom/chat/completions",
+            },
+            clear=True,
+        ), patch("scripts.check_model_providers.create_chat_client", return_value=FailingChatClient()):
+            status = build_provider_status(
+                embedding_provider="local",
+                chat_provider="azure_openai",
+                chat_probe="What is 1+1?",
+                required_providers="chat",
+            )
+
+        rendered = json.dumps(status, ensure_ascii=False)
+        self.assertFalse(status["ready"])
+        self.assertEqual(status["chat"]["probe_error"]["type"], "RuntimeError")
+        self.assertIn("HTTP 429", status["chat"]["probe_error"]["message"])
+        self.assertNotIn("https://example.test/custom/chat/completions", rendered)
+        self.assertNotIn("chat-secret", rendered)
 
     def test_combined_provider_diagnostic_can_require_only_embedding(self) -> None:
         status = build_provider_status(
@@ -1797,6 +1826,56 @@ class SamCoreTest(unittest.TestCase):
 
         self.assertFalse(status["ready"])
         self.assertIn("SAM_AZURE_CHAT_API_KEY", status["missing"])
+
+    def test_provider_env_aliases_map_gpt54_config_to_sam_chat_config(self) -> None:
+        with patch.dict(
+            "os.environ",
+            {
+                "GPT54_API_KEY": "chat-secret",
+                "GPT54_BASE_URL": "https://example.test/api/modelhub/online/v2/crawl",
+                "GPT54_API_VERSION": "2024-02-01",
+                "GPT54_MODEL": "gpt-5.4-2026-03-05",
+            },
+            clear=True,
+        ):
+            status = inspect_chat_provider_config("azure_openai")
+
+        self.assertTrue(status["ready"])
+        self.assertEqual(status["alias_sources"]["SAM_AZURE_CHAT_API_KEY"], "GPT54_API_KEY")
+        self.assertIn("SAM_AZURE_CHAT_MODEL", status["configured_optional"])
+        self.assertNotIn("chat-secret", json.dumps(status))
+
+    def test_provider_env_aliases_map_generic_embedding_config_to_sam_config(self) -> None:
+        with patch.dict(
+            "os.environ",
+            {
+                "EMBEDDING_API_KEY": "embedding-secret",
+                "EMBEDDING_BASE_URL": "https://example.test/gpt/openapi/online/v2/crawl",
+                "EMBEDDING_MODEL": "text-embedding-3-large",
+                "EMBEDDING_DIMENSIONS": "1024",
+            },
+            clear=True,
+        ), patch("importlib.util.find_spec", return_value=object()):
+            status = inspect_embedding_provider_config("azure_openai_sdk")
+
+        self.assertTrue(status["ready"])
+        self.assertEqual(status["alias_sources"]["SAM_AZURE_EMBEDDING_API_KEY"], "EMBEDDING_API_KEY")
+        self.assertIn("SAM_AZURE_EMBEDDING_DIMENSIONS", status["configured_optional"])
+        self.assertNotIn("embedding-secret", json.dumps(status))
+
+    def test_provider_env_aliases_do_not_override_explicit_sam_values(self) -> None:
+        with patch.dict(
+            "os.environ",
+            {
+                "SAM_AZURE_CHAT_API_KEY": "explicit-chat-secret",
+                "GPT54_API_KEY": "alias-chat-secret",
+            },
+            clear=True,
+        ):
+            applied = apply_provider_env_aliases()
+
+            self.assertEqual(os.environ["SAM_AZURE_CHAT_API_KEY"], "explicit-chat-secret")
+            self.assertNotIn("SAM_AZURE_CHAT_API_KEY", applied)
 
     def test_load_env_file_ignores_comments_and_preserves_existing_values(self) -> None:
         env_path = Path(self.temp_dir.name) / ".env.local"

@@ -6,6 +6,8 @@ import re
 import urllib.request
 from abc import ABC, abstractmethod
 
+from sam.env import apply_provider_env_aliases
+
 
 class ChatClient(ABC):
     """聊天模型抽象层。"""
@@ -71,6 +73,7 @@ class AzureOpenAIChatClient(ChatClient):
     """
 
     def __init__(self) -> None:
+        apply_provider_env_aliases(target_prefix="SAM_AZURE_CHAT_")
         self.api_key = _require_env("SAM_AZURE_CHAT_API_KEY")
         self.api_version = os.environ.get("SAM_AZURE_CHAT_API_VERSION", "2024-02-01")
         self.model = os.environ.get("SAM_AZURE_CHAT_MODEL", "gpt-5.4-2026-03-05")
@@ -116,6 +119,7 @@ def create_chat_client(name: str | None = None) -> ChatClient:
     if provider_name in {"heuristic", "local"}:
         return HeuristicChatClient()
     if provider_name in {"azure_openai", "azure"}:
+        apply_provider_env_aliases(target_prefix="SAM_AZURE_CHAT_")
         return AzureOpenAIChatClient()
     raise ValueError(f"未知 chat provider: {provider_name}")
 
@@ -129,11 +133,13 @@ def inspect_chat_provider_config(name: str | None = None) -> dict[str, object]:
     provider_name = name or os.environ.get("SAM_CHAT_PROVIDER", "heuristic")
     aliases = {"azure": "azure_openai", "local": "heuristic"}
     provider_name = aliases.get(provider_name, provider_name)
+    alias_sources: dict[str, str] = {}
     if provider_name == "heuristic":
         missing: list[str] = []
         required_any_missing: list[list[str]] = []
         optional: list[str] = []
     elif provider_name == "azure_openai":
+        alias_sources = apply_provider_env_aliases(target_prefix="SAM_AZURE_CHAT_")
         missing = _missing_env(["SAM_AZURE_CHAT_API_KEY"])
         required_any_missing = [
             group
@@ -162,6 +168,11 @@ def inspect_chat_provider_config(name: str | None = None) -> dict[str, object]:
         "missing": missing,
         "required_any_missing": required_any_missing,
         "configured_optional": [key for key in optional if os.environ.get(key)],
+        "alias_sources": {
+            key: value
+            for key, value in alias_sources.items()
+            if key.startswith("SAM_AZURE_CHAT_")
+        },
     }
 
 

@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import re
 import sys
 from pathlib import Path
 
@@ -52,24 +53,33 @@ def build_provider_status(
     chat_status = inspect_chat_provider_config(chat_provider)
     if embedding_probe and embedding_status.get("ready"):
         provider = create_embedding_provider(embedding_provider)
-        embedding = provider.embed(embedding_probe)
-        embedding_status["probe"] = {
-            "dimension": len(embedding),
-            "l2_norm": round(math.sqrt(sum(value * value for value in embedding)), 6),
-        }
-        close = getattr(provider, "close", None)
-        if callable(close):
-            close()
+        try:
+            embedding = provider.embed(embedding_probe)
+            embedding_status["probe"] = {
+                "dimension": len(embedding),
+                "l2_norm": round(math.sqrt(sum(value * value for value in embedding)), 6),
+            }
+        except Exception as exc:
+            embedding_status["ready"] = False
+            embedding_status["probe_error"] = _safe_probe_error(exc)
+        finally:
+            close = getattr(provider, "close", None)
+            if callable(close):
+                close()
     if chat_probe and chat_status.get("ready"):
         client = create_chat_client(chat_provider)
-        answer = client.complete(
-            [{"role": "user", "content": chat_probe}],
-            max_tokens=chat_max_tokens,
-        )
-        chat_status["probe"] = {
-            "answer_preview": answer[:200],
-            "answer_chars": len(answer),
-        }
+        try:
+            answer = client.complete(
+                [{"role": "user", "content": chat_probe}],
+                max_tokens=chat_max_tokens,
+            )
+            chat_status["probe"] = {
+                "answer_preview": answer[:200],
+                "answer_chars": len(answer),
+            }
+        except Exception as exc:
+            chat_status["ready"] = False
+            chat_status["probe_error"] = _safe_probe_error(exc)
     required_ready = {
         "both": bool(embedding_status.get("ready") and chat_status.get("ready")),
         "embedding": bool(embedding_status.get("ready")),
@@ -120,10 +130,30 @@ def _print_section(name: str, status: object) -> None:
         print(f"[{name}] missing one of: " + "; ".join(groups))
     if status.get("configured_optional"):
         print(f"[{name}] configured optional: " + ", ".join(str(item) for item in status["configured_optional"]))
+    if status.get("alias_sources"):
+        aliases = [
+            f"{target}<-{source}"
+            for target, source in dict(status["alias_sources"]).items()
+        ]
+        print(f"[{name}] aliases: " + ", ".join(aliases))
     if status.get("cache_enabled") is not None:
         print(f"[{name}] cache enabled: {status.get('cache_enabled')}")
     if status.get("probe"):
         print(f"[{name}] probe: {json.dumps(status['probe'], ensure_ascii=False)}")
+    if status.get("probe_error"):
+        print(f"[{name}] probe error: {json.dumps(status['probe_error'], ensure_ascii=False)}")
+
+
+def _safe_probe_error(exc: Exception) -> dict[str, str]:
+    """把 provider probe 异常转成可写入诊断文件的安全信息。"""
+
+    message = str(exc)
+    message = re.sub(r"https?://[^\s)]+", "<redacted-url>", message)
+    message = re.sub(r"api[_-]?key[=:]\s*[^,\s]+", "api_key=<redacted>", message, flags=re.IGNORECASE)
+    return {
+        "type": type(exc).__name__,
+        "message": message[:300],
+    }
 
 
 if __name__ == "__main__":

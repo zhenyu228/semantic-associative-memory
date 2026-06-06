@@ -36,6 +36,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--chat-provider", default=None, help="heuristic 或 azure_openai")
     parser.add_argument("--embedding-probe", default=None, help="可选：先发一条 embedding 连通性测试")
     parser.add_argument("--chat-probe", default=None, help="可选：先发一条 chat 连通性测试")
+    parser.add_argument("--chat-max-tokens", type=int, default=64, help="chat probe 最大输出 token")
     parser.add_argument("--require", default="both", choices=["both", "embedding", "chat"], help="provider gate 要求")
     parser.add_argument("--answer-judge", default="rule", choices=["rule", "gpt54"], help="答案判别器")
     parser.add_argument("--query-planner", default="disabled", choices=["disabled", "heuristic", "gpt54"], help="查询规划器")
@@ -61,6 +62,7 @@ def run_provider_smoke_experiment(
     relation_judge_name: str,
     embedding_probe: str | None = None,
     chat_probe: str | None = None,
+    chat_max_tokens: int = 64,
     required_providers: str = "both",
     retrieval_methods: list[str] | None = None,
     generation_method: str = "sam_full",
@@ -81,6 +83,7 @@ def run_provider_smoke_experiment(
         chat_provider=chat_provider_name,
         embedding_probe=embedding_probe,
         chat_probe=chat_probe,
+        chat_max_tokens=chat_max_tokens,
         required_providers=required_providers,
     )
     (target / "provider_status.json").write_text(
@@ -172,6 +175,7 @@ def main() -> None:
         relation_judge_name=args.relation_judge,
         embedding_probe=args.embedding_probe,
         chat_probe=args.chat_probe,
+        chat_max_tokens=args.chat_max_tokens,
         required_providers=args.require,
         retrieval_methods=methods,
         generation_method=args.generation_method,
