@@ -219,6 +219,18 @@ conda run -n sam python scripts/plan_embedding_run.py \
   --output-dir outputs/plans/hotpotqa300_embedding_plan
 ```
 
+确认请求量可以接受后，再预热 cache。预热脚本会跳过已有缓存，只对缺失文本调用 provider：
+
+```bash
+conda run -n sam python scripts/warm_embedding_cache.py \
+  --env-file .env.local \
+  --dataset-file data/processed/hotpotqa_midterm300_sam_sample.json \
+  --provider azure_openai_sdk \
+  --cache-path outputs/runs/e2e_hotpotqa300_embedding/embedding_cache.sqlite \
+  --batch-size 16 \
+  --output-dir outputs/plans/hotpotqa300_embedding_warmup
+```
+
 使用 Azure OpenAI embedding 时不要把 key 写入仓库，使用环境变量配置。`azure_openai` 使用项目内置 HTTP client；`azure_openai_sdk` 使用 OpenAI SDK 的 `AsyncAzureOpenAI`，更接近公司内部示例代码：
 
 ```bash

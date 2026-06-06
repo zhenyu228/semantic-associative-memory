@@ -41,7 +41,7 @@ from sam.embedding import (
     create_embedding_provider,
     inspect_embedding_provider_config,
 )
-from sam.embedding_plan import build_embedding_run_plan
+from sam.embedding_plan import build_embedding_run_plan, warm_embedding_cache
 from sam.env import apply_provider_env_aliases, load_env_file
 from sam.evaluator import Evaluator
 from sam.experiment_audit import audit_run_directory, write_experiment_audit
@@ -2113,6 +2113,37 @@ class SamCoreTest(unittest.TestCase):
         self.assertEqual(plan["cache_miss_count"], 2)
         self.assertEqual(plan["estimated_batch_count"], 1)
         self.assertEqual(plan["will_call_provider"], True)
+
+    def test_warm_embedding_cache_writes_missing_dataset_vectors(self) -> None:
+        dataset_path = Path(self.temp_dir.name) / "sample.json"
+        documents, queries = load_builtin_benchmark_sample()
+        save_sam_dataset(
+            dataset_path,
+            documents=documents[:2],
+            queries=queries[:1],
+            dataset_info={"name": "unit"},
+            processing={"source_script": "test"},
+        )
+        cache_path = Path(self.temp_dir.name) / "embedding_cache.sqlite"
+
+        first = warm_embedding_cache(
+            dataset_path=dataset_path,
+            provider_name="local",
+            cache_path=cache_path,
+            batch_size=2,
+        )
+        second = warm_embedding_cache(
+            dataset_path=dataset_path,
+            provider_name="local",
+            cache_path=cache_path,
+            batch_size=2,
+        )
+
+        self.assertEqual(first["before"]["cache_miss_count"], 3)
+        self.assertEqual(first["warmed_text_count"], 3)
+        self.assertEqual(first["after"]["cache_miss_count"], 0)
+        self.assertEqual(second["before"]["cache_miss_count"], 0)
+        self.assertEqual(second["warmed_text_count"], 0)
 
     def test_analogy_engine_returns_case_hints(self) -> None:
         engine = AnalogyEngine(self.store, self.embedding, self.graph)

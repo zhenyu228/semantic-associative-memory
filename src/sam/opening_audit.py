@@ -137,12 +137,14 @@ OPENING_MODULE_SPECS: list[ModuleSpec] = [
             EvidenceSpec("GPT-5.4 SDK provider", "src/sam/llm.py", "code"),
             EvidenceSpec("Embedding provider 与缓存", "src/sam/embedding.py", "code"),
             EvidenceSpec("Embedding 正式运行前请求量规划", "scripts/plan_embedding_run.py", "code"),
+            EvidenceSpec("Embedding cache 预热入口", "scripts/warm_embedding_cache.py", "code"),
         ],
         experiment_evidence=[
             EvidenceSpec("GPT-5.4 SDK HotpotQA smoke", "outputs/runs/provider_smoke_gpt54_sdk_hotpotqa1/pipeline_summary.json", "experiment"),
             EvidenceSpec("NovelQA 小样本", "outputs/runs/novelqa_demo_eval12_edge_filter/metrics.json", "experiment"),
             EvidenceSpec("端到端本地 smoke", "outputs/runs/end_to_end_smoke/pipeline_summary.json", "experiment"),
             EvidenceSpec("HotpotQA embedding 请求量计划", "outputs/plans/hotpotqa_embedding_plan/embedding_run_plan.json", "experiment"),
+            EvidenceSpec("HotpotQA embedding cache 本地预热 smoke", "outputs/plans/hotpotqa_local_warmup/embedding_cache_warmup.json", "experiment"),
         ],
         remaining_work=[
             "正式 embedding endpoint/key 未在本地安全配置中提供，无法完成正式 embedding 主实验。",

@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from sam.dataset_format import load_sam_dataset
+from sam.embedding import CachedEmbeddingProvider, EmbeddingProvider, create_embedding_provider
 from sam.models import DatasetDocument
 from sam.text import extract_keywords
 
@@ -60,6 +61,64 @@ def build_embedding_run_plan(
     }
 
 
+def warm_embedding_cache(
+    *,
+    dataset_path: str | Path,
+    provider_name: str | None = None,
+    cache_path: str | Path,
+    batch_size: int | None = None,
+    include_query_summaries: bool = True,
+    provider: EmbeddingProvider | None = None,
+) -> dict[str, object]:
+    """按 SAM 数据集文本构造方式预热 embedding cache。"""
+
+    resolved_provider = provider_name or os.environ.get("SAM_EMBEDDING_PROVIDER", "local")
+    before = build_embedding_run_plan(
+        dataset_path=dataset_path,
+        provider_name=resolved_provider,
+        cache_path=cache_path,
+        batch_size=batch_size,
+        include_query_summaries=include_query_summaries,
+    )
+    texts = _unique_embedding_texts(
+        dataset_path=dataset_path,
+        include_query_summaries=include_query_summaries,
+    )
+    namespace = _cache_namespace_from_env(resolved_provider)
+    missing_texts = _missing_cache_texts(
+        cache_path=cache_path,
+        texts=texts,
+        namespace=namespace,
+    )
+    warmed_count = 0
+    if missing_texts:
+        inner = provider or create_embedding_provider(resolved_provider)
+        cached = CachedEmbeddingProvider(inner, cache_path)
+        try:
+            cached.embed_many(missing_texts)
+            warmed_count = len(missing_texts)
+        finally:
+            cached.close()
+            close = getattr(inner, "close", None)
+            if callable(close):
+                close()
+    after = build_embedding_run_plan(
+        dataset_path=dataset_path,
+        provider_name=resolved_provider,
+        cache_path=cache_path,
+        batch_size=batch_size,
+        include_query_summaries=include_query_summaries,
+    )
+    return {
+        "dataset_path": str(dataset_path),
+        "provider": resolved_provider,
+        "cache_path": str(cache_path),
+        "before": before,
+        "after": after,
+        "warmed_text_count": warmed_count,
+    }
+
+
 def write_embedding_run_plan(plan: dict[str, object], output_dir: str | Path) -> tuple[Path, Path]:
     """写出 embedding 运行计划 JSON 和 Markdown。"""
 
@@ -72,8 +131,31 @@ def write_embedding_run_plan(plan: dict[str, object], output_dir: str | Path) ->
     return json_path, markdown_path
 
 
+def write_embedding_warmup_result(result: dict[str, object], output_dir: str | Path) -> tuple[Path, Path]:
+    """写出 embedding cache 预热结果。"""
+
+    target = Path(output_dir)
+    target.mkdir(parents=True, exist_ok=True)
+    json_path = target / "embedding_cache_warmup.json"
+    markdown_path = target / "embedding_cache_warmup.md"
+    json_path.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
+    markdown_path.write_text(_warmup_to_markdown(result), encoding="utf-8")
+    return json_path, markdown_path
+
+
 def _document_embedding_text(document: DatasetDocument) -> str:
     return f"{document.title}\n{document.text}"
+
+
+def _unique_embedding_texts(
+    *,
+    dataset_path: str | Path,
+    include_query_summaries: bool,
+) -> list[str]:
+    documents, _queries, _payload = load_sam_dataset(dataset_path)
+    document_texts = [_document_embedding_text(document) for document in documents]
+    summary_texts = _summary_embedding_texts(documents) if include_query_summaries else []
+    return list(dict.fromkeys([*document_texts, *summary_texts]))
 
 
 def _summary_embedding_texts(documents: list[DatasetDocument]) -> list[str]:
@@ -154,6 +236,40 @@ def _inspect_cache(
         connection.close()
 
 
+def _missing_cache_texts(
+    *,
+    cache_path: str | Path,
+    texts: list[str],
+    namespace: str | None,
+) -> list[str]:
+    path = Path(cache_path)
+    if not path.exists():
+        return texts
+    connection = sqlite3.connect(path)
+    try:
+        missing: list[str] = []
+        if namespace:
+            for text in texts:
+                row = connection.execute(
+                    "SELECT 1 FROM embedding_cache WHERE cache_key = ?",
+                    (_cache_key(namespace, text),),
+                ).fetchone()
+                if not row:
+                    missing.append(text)
+            return missing
+        for text in texts:
+            text_sha1 = hashlib.sha1(text.encode("utf-8")).hexdigest()
+            row = connection.execute(
+                "SELECT 1 FROM embedding_cache WHERE text_sha1 = ?",
+                (text_sha1,),
+            ).fetchone()
+            if not row:
+                missing.append(text)
+        return missing
+    finally:
+        connection.close()
+
+
 def _count_existing_values(connection: sqlite3.Connection, column: str, values: list[str]) -> int:
     if not values:
         return 0
@@ -187,5 +303,26 @@ def _plan_to_markdown(plan: dict[str, object]) -> str:
             f"- 是否会调用在线 provider：{plan.get('will_call_provider')}",
             "",
             "该计划只读取本地数据集和缓存，不发送 embedding 请求。",
+        ]
+    )
+
+
+def _warmup_to_markdown(result: dict[str, object]) -> str:
+    before = result.get("before", {})
+    after = result.get("after", {})
+    if not isinstance(before, dict):
+        before = {}
+    if not isinstance(after, dict):
+        after = {}
+    return "\n".join(
+        [
+            "# Embedding Cache 预热结果",
+            "",
+            f"- Provider：{result.get('provider')}",
+            f"- Cache：{result.get('cache_path')}",
+            f"- 预热前缺失文本数：{before.get('cache_miss_count')}",
+            f"- 本次写入文本数：{result.get('warmed_text_count')}",
+            f"- 预热后缺失文本数：{after.get('cache_miss_count')}",
+            f"- 预热后缓存命中数：{after.get('cache_hit_count')}",
         ]
     )

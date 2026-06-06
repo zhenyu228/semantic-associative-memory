@@ -331,6 +331,12 @@
           "path": "scripts/plan_embedding_run.py",
           "kind": "code",
           "exists": true
+        },
+        {
+          "label": "Embedding cache 预热入口",
+          "path": "scripts/warm_embedding_cache.py",
+          "kind": "code",
+          "exists": true
         }
       ],
       "experiment_evidence": [
@@ -361,6 +367,12 @@
         {
           "label": "HotpotQA embedding 请求量计划",
           "path": "outputs/plans/hotpotqa_embedding_plan/embedding_run_plan.json",
+          "kind": "experiment",
+          "exists": true
+        },
+        {
+          "label": "HotpotQA embedding cache 本地预热 smoke",
+          "path": "outputs/plans/hotpotqa_local_warmup/embedding_cache_warmup.json",
           "kind": "experiment",
           "exists": true
         }

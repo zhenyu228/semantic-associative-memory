@@ -9,7 +9,7 @@
 | 语义激活与联想检索机制 | 已完成阶段性目标 | 75% | 5/5 | 3/3 |
 | 类比推理触发与应用 | 已完成阶段性目标 | 50% | 5/5 | 3/3 |
 | 多智能体语义记忆协调机制 | 已完成阶段性目标 | 52% | 6/6 | 3/3 |
-| 评测体系与检索-生成闭环 | 已完成阶段性目标 | 58% | 6/6 | 4/4 |
+| 评测体系与检索-生成闭环 | 已完成阶段性目标 | 58% | 7/7 | 5/5 |
 
 ## 模块明细
 
@@ -103,11 +103,13 @@
   - 已存在：`src/sam/llm.py`，GPT-5.4 SDK provider
   - 已存在：`src/sam/embedding.py`，Embedding provider 与缓存
   - 已存在：`scripts/plan_embedding_run.py`，Embedding 正式运行前请求量规划
+  - 已存在：`scripts/warm_embedding_cache.py`，Embedding cache 预热入口
 - 实验证据：
   - 已存在：`outputs/runs/provider_smoke_gpt54_sdk_hotpotqa1/pipeline_summary.json`，GPT-5.4 SDK HotpotQA smoke，摘要：{"answer_hit_rate": 0.0}
   - 已存在：`outputs/runs/novelqa_demo_eval12_edge_filter/metrics.json`，NovelQA 小样本
   - 已存在：`outputs/runs/end_to_end_smoke/pipeline_summary.json`，端到端本地 smoke，摘要：{"answer_hit_rate": 0.0}
   - 已存在：`outputs/plans/hotpotqa_embedding_plan/embedding_run_plan.json`，HotpotQA embedding 请求量计划
+  - 已存在：`outputs/plans/hotpotqa_local_warmup/embedding_cache_warmup.json`，HotpotQA embedding cache 本地预热 smoke
 - 剩余工作：
   - 正式 embedding endpoint/key 未在本地安全配置中提供，无法完成正式 embedding 主实验。
   - GPT-5.4 生成和答案判别需要扩大到多样本正式结果。
