@@ -81,19 +81,22 @@ OPENING_MODULE_SPECS: list[ModuleSpec] = [
         module_id="analogy_reasoning",
         title="类比推理触发与应用",
         opening_requirement="在新问题激活子图与历史问题-解答链条结构相似时触发类比，检索类似案例并向 LLM 提供提示。",
-        target_progress=45,
+        target_progress=50,
         code_evidence=[
             EvidenceSpec("类比检索引擎", "src/sam/analogy.py", "code"),
             EvidenceSpec("类比复用实验逻辑", "src/sam/analogy_experiment.py", "code"),
             EvidenceSpec("类比提示注入", "src/sam/generation.py", "code"),
+            EvidenceSpec("类比支持证据注入检索排序", "src/sam/retriever.py", "code"),
             EvidenceSpec("类比复用脚本", "scripts/run_analogy_reuse_experiment.py", "code"),
         ],
         experiment_evidence=[
             EvidenceSpec("类比复用 30 条", "outputs/runs/analogy_reuse_hotpotqa30/analogy_reuse_results.json", "experiment"),
             EvidenceSpec("类比生成 smoke", "outputs/runs/analogy_generation_smoke/metrics.json", "experiment"),
+            EvidenceSpec("类比检索排序 30 条 smoke", "outputs/runs/analogy_retrieval_smoke/metrics.json", "experiment"),
         ],
         remaining_work=[
             "类比提示对最终答案质量的提升尚未用 GPT-5.4 正式验证。",
+            "类比支持证据注入检索排序仍需正式规模实验验证。",
             "当前类比触发偏规则化，缺少更强的子图结构匹配。",
             "需要扩展到真实多轮或跨任务类比场景。",
         ],

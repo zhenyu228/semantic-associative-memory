@@ -502,3 +502,23 @@ HotpotQA 30 条回归 run 位于 `outputs/runs/weak_relation_penalty_hotpotqa30/
 该样本的问题是：`What government position was held by the woman who portrayed Corliss Archer in the film Kiss and Tell?`，标准答案为 `Chief of Protocol`。GPT-5.4 生成答案为 `United States Ambassador to Ghana`，说明模型根据上下文识别出 Shirley Temple，但检索上下文没有覆盖其担任 `Chief of Protocol` 的支持证据。将 `top-k` 提升到 4、`hops` 提升到 2 后仍未补回完整证据链，bad case 被归因为 `missing_support_evidence`、`answer_not_covered` 和 `graph_noise`。
 
 该结果说明，GPT-5.4 生成链路已经进入实验闭环，但当前瓶颈仍在检索侧：local embedding 初始召回不足，图扩展没有稳定补回第二条支持证据。下一步应优先接入正式 embedding，并使用 GPT-5.4 RelationJudge 对候选边进行关系有效性判别，再重跑同一条样本和 HotpotQA 300 条主实验。
+
+## 24. 类比案例进入检索排序层
+
+为继续推进开题计划中的类比推理模块，系统新增 `SAM-with-analogy` 检索模式。旧版本的类比主要有两类作用：一是从历史巩固记忆中找相似案例，二是在生成阶段把历史案例写入提示词。这个流程可以解释“当前问题像哪个历史问题”，但历史成功案例还没有直接参与检索排序。
+
+新模式将历史巩固记忆中的 `support_node_ids` 转换为当前检索中的类比路径信号：当 `AnalogyEngine` 判断当前问题与某个历史成功案例相似时，`Retriever` 会把该历史案例对应的支持证据节点加入候选路径，并在 `score_breakdown` 中记录 `analogy_component`。最终结果会保留 `analogy_case_id`、`analogy_support_node_id` 和类比提示文本，便于追踪这个证据为什么被召回。
+
+该改造使类比推理从“生成提示层”前移到“检索排序层”。它对应的直接收益不是让模型多看到一段提示，而是让系统能够复用历史证据链，把过去已经验证过的支持证据作为当前问题的候选路径。当前已补充单元测试 `test_sam_with_analogy_reuses_consolidated_support_as_retrieval_signal`，验证历史巩固案例的支持证据可以通过 `SAM-with-analogy` 被召回，并且结果中保留类比来源解释。
+
+随后运行 HotpotQA 30 条 smoke，run 位于 `outputs/runs/analogy_retrieval_smoke/`，比较 Embedding Top-k、SAM-full 和 SAM-with-analogy。结果如下：
+
+| 方法 | 证据命中数 | 证据召回率 | 答案命中数 | 答案命中率 |
+| --- | ---: | ---: | ---: | ---: |
+| Embedding Top-k | 29 | 0.483 | 15 | 0.500 |
+| SAM-full | 33 | 0.550 | 19 | 0.633 |
+| SAM-with-analogy | 34 | 0.567 | 19 | 0.633 |
+
+这个结果说明，在当前 30 条连续评测设置中，类比支持证据注入比 SAM-full 多命中 1 条支持证据，但答案命中数暂时没有变化。原因是该实验仍然以 HotpotQA 独立样本为主，历史案例之间的可复用性有限；类比模块已经能进入检索排序层，但它更适合在连续任务、同主题追问或跨任务经验复用场景中验证。
+
+下一步需要将 `SAM-with-analogy` 加入连续任务实验，与 `SAM-full`、`SAM-no-graph` 和多智能体共享记忆方法一起比较。重点指标应包括类比支持证据命中数、答案命中率变化、错误类比比例，以及类比路径是否降低多跳证据缺失。

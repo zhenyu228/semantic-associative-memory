@@ -2223,6 +2223,106 @@ class SamCoreTest(unittest.TestCase):
         self.assertEqual(result["support_overlap_hit_count"], 1)
         self.assertTrue(result["cases"][0]["top_match"]["is_consolidated_case"])
 
+    def test_sam_with_analogy_reuses_consolidated_support_as_retrieval_signal(self) -> None:
+        self.store.reset()
+        now = utc_now_iso()
+
+        def node(
+            node_id: str,
+            case_id: str,
+            text: str,
+            *,
+            node_type: str = "document",
+            support_ids: list[str] | None = None,
+        ) -> MemoryNode:
+            return MemoryNode(
+                id=node_id,
+                text=text,
+                summary=text,
+                keywords=text.lower().split()[:10],
+                tags=[node_type],
+                source="unit-test",
+                created_at=now,
+                last_accessed_at=None,
+                usage_count=0,
+                confidence=0.86,
+                embedding=self.embedding.embed(text),
+                metadata={
+                    "query_id": case_id,
+                    "title": node_id,
+                    "node_type": node_type,
+                    "support_node_ids": support_ids or [],
+                    "answer": "answer-token" if support_ids else None,
+                    "support_titles": ["old_support"] if support_ids else [],
+                },
+            )
+
+        old_bridge = node(
+            "old_bridge",
+            "old_case",
+            "river festival bridge evidence connects a person to an office role",
+        )
+        old_support = node(
+            "old_support",
+            "old_case",
+            "archived support paragraph contains answer-token for the office role",
+        )
+        consolidated = node(
+            "old_consolidated",
+            "old_case",
+            "successful old case: river festival bridge evidence used archived support",
+            node_type="consolidated_memory",
+            support_ids=["old_support"],
+        )
+        current_seed = node(
+            "current_seed",
+            "new_case",
+            "river festival bridge question asks which office role was held",
+        )
+        distractor = node(
+            "distractor",
+            "new_case",
+            "river festival bridge unrelated background without the archived answer",
+        )
+        self.store.upsert_nodes([old_bridge, old_support, consolidated, current_seed, distractor])
+        self.store.upsert_edges(
+            [
+                MemoryEdge(
+                    source_id="old_consolidated",
+                    target_id="old_support",
+                    relation_type="consolidates_support",
+                    weight=0.9,
+                    reason="历史成功案例的支持证据",
+                    created_at=now,
+                    updated_at=now,
+                    activation_count=2,
+                    last_activated_at=now,
+                )
+            ]
+        )
+        retriever = Retriever(self.store, self.embedding, self.graph)
+
+        hits = retriever.retrieve(
+            "river festival bridge asks for the office role",
+            mode="sam_with_analogy",
+            top_k=3,
+            seed_k=1,
+            hops=1,
+            candidate_doc_ids=[
+                "old_bridge",
+                "old_support",
+                "old_consolidated",
+                "current_seed",
+                "distractor",
+            ],
+        )
+
+        support_hit = next(hit for hit in hits if hit.node.id == "old_support")
+        self.assertEqual(support_hit.metadata["analogy_case_id"], "old_case")
+        self.assertEqual(support_hit.metadata["analogy_support_node_id"], "old_support")
+        self.assertIn("类比案例", support_hit.reason)
+        self.assertIn("analogy_component", support_hit.metadata["score_breakdown"])
+
     def test_shared_memory_coordinator_writes_layered_agent_memory(self) -> None:
         coordinator = SharedMemoryCoordinator(self.store, self.embedding)
         coordinator.write_memory(

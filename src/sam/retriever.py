@@ -27,6 +27,7 @@ RETRIEVAL_METHOD_NAMES = {
     "sam_no_feedback": "SAM-no-feedback",
     "sam_vector_anchor": "SAM-vector-anchor",
     "sam_adaptive_anchor": "SAM-adaptive-anchor",
+    "sam_with_analogy": "SAM-with-analogy",
 }
 
 
@@ -44,6 +45,8 @@ class SamRetrievalConfig:
     adaptive_vector_anchor: bool = False
     adaptive_anchor_keep: int = 2
     adaptive_anchor_threshold: float = 0.75
+    use_analogy: bool = False
+    analogy_top_k: int = 2
 
 
 SAM_RETRIEVAL_CONFIGS = {
@@ -61,6 +64,7 @@ SAM_RETRIEVAL_CONFIGS = {
     "sam_no_feedback": SamRetrievalConfig(),
     "sam_vector_anchor": SamRetrievalConfig(min_vector_keep=2),
     "sam_adaptive_anchor": SamRetrievalConfig(adaptive_vector_anchor=True),
+    "sam_with_analogy": SamRetrievalConfig(use_analogy=True),
 }
 
 
@@ -131,6 +135,7 @@ class Retriever:
         if sam_config.use_graph and sam_config.build_graph_on_demand:
             self.graph_builder.build_edges_on_demand(seed_nodes, candidates)
         hits = self._associative_hits(
+            query=query,
             query_embedding=query_embedding,
             candidates=candidates,
             vector_hits=vector_hits[:top_k],
@@ -382,6 +387,7 @@ class Retriever:
 
     def _associative_hits(
         self,
+        query: str,
         query_embedding: list[float],
         candidates: list[MemoryNode],
         vector_hits: list[RetrievalHit],
@@ -394,6 +400,15 @@ class Retriever:
         nodes_by_id = {node.id: node for node in candidates}
         best_paths: dict[str, tuple[list[str], float, str]] = {}
         path_signals: dict[str, list[dict[str, object]]] = {}
+        analogy_signals = (
+            self._analogy_support_signals(
+                query=query,
+                candidate_ids=candidate_ids,
+                top_k=config.analogy_top_k,
+            )
+            if config.use_analogy
+            else {}
+        )
         queue: deque[tuple[str, list[str], float, int, str]] = deque()
         expanded_edge_node_ids: set[str] = {hit.node.id for hit in seed_hits}
         for vector_hit in vector_hits:
@@ -468,6 +483,34 @@ class Retriever:
                 for node_id, (path, graph_score, reason) in best_paths.items()
             }
 
+        for support_node_id, analogy_signal in analogy_signals.items():
+            if support_node_id not in nodes_by_id:
+                continue
+            consolidated_node_id = str(analogy_signal.get("consolidated_node_id") or "")
+            path = (
+                [consolidated_node_id, support_node_id]
+                if consolidated_node_id and consolidated_node_id in nodes_by_id
+                else [support_node_id]
+            )
+            graph_score = float(analogy_signal.get("graph_score", 0.0))
+            reason = (
+                f"类比案例 {analogy_signal.get('case_id')} 复用历史支持证据"
+            )
+            path_signals.setdefault(support_node_id, []).append(
+                {
+                    "path": path,
+                    "graph_score": graph_score,
+                    "relation_type": "analogy_case_reuse",
+                    "edge_activation_count": analogy_signal.get("edge_activation_count", 0),
+                    "reason": reason,
+                    "depth": max(1, len(path) - 1),
+                    "analogy_case_id": analogy_signal.get("case_id"),
+                }
+            )
+            previous = best_paths.get(support_node_id)
+            if previous is None or graph_score > previous[1]:
+                best_paths[support_node_id] = (path, graph_score, reason)
+
         hits: list[RetrievalHit] = []
         for node_id, (path, graph_score, reason) in best_paths.items():
             node = nodes_by_id[node_id]
@@ -481,29 +524,53 @@ class Retriever:
                 use_multipath=config.use_multipath,
                 use_memory_state=config.use_memory_state,
             )
+            score_breakdown = dict(path_score.breakdown)
+            total_score = path_score.total
+            hit_metadata: dict[str, object] = {
+                "score_breakdown": score_breakdown,
+                "reranker_profile": path_score.profile,
+                "path_support_score": round(path_score.path_support_score, 4),
+                "edge_memory_score": round(path_score.edge_memory_score, 4),
+                "recency_score": round(path_score.recency_score, 4),
+                "candidate_path_count": len(signals),
+                "candidate_paths": _top_path_signals(signals),
+                "ablation_config": _sam_config_payload(config),
+            }
+            reason_text = (
+                f"{reason}；多路径支持={path_score.path_support_score:.3f}，"
+                f"历史边激活={path_score.edge_memory_score:.3f}，近期访问={path_score.recency_score:.3f}"
+            )
+            if node_id in analogy_signals:
+                analogy_signal = analogy_signals[node_id]
+                analogy_component = min(
+                    0.16,
+                    float(analogy_signal.get("match_score", 0.0)) * 0.12,
+                )
+                total_score += analogy_component
+                score_breakdown["analogy_component"] = round(analogy_component, 4)
+                hit_metadata.update(
+                    {
+                        "analogy_case_id": analogy_signal.get("case_id"),
+                        "analogy_support_node_id": node_id,
+                        "analogy_match_score": round(
+                            float(analogy_signal.get("match_score", 0.0)),
+                            4,
+                        ),
+                        "analogy_prompt_hint": analogy_signal.get("prompt_hint", ""),
+                    }
+                )
+                reason_text = f"{reason_text}；类比案例={analogy_signal.get('case_id')}"
             hits.append(
                 RetrievalHit(
                     node=node,
-                    score=path_score.total,
+                    score=total_score,
                     similarity_score=similarity,
                     graph_score=graph_score,
                     usage_score=path_score.usage_score,
                     confidence_score=path_score.confidence_score,
                     path=path,
-                    reason=(
-                        f"{reason}；多路径支持={path_score.path_support_score:.3f}，"
-                        f"历史边激活={path_score.edge_memory_score:.3f}，近期访问={path_score.recency_score:.3f}"
-                    ),
-                    metadata={
-                        "score_breakdown": path_score.breakdown,
-                        "reranker_profile": path_score.profile,
-                        "path_support_score": round(path_score.path_support_score, 4),
-                        "edge_memory_score": round(path_score.edge_memory_score, 4),
-                        "recency_score": round(path_score.recency_score, 4),
-                        "candidate_path_count": len(signals),
-                        "candidate_paths": _top_path_signals(signals),
-                        "ablation_config": _sam_config_payload(config),
-                    },
+                    reason=reason_text,
+                    metadata=hit_metadata,
                 )
             )
         hits.sort(key=lambda hit: hit.score, reverse=True)
@@ -626,6 +693,47 @@ class Retriever:
             return f"{query_id or node.metadata.get('dataset', 'global')}::{node.keywords[0]}"
         return f"{query_id or node.metadata.get('dataset', 'global')}::misc"
 
+    def _analogy_support_signals(
+        self,
+        *,
+        query: str,
+        candidate_ids: set[str],
+        top_k: int,
+    ) -> dict[str, dict[str, object]]:
+        from sam.analogy import AnalogyEngine
+
+        engine = AnalogyEngine(self.store, self.embedding_provider, self.graph_builder)
+        signals: dict[str, dict[str, object]] = {}
+        for match in engine.retrieve_cases(query, top_k=top_k):
+            support_node_ids = [
+                str(node_id)
+                for node_id in match.metadata.get("support_node_ids", [])
+                if str(node_id) in candidate_ids
+            ]
+            if not support_node_ids:
+                continue
+            match_score = float(match.score)
+            graph_score = min(
+                1.0,
+                0.72 * match_score
+                + 0.18 * float(match.metadata.get("consolidated_confidence") or 0.0)
+                + 0.10,
+            )
+            for support_node_id in support_node_ids:
+                previous = signals.get(support_node_id)
+                if previous is not None and float(previous.get("match_score", 0.0)) >= match_score:
+                    continue
+                signals[support_node_id] = {
+                    "support_node_id": support_node_id,
+                    "case_id": match.case_id,
+                    "match_score": match_score,
+                    "graph_score": graph_score,
+                    "consolidated_node_id": match.metadata.get("consolidated_node_id"),
+                    "prompt_hint": match.prompt_hint,
+                    "edge_activation_count": 1,
+                }
+        return signals
+
 
 def _normalize_mode(mode: str) -> str:
     aliases = {
@@ -647,6 +755,8 @@ def _sam_config_payload(config: SamRetrievalConfig) -> dict[str, object]:
         "adaptive_vector_anchor": config.adaptive_vector_anchor,
         "adaptive_anchor_keep": config.adaptive_anchor_keep,
         "adaptive_anchor_threshold": config.adaptive_anchor_threshold,
+        "use_analogy": config.use_analogy,
+        "analogy_top_k": config.analogy_top_k,
     }
 
 
