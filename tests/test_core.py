@@ -745,6 +745,61 @@ class SamCoreTest(unittest.TestCase):
         self.assertNotIn("weak_relation_penalty", strong_score.breakdown)
         self.assertLess(weak_score.total, strong_score.total)
 
+    def test_path_reranker_uses_edge_audit_noise_rates(self) -> None:
+        node = self.nodes[0]
+        signals = [
+            {
+                "path": ["seed", node.id],
+                "graph_score": 0.8,
+                "depth": 1,
+                "edge_activation_count": 0,
+                "relation_type": "keyword_overlap",
+            }
+        ]
+
+        plain_score = PathReranker(profile="semantic_heavy").score(
+            similarity=0.5,
+            graph_score=0.8,
+            signals=signals,
+            node=node,
+            use_multipath=True,
+            use_memory_state=False,
+        )
+        audited_score = PathReranker(
+            profile="semantic_heavy",
+            relation_noise_rates={"keyword_overlap": 0.87},
+        ).score(
+            similarity=0.5,
+            graph_score=0.8,
+            signals=signals,
+            node=node,
+            use_multipath=True,
+            use_memory_state=False,
+        )
+
+        self.assertIn("relation_noise_penalty", audited_score.breakdown)
+        self.assertGreater(audited_score.relation_noise_penalty, 0.0)
+        self.assertLess(audited_score.total, plain_score.total)
+
+    def test_path_reranker_loads_edge_audit_from_environment(self) -> None:
+        audit_path = Path(self.temp_dir.name) / "edge_quality_audit.json"
+        audit_path.write_text(
+            json.dumps(
+                {
+                    "relation_stats": {
+                        "keyword_overlap": {"noise_rate": 0.88},
+                        "shared_entity": {"noise_rate": 0.1},
+                    }
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        with patch.dict("os.environ", {"SAM_EDGE_QUALITY_AUDIT_PATH": str(audit_path)}, clear=False):
+            reranker = PathReranker.from_env()
+
+        self.assertEqual(reranker.relation_noise_rates["keyword_overlap"], 0.88)
+
     def test_retriever_reads_reranker_profile_from_environment(self) -> None:
         query = self.queries[0]
         candidate_ids = [

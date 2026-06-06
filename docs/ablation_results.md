@@ -552,3 +552,5 @@ HotpotQA 30 条样本的规划结果位于 `outputs/plans/hotpotqa_embedding_pla
 为进一步定位 `graph_noise`，系统新增 `scripts/audit_edge_quality.py` 和 `sam.edge_audit`。该审计读取 `cases.json` 中每个命中结果的 `candidate_paths`，按关系类型统计它们出现在支持证据路径和非支持证据路径中的次数，并计算噪声率。它不依赖 gold 图，只使用公开数据集中的 supporting evidence 标注和系统实际检索路径。
 
 在 `outputs/runs/weak_relation_penalty_hotpotqa30/` 上运行审计后，SAM-full 的 30 条 HotpotQA run 中共有 89 个图路径命中，其中 22 个落在支持证据上，67 个落在非支持证据上，涉及 19 个图噪声 bad case。按关系类型看，`keyword_overlap` 出现 108 次，其中噪声 94 次，噪声率 0.870；`embedding_similarity` 出现 62 次，其中噪声 50 次，噪声率 0.806；`context_cooccurrence` 出现 6 次，噪声率 0.667。该结果说明下一阶段不能只继续增加图扩展，而应把弱关键词边和弱语义相似边的二跳权重继续下调，或者引入 GPT-5.4 RelationJudge 对这些边进行关系有效性判别。
+
+随后 `PathReranker` 支持读取 `SAM_EDGE_QUALITY_AUDIT_PATH` 指向的 `edge_quality_audit.json`，将高噪声关系类型转化为 `relation_noise_penalty`，写入每个命中结果的 `score_breakdown`。在 `outputs/runs/edge_audit_penalty_hotpotqa30/` 的 30 条 smoke 中，SAM-full 证据召回率为 0.600，答案命中率为 0.733；相比原弱关系惩罚 run 的 0.617 和 0.667，证据召回略有下降，但答案命中率提升 0.066。进一步审计显示，图噪声路径数量没有下降，说明这一步主要改善排序而非建边质量。下一阶段仍需要在建边阶段引入 GPT-5.4 RelationJudge 或更严格实体链接，减少噪声边进入候选图。

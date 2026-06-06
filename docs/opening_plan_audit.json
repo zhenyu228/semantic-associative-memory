@@ -107,6 +107,12 @@
           "exists": true
         },
         {
+          "label": "审计驱动关系噪声惩罚",
+          "path": "src/sam/reranker.py",
+          "kind": "code",
+          "exists": true
+        },
+        {
           "label": "查询规划",
           "path": "src/sam/query_planner.py",
           "kind": "code",
@@ -155,6 +161,12 @@
             "best_profile": "semantic_heavy",
             "profile_count": 4
           }
+        },
+        {
+          "label": "Edge-audit 惩罚 30 条 smoke",
+          "path": "outputs/runs/edge_audit_penalty_hotpotqa30/metrics.json",
+          "kind": "experiment",
+          "exists": true
         }
       ],
       "remaining_work": [

@@ -6,7 +6,7 @@
 | 模块 | 状态 | 估算进度 | 代码证据 | 实验证据 |
 | --- | --- | ---: | ---: | ---: |
 | 知识提取与动态知识图谱构建 | 已完成阶段性目标 | 70% | 7/7 | 4/4 |
-| 语义激活与联想检索机制 | 已完成阶段性目标 | 75% | 5/5 | 3/3 |
+| 语义激活与联想检索机制 | 已完成阶段性目标 | 75% | 6/6 | 4/4 |
 | 类比推理触发与应用 | 已完成阶段性目标 | 50% | 5/5 | 3/3 |
 | 多智能体语义记忆协调机制 | 已完成阶段性目标 | 52% | 6/6 | 3/3 |
 | 评测体系与检索-生成闭环 | 已完成阶段性目标 | 58% | 7/7 | 5/5 |
@@ -42,6 +42,7 @@
 - 代码证据：
   - 已存在：`src/sam/retriever.py`，两阶段检索与消融模式
   - 已存在：`src/sam/reranker.py`，路径重排
+  - 已存在：`src/sam/reranker.py`，审计驱动关系噪声惩罚
   - 已存在：`src/sam/query_planner.py`，查询规划
   - 已存在：`src/sam/evaluator.py`，评测器
   - 已存在：`scripts/run_demo.py`，主实验入口
@@ -49,6 +50,7 @@
   - 已存在：`outputs/runs/fair_ablation_hotpotqa_300/ablation_metrics.json`，HotpotQA 300 条消融，摘要：{"sam_evidence_recall": 0.6033, "sam_answer_hit_rate": 0.5967}
   - 已存在：`outputs/runs/feedback_ablation_hotpotqa_300_isolated/ablation_metrics.json`，反馈消融 300 条，摘要：{"sam_evidence_recall": 0.6033, "sam_answer_hit_rate": 0.5967}
   - 已存在：`outputs/runs/reranker_profile_hotpotqa300_noise_penalty/reranker_profile_comparison.json`，PathReranker 300 条 profile 对比，摘要：{"best_profile": "semantic_heavy", "profile_count": 4}
+  - 已存在：`outputs/runs/edge_audit_penalty_hotpotqa30/metrics.json`，Edge-audit 惩罚 30 条 smoke
 - 剩余工作：
   - 正式 embedding 尚未重跑 HotpotQA 300 条和 NovelQA。
   - 多路径与记忆状态在单轮 HotpotQA 上收益不明显，需要更适合动态记忆的实验。

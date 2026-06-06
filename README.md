@@ -136,6 +136,26 @@ conda run -n sam python scripts/run_demo.py \
 
 当前支持 `balanced`、`semantic_heavy`、`graph_heavy`、`memory_heavy`。运行产物 `cases.json` 会在 SAM 命中结果中记录 `reranker_profile` 和对应 `score_breakdown`，便于分析某个失败样本是语义相似度不足、图路径噪声，还是历史记忆权重过强。`PathReranker` 还会对过密候选路径加入 `path_noise_penalty`，避免长文本场景中“路径很多但证据不可靠”的节点被无条件推高。
 
+如果某次 run 已经生成 `cases.json`，可以先审计图边质量，再把审计结果反馈给重排器：
+
+```bash
+conda run -n sam python scripts/audit_edge_quality.py \
+  --cases-file outputs/runs/weak_relation_penalty_hotpotqa30/cases.json \
+  --method sam_full \
+  --output-dir outputs/runs/weak_relation_penalty_hotpotqa30
+
+SAM_EDGE_QUALITY_AUDIT_PATH=outputs/runs/weak_relation_penalty_hotpotqa30/edge_quality_audit.json \
+conda run -n sam python scripts/run_demo.py \
+  --dataset-file data/processed/hotpotqa_sam_sample.json \
+  --methods embedding_topk,sam_full,sam_no_graph \
+  --top-k 4 \
+  --seed-k 1 \
+  --hops 2 \
+  --run-name edge_audit_penalty_hotpotqa30
+```
+
+启用 `SAM_EDGE_QUALITY_AUDIT_PATH` 后，高噪声关系会在 `score_breakdown` 中产生 `relation_noise_penalty`。该机制用于排序校正，不能替代建边阶段的关系判别。
+
 如果要一次性比较多个 profile，可以运行：
 
 ```bash

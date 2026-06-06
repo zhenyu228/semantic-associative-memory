@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import math
 import os
+import json
 from dataclasses import dataclass
+from pathlib import Path
 
 from sam.models import MemoryNode
 
@@ -80,6 +82,7 @@ class PathScore:
     edge_memory_score: float
     path_noise_penalty: float
     weak_relation_penalty: float
+    relation_noise_penalty: float
     usage_score: float
     recency_score: float
     confidence_score: float
@@ -89,15 +92,23 @@ class PathScore:
 class PathReranker:
     """将联想检索结果的路径质量和记忆状态合成为排序分。"""
 
-    def __init__(self, profile: str = DEFAULT_RERANKER_PROFILE) -> None:
+    def __init__(
+        self,
+        profile: str = DEFAULT_RERANKER_PROFILE,
+        relation_noise_rates: dict[str, float] | None = None,
+    ) -> None:
         if profile not in RERANKER_PROFILES:
             raise ValueError(f"未知 reranker profile: {profile}")
         self.profile = profile
         self.weights = RERANKER_PROFILES[profile]
+        self.relation_noise_rates = relation_noise_rates or {}
 
     @classmethod
     def from_env(cls) -> "PathReranker":
-        return cls(os.environ.get("SAM_RERANKER_PROFILE", DEFAULT_RERANKER_PROFILE))
+        return cls(
+            os.environ.get("SAM_RERANKER_PROFILE", DEFAULT_RERANKER_PROFILE),
+            relation_noise_rates=_load_relation_noise_rates_from_env(),
+        )
 
     def score(
         self,
@@ -113,6 +124,11 @@ class PathReranker:
         path_support_score = _path_support_score(signals) if use_multipath else 0.0
         path_noise_penalty = _path_noise_penalty(signals, weights) if use_multipath else 0.0
         weak_relation_penalty = _weak_relation_penalty(signals, weights) if use_multipath else 0.0
+        relation_noise_penalty = (
+            _relation_noise_penalty(signals, self.relation_noise_rates)
+            if use_multipath
+            else 0.0
+        )
         effective_similarity = _effective_similarity(similarity, graph_score, path_support_score)
         edge_memory_score = _edge_memory_score(signals) if use_memory_state else 0.0
         usage_score = (
@@ -135,6 +151,8 @@ class PathReranker:
                 breakdown["path_noise_penalty"] = round(path_noise_penalty, 4)
             if weak_relation_penalty > 0.0:
                 breakdown["weak_relation_penalty"] = round(weak_relation_penalty, 4)
+            if relation_noise_penalty > 0.0:
+                breakdown["relation_noise_penalty"] = round(relation_noise_penalty, 4)
         if use_memory_state:
             breakdown["edge_memory_component"] = round(weights.edge_memory * edge_memory_score, 4)
             breakdown["usage_component"] = round(usage_score, 4)
@@ -149,6 +167,7 @@ class PathReranker:
             + confidence_score
             - path_noise_penalty
             - weak_relation_penalty
+            - relation_noise_penalty
         )
         return PathScore(
             profile=self.profile,
@@ -157,6 +176,7 @@ class PathReranker:
             edge_memory_score=edge_memory_score,
             path_noise_penalty=path_noise_penalty,
             weak_relation_penalty=weak_relation_penalty,
+            relation_noise_penalty=relation_noise_penalty,
             usage_score=usage_score,
             recency_score=recency_score,
             confidence_score=confidence_score,
@@ -227,6 +247,49 @@ def _weak_relation_penalty(signals: list[dict[str, object]], weights: RerankerWe
         elif relation_type == "keyword_overlap":
             penalty += 0.02
     return min(weights.weak_relation_cap, penalty)
+
+
+def _relation_noise_penalty(
+    signals: list[dict[str, object]],
+    relation_noise_rates: dict[str, float],
+) -> float:
+    if not relation_noise_rates:
+        return 0.0
+    penalty = 0.0
+    for signal in signals:
+        relation_type = str(signal.get("relation_type", ""))
+        if not relation_type:
+            continue
+        noise_rate = float(relation_noise_rates.get(relation_type, 0.0))
+        if noise_rate < 0.6:
+            continue
+        path = signal.get("path", [])
+        fallback_depth = max(0, len(path) - 1) if isinstance(path, list) else 0
+        depth = max(1, int(signal.get("depth", fallback_depth) or 1))
+        penalty += (noise_rate - 0.55) * 0.08 / depth
+    return min(0.14, penalty)
+
+
+def _load_relation_noise_rates_from_env() -> dict[str, float]:
+    path = os.environ.get("SAM_EDGE_QUALITY_AUDIT_PATH")
+    if not path:
+        return {}
+    source = Path(path)
+    if not source.exists():
+        return {}
+    try:
+        data = json.loads(source.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    relation_stats = data.get("relation_stats", {})
+    if not isinstance(relation_stats, dict):
+        return {}
+    rates: dict[str, float] = {}
+    for relation_type, stats in relation_stats.items():
+        if not isinstance(stats, dict):
+            continue
+        rates[str(relation_type)] = float(stats.get("noise_rate", 0.0) or 0.0)
+    return rates
 
 
 def _recency_score(last_accessed_at: str | None, weight: float) -> float:

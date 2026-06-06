@@ -64,6 +64,7 @@ OPENING_MODULE_SPECS: list[ModuleSpec] = [
         code_evidence=[
             EvidenceSpec("两阶段检索与消融模式", "src/sam/retriever.py", "code"),
             EvidenceSpec("路径重排", "src/sam/reranker.py", "code"),
+            EvidenceSpec("审计驱动关系噪声惩罚", "src/sam/reranker.py", "code"),
             EvidenceSpec("查询规划", "src/sam/query_planner.py", "code"),
             EvidenceSpec("评测器", "src/sam/evaluator.py", "code"),
             EvidenceSpec("主实验入口", "scripts/run_demo.py", "code"),
@@ -72,6 +73,7 @@ OPENING_MODULE_SPECS: list[ModuleSpec] = [
             EvidenceSpec("HotpotQA 300 条消融", "outputs/runs/fair_ablation_hotpotqa_300/ablation_metrics.json", "experiment"),
             EvidenceSpec("反馈消融 300 条", "outputs/runs/feedback_ablation_hotpotqa_300_isolated/ablation_metrics.json", "experiment"),
             EvidenceSpec("PathReranker 300 条 profile 对比", "outputs/runs/reranker_profile_hotpotqa300_noise_penalty/reranker_profile_comparison.json", "experiment"),
+            EvidenceSpec("Edge-audit 惩罚 30 条 smoke", "outputs/runs/edge_audit_penalty_hotpotqa30/metrics.json", "experiment"),
         ],
         remaining_work=[
             "正式 embedding 尚未重跑 HotpotQA 300 条和 NovelQA。",
