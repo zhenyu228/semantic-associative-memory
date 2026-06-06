@@ -381,18 +381,21 @@ conda run -n sam python scripts/run_demo.py \
 export SAM_AZURE_CHAT_URL="https://你的完整 chat/completions 地址"
 ```
 
-使用 GPT-5.4 生成答案时同样使用环境变量配置，不把 key 写入仓库：
+使用 GPT-5.4 生成答案时同样使用 `.env.local` 配置，不把 key 写入仓库：
 
 ```bash
+cat >> .env.local <<'EOF'
 export SAM_CHAT_PROVIDER=azure_openai
 export SAM_AZURE_CHAT_ENDPOINT="https://aidp-i18ntt-sg.byteintl.net/api/modelhub/online/v2/crawl"
 export SAM_AZURE_CHAT_API_VERSION="2024-02-01"
 export SAM_AZURE_CHAT_MODEL="gpt-5.4-2026-03-05"
 export SAM_AZURE_CHAT_API_KEY="..."
+EOF
 
 conda run -n sam python scripts/generate_answers.py \
   --cases-file outputs/runs/<run_name>/cases.json \
   --method sam_full \
+  --env-file .env.local \
   --chat-provider azure_openai \
   --answer-judge gpt54
 ```
@@ -407,6 +410,7 @@ conda run -n sam python scripts/generate_answers.py \
 conda run -n sam python scripts/generate_answers.py \
   --cases-file outputs/runs/<run_name>/cases.json \
   --method sam_full \
+  --env-file .env.local \
   --chat-provider azure_openai \
   --use-analogy-hints \
   --analogy-top-k 2 \
@@ -419,6 +423,7 @@ conda run -n sam python scripts/generate_answers.py \
 conda run -n sam python scripts/generate_answers.py \
   --cases-file outputs/runs/<run_name>/cases.json \
   --method sam_full \
+  --env-file .env.local \
   --chat-provider azure_openai \
   --compare-analogy \
   --analogy-top-k 2 \

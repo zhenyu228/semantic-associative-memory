@@ -19,6 +19,7 @@ from sam.generation import (  # noqa: E402
     write_generation_reports,
 )
 from sam.answer_judge import create_answer_judge  # noqa: E402
+from sam.env import load_env_file  # noqa: E402
 from sam.llm import create_chat_client  # noqa: E402
 
 
@@ -26,6 +27,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="基于 cases.json 生成最终答案并评测")
     parser.add_argument("--cases-file", required=True, help="run 目录中的 cases.json")
     parser.add_argument("--method", default="sam_full", help="用于生成答案的检索方法")
+    parser.add_argument("--env-file", default=None, help="可选：加载本地 .env.local；文件已被 gitignore 忽略")
     parser.add_argument("--chat-provider", default=None, help="heuristic 或 azure_openai")
     parser.add_argument("--answer-judge", default="rule", choices=["rule", "gpt54"], help="答案命中判别器：rule 或 gpt54")
     parser.add_argument("--limit", type=int, default=None, help="最多生成多少条")
@@ -39,6 +41,8 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
+    if args.env_file:
+        load_env_file(ROOT / args.env_file)
     cases_path = ROOT / args.cases_file if not Path(args.cases_file).is_absolute() else Path(args.cases_file)
     cases = json.loads(cases_path.read_text(encoding="utf-8"))
     output_dir = (
