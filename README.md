@@ -189,6 +189,25 @@ conda run -n sam python scripts/run_end_to_end_experiment.py \
 
 该脚本会在同一个 run 目录中输出 `metrics.json`、`cases.json`、`generated_answers.json`、`generation_bad_cases.json` 和 `pipeline_summary.json`。正式实验可以把 `--chat-provider`、`--answer-judge`、`--query-planner` 和 `--relation-judge` 切换为 GPT-5.4 配置。
 
+正式 embedding 重跑主实验时，建议给每个 run 指定独立缓存，避免重复消耗相同文本的 embedding 额度：
+
+```bash
+conda run -n sam python scripts/run_end_to_end_experiment.py \
+  --env-file .env.local \
+  --dataset-file data/processed/hotpotqa_midterm300_sam_sample.json \
+  --limit 300 \
+  --embedding-provider azure_openai_sdk \
+  --embedding-cache-path outputs/runs/e2e_hotpotqa300_embedding/embedding_cache.sqlite \
+  --embedding-concurrency 4 \
+  --chat-provider azure_openai_sdk \
+  --answer-judge rule \
+  --retrieval-methods embedding_topk,sam_full \
+  --generation-method sam_full \
+  --run-name e2e_hotpotqa300_embedding
+```
+
+`scripts/run_reranker_profile_experiment.py` 和 `scripts/run_memory_reuse_experiment.py` 也支持同样的 `--env-file`、`--embedding-cache-path` 和 `--embedding-concurrency` 参数，方便用同一套正式 embedding 配置重跑 profile 对比和连续记忆复用实验。
+
 使用 Azure OpenAI embedding 时不要把 key 写入仓库，使用环境变量配置。`azure_openai` 使用项目内置 HTTP client；`azure_openai_sdk` 使用 OpenAI SDK 的 `AsyncAzureOpenAI`，更接近公司内部示例代码：
 
 ```bash

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -29,7 +30,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--limit", type=int, default=8, help="参与实验的查询数量")
     parser.add_argument("--env-file", default=None, help="可选：加载本地 .env.local；文件已被 gitignore 忽略")
     parser.add_argument("--embedding-provider", default=None, help="local、openai、azure_openai 或 azure_openai_sdk")
-    parser.add_argument("--chat-provider", default=None, help="heuristic 或 azure_openai")
+    parser.add_argument("--embedding-cache", action="store_true", help="启用 SQLite embedding 缓存，默认写入 data/embedding_cache.sqlite")
+    parser.add_argument("--embedding-cache-path", default=None, help="自定义 embedding 缓存 SQLite 路径")
+    parser.add_argument("--embedding-concurrency", type=int, default=None, help="在线 embedding 最大并发数")
+    parser.add_argument("--chat-provider", default=None, help="heuristic、azure_openai 或 azure_openai_sdk")
     parser.add_argument("--answer-judge", default="rule", choices=["rule", "gpt54"], help="答案判别器")
     parser.add_argument("--query-planner", default="disabled", choices=["disabled", "heuristic", "gpt54"], help="查询规划器")
     parser.add_argument("--relation-judge", default="disabled", help="关系级建边判别器：disabled、gpt54 或 cached_gpt54")
@@ -56,6 +60,13 @@ def main() -> None:
     args = parse_args()
     if args.env_file:
         load_env_file(ROOT / args.env_file)
+    if args.embedding_cache:
+        os.environ["SAM_EMBEDDING_CACHE"] = "1"
+    if args.embedding_cache_path:
+        os.environ["SAM_EMBEDDING_CACHE_PATH"] = str(ROOT / args.embedding_cache_path)
+    if args.embedding_concurrency is not None:
+        os.environ["SAM_AZURE_EMBEDDING_CONCURRENCY"] = str(args.embedding_concurrency)
+        os.environ["SAM_OPENAI_EMBEDDING_CONCURRENCY"] = str(args.embedding_concurrency)
     run_name = args.run_name or f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_end_to_end"
     run_dir = ROOT / args.output_root / run_name
     run_dir.mkdir(parents=True, exist_ok=True)

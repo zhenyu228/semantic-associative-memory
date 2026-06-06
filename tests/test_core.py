@@ -74,6 +74,7 @@ from sam.retriever import Retriever
 from sam.reuse_experiment import build_masked_queries, summarize_memory_reuse
 from sam.store import MemoryStore
 from scripts.run_demo import _nodes_for_graph_export
+from scripts.check_embedding_provider import build_embedding_status
 from scripts.check_model_providers import build_provider_status
 from scripts.create_env_template import write_env_template
 from scripts.run_provider_smoke_experiment import run_provider_smoke_experiment
@@ -1598,6 +1599,23 @@ class SamCoreTest(unittest.TestCase):
         self.assertIn("HTTP 429", status["chat"]["probe_error"]["message"])
         self.assertNotIn("https://example.test/custom/chat/completions", rendered)
         self.assertNotIn("chat-secret", rendered)
+
+    def test_embedding_provider_diagnostic_reports_probe_errors_without_traceback(self) -> None:
+        class FailingEmbeddingProvider(LocalHashEmbeddingProvider):
+            def embed(self, text: str) -> list[float]:
+                raise RuntimeError("HTTP 429 from https://example.test/custom/embeddings")
+
+        with patch(
+            "scripts.check_embedding_provider.create_embedding_provider",
+            return_value=FailingEmbeddingProvider(),
+        ):
+            status = build_embedding_status(provider_name="local", probe="probe text")
+
+        rendered = json.dumps(status, ensure_ascii=False)
+        self.assertFalse(status["ready"])
+        self.assertEqual(status["probe_error"]["type"], "RuntimeError")
+        self.assertIn("HTTP 429", status["probe_error"]["message"])
+        self.assertNotIn("https://example.test/custom/embeddings", rendered)
 
     def test_combined_provider_diagnostic_can_require_only_embedding(self) -> None:
         status = build_provider_status(
