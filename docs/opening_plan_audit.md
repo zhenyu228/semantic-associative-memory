@@ -5,7 +5,7 @@
 
 | 模块 | 状态 | 估算进度 | 代码证据 | 实验证据 |
 | --- | --- | ---: | ---: | ---: |
-| 知识提取与动态知识图谱构建 | 已完成阶段性目标 | 70% | 6/6 | 3/3 |
+| 知识提取与动态知识图谱构建 | 已完成阶段性目标 | 70% | 7/7 | 4/4 |
 | 语义激活与联想检索机制 | 已完成阶段性目标 | 75% | 5/5 | 3/3 |
 | 类比推理触发与应用 | 已完成阶段性目标 | 50% | 5/5 | 3/3 |
 | 多智能体语义记忆协调机制 | 已完成阶段性目标 | 52% | 6/6 | 3/3 |
@@ -21,6 +21,7 @@
   - 已存在：`src/sam/models.py`，MemoryNode / MemoryEdge 数据结构
   - 已存在：`src/sam/store.py`，SQLite 记忆存储与事件表
   - 已存在：`src/sam/graph.py`，按需建图与边质量控制
+  - 已存在：`src/sam/edge_audit.py`，图边质量审计
   - 已存在：`src/sam/feedback.py`，反馈更新
   - 已存在：`src/sam/consolidation.py`，记忆巩固
   - 已存在：`src/sam/relation_judge.py`，GPT-5.4 关系判别接口
@@ -28,6 +29,7 @@
   - 已存在：`outputs/runs/memory_events_30_smoke/metrics.json`，记忆事件 smoke
   - 已存在：`outputs/runs/memory_consolidation_hotpotqa30_v2/metrics.json`，记忆巩固实验
   - 已存在：`outputs/runs/weak_relation_penalty_hotpotqa30/metrics.json`，弱关系惩罚实验
+  - 已存在：`outputs/runs/weak_relation_penalty_hotpotqa30/edge_quality_audit.json`，图边质量审计 smoke
 - 剩余工作：
   - GPT-5.4 RelationJudge 尚未形成正式规模实验。
   - 图谱边权仍以经验公式为主，缺少学习式或系统化参数搜索。

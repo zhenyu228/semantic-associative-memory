@@ -546,3 +546,9 @@ HotpotQA 30 条回归 run 位于 `outputs/runs/weak_relation_penalty_hotpotqa30/
 HotpotQA 30 条样本的规划结果位于 `outputs/plans/hotpotqa_embedding_plan/`。在 `azure_openai_sdk`、`batch_size=16`、未指定 cache 的设置下，结果为：文档 embedding 文本数 300，summary embedding 文本数 30，唯一文本数 330，缓存命中数 0，预计需要请求文本数 330，预计 batch 数 21。该结果说明正式重跑 HotpotQA 30 条并不会只请求 300 个段落，还会额外请求 30 个查询上下文摘要节点。后续正式 300 条实验前，需要先开启 `SAM_EMBEDDING_CACHE_PATH`，并用该计划确认缓存命中和预计 batch 数，再决定是否扩大规模。
 
 随后新增 `scripts/warm_embedding_cache.py`，用于按相同文本构造方式预热 embedding cache。该脚本会先生成预热前计划，只对缺失文本调用 provider，并在结束后重新统计缓存命中。使用 local provider 对 HotpotQA 30 条样本做 smoke，第一次预热写入 330 个文本，预热后缺失文本数为 0；第二次使用同一个 cache 重新运行时，本次写入文本数为 0，说明缓存复用逻辑有效。正式接入 `azure_openai_sdk` 时可以复用同一脚本，只需将 provider 和 env 文件切换为正式配置。
+
+## 27. 图边质量审计
+
+为进一步定位 `graph_noise`，系统新增 `scripts/audit_edge_quality.py` 和 `sam.edge_audit`。该审计读取 `cases.json` 中每个命中结果的 `candidate_paths`，按关系类型统计它们出现在支持证据路径和非支持证据路径中的次数，并计算噪声率。它不依赖 gold 图，只使用公开数据集中的 supporting evidence 标注和系统实际检索路径。
+
+在 `outputs/runs/weak_relation_penalty_hotpotqa30/` 上运行审计后，SAM-full 的 30 条 HotpotQA run 中共有 89 个图路径命中，其中 22 个落在支持证据上，67 个落在非支持证据上，涉及 19 个图噪声 bad case。按关系类型看，`keyword_overlap` 出现 108 次，其中噪声 94 次，噪声率 0.870；`embedding_similarity` 出现 62 次，其中噪声 50 次，噪声率 0.806；`context_cooccurrence` 出现 6 次，噪声率 0.667。该结果说明下一阶段不能只继续增加图扩展，而应把弱关键词边和弱语义相似边的二跳权重继续下调，或者引入 GPT-5.4 RelationJudge 对这些边进行关系有效性判别。

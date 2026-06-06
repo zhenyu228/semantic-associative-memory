@@ -42,6 +42,7 @@ from sam.embedding import (
     inspect_embedding_provider_config,
 )
 from sam.embedding_plan import build_embedding_run_plan, warm_embedding_cache
+from sam.edge_audit import audit_edge_quality, write_edge_quality_audit
 from sam.env import apply_provider_env_aliases, load_env_file
 from sam.evaluator import Evaluator
 from sam.experiment_audit import audit_run_directory, write_experiment_audit
@@ -1278,6 +1279,48 @@ class SamCoreTest(unittest.TestCase):
 
         self.assertEqual(summary["support_hit_gain"], 2)
         self.assertEqual(summary["evidence_recall_gain"], 1.0)
+
+    def test_edge_quality_audit_counts_support_and_noise_relations(self) -> None:
+        cases = [
+            {
+                "query_id": "edge_case",
+                "supporting_doc_ids": ["gold_a", "gold_b"],
+                "support_hits_by_method": {"sam_full": 1},
+                "methods": {
+                    "sam_full": [
+                        {
+                            "node_id": "support",
+                            "is_supporting": True,
+                            "path": ["seed", "support"],
+                            "candidate_paths": [
+                                {"relation_type": "shared_entity", "graph_score": 0.8}
+                            ],
+                        },
+                        {
+                            "node_id": "noise",
+                            "is_supporting": False,
+                            "path": ["seed", "middle", "noise"],
+                            "candidate_paths": [
+                                {"relation_type": "embedding_similarity", "graph_score": 0.7},
+                                {"relation_type": "keyword_overlap", "graph_score": 0.4},
+                            ],
+                        },
+                    ]
+                },
+            }
+        ]
+
+        audit = audit_edge_quality(cases, method="sam_full")
+        output_dir = Path(self.temp_dir.name) / "edge_audit"
+        json_path, markdown_path = write_edge_quality_audit(audit, output_dir)
+
+        relation_stats = audit["relation_stats"]
+        self.assertEqual(relation_stats["shared_entity"]["support_count"], 1)
+        self.assertEqual(relation_stats["embedding_similarity"]["noise_count"], 1)
+        self.assertEqual(relation_stats["embedding_similarity"]["noise_rate"], 1.0)
+        self.assertEqual(audit["summary"]["graph_noise_case_count"], 1)
+        self.assertTrue(json_path.exists())
+        self.assertIn("边质量审计", markdown_path.read_text(encoding="utf-8"))
 
     def test_no_feedback_mode_skips_feedback_events(self) -> None:
         self.evaluator.evaluate(

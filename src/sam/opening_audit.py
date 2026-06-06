@@ -39,6 +39,7 @@ OPENING_MODULE_SPECS: list[ModuleSpec] = [
             EvidenceSpec("MemoryNode / MemoryEdge 数据结构", "src/sam/models.py", "code"),
             EvidenceSpec("SQLite 记忆存储与事件表", "src/sam/store.py", "code"),
             EvidenceSpec("按需建图与边质量控制", "src/sam/graph.py", "code"),
+            EvidenceSpec("图边质量审计", "src/sam/edge_audit.py", "code"),
             EvidenceSpec("反馈更新", "src/sam/feedback.py", "code"),
             EvidenceSpec("记忆巩固", "src/sam/consolidation.py", "code"),
             EvidenceSpec("GPT-5.4 关系判别接口", "src/sam/relation_judge.py", "code"),
@@ -47,6 +48,7 @@ OPENING_MODULE_SPECS: list[ModuleSpec] = [
             EvidenceSpec("记忆事件 smoke", "outputs/runs/memory_events_30_smoke/metrics.json", "experiment"),
             EvidenceSpec("记忆巩固实验", "outputs/runs/memory_consolidation_hotpotqa30_v2/metrics.json", "experiment"),
             EvidenceSpec("弱关系惩罚实验", "outputs/runs/weak_relation_penalty_hotpotqa30/metrics.json", "experiment"),
+            EvidenceSpec("图边质量审计 smoke", "outputs/runs/weak_relation_penalty_hotpotqa30/edge_quality_audit.json", "experiment"),
         ],
         remaining_work=[
             "GPT-5.4 RelationJudge 尚未形成正式规模实验。",
