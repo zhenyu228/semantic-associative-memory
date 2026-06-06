@@ -275,7 +275,8 @@ conda run -n sam python scripts/check_model_providers.py \
 
 ```bash
 conda run -n sam python scripts/check_model_providers.py \
-  --embedding-provider azure_openai \
+  --env-file .env.local \
+  --embedding-provider azure_openai_sdk \
   --chat-provider heuristic \
   --require embedding
 ```
@@ -284,7 +285,8 @@ conda run -n sam python scripts/check_model_providers.py \
 
 ```bash
 conda run -n sam python scripts/check_model_providers.py \
-  --embedding-provider azure_openai \
+  --env-file .env.local \
+  --embedding-provider azure_openai_sdk \
   --chat-provider azure_openai \
   --embedding-probe "SAM embedding connectivity test." \
   --chat-probe "What is the result of 1+1?"
@@ -296,7 +298,8 @@ conda run -n sam python scripts/check_model_providers.py \
 conda run -n sam python scripts/run_provider_smoke_experiment.py \
   --dataset-file data/processed/hotpotqa_sam_sample.json \
   --limit 1 \
-  --embedding-provider azure_openai \
+  --env-file .env.local \
+  --embedding-provider azure_openai_sdk \
   --chat-provider azure_openai \
   --answer-judge gpt54 \
   --query-planner gpt54 \

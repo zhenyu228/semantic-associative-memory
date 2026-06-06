@@ -88,11 +88,16 @@ def run_provider_smoke_experiment(
         encoding="utf-8",
     )
     if not provider_status["ready"]:
-        (target / "smoke_summary.md").write_text(
-            _smoke_summary_markdown({"provider_status": provider_status, "pipeline": None}),
+        summary = {"provider_status": provider_status, "pipeline": None, "audit": None}
+        (target / "smoke_summary.json").write_text(
+            json.dumps(summary, ensure_ascii=False, indent=2),
             encoding="utf-8",
         )
-        raise RuntimeError("provider gate 未通过，已跳过端到端 smoke 实验")
+        (target / "smoke_summary.md").write_text(
+            _smoke_summary_markdown(summary),
+            encoding="utf-8",
+        )
+        return summary
 
     dataset_path = Path(dataset_file)
     documents, queries, _ = load_sam_dataset(dataset_path)
@@ -176,7 +181,12 @@ def main() -> None:
         max_context_chars=args.max_context_chars,
     )
     pipeline = summary["pipeline"]
-    assert isinstance(pipeline, dict)
+    if not isinstance(pipeline, dict):
+        print("provider gate 未通过，已跳过端到端 smoke 实验")
+        print(f"运行目录：{run_dir}")
+        print(f"Provider Status：{run_dir / 'provider_status.json'}")
+        print(f"Smoke Summary：{run_dir / 'smoke_summary.md'}")
+        raise SystemExit(2)
     generation = pipeline["generation"]
     assert isinstance(generation, dict)
     print("SAM provider smoke 实验完成")

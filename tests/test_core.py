@@ -1524,6 +1524,37 @@ class SamCoreTest(unittest.TestCase):
         self.assertTrue((output_dir / "experiment_audit.json").exists())
         self.assertTrue((output_dir / "smoke_summary.md").exists())
 
+    def test_provider_smoke_experiment_writes_summary_when_provider_gate_fails(self) -> None:
+        output_dir = Path(self.temp_dir.name) / "provider_smoke_failed"
+        dataset_path = Path(self.temp_dir.name) / "sample_dataset.json"
+        documents, queries = load_builtin_benchmark_sample()
+        save_sam_dataset(
+            path=dataset_path,
+            documents=documents,
+            queries=queries,
+            dataset_info={"name": "builtin-test"},
+            processing={"source_script": "unit-test"},
+        )
+
+        summary = run_provider_smoke_experiment(
+            dataset_file=dataset_path,
+            output_dir=output_dir,
+            limit=1,
+            embedding_provider_name="local",
+            chat_provider_name="azure_openai",
+            answer_judge_name="rule",
+            query_planner_name="disabled",
+            relation_judge_name="disabled",
+            required_providers="both",
+        )
+
+        self.assertFalse(summary["provider_status"]["ready"])
+        self.assertIsNone(summary["pipeline"])
+        self.assertTrue((output_dir / "provider_status.json").exists())
+        self.assertTrue((output_dir / "smoke_summary.json").exists())
+        self.assertTrue((output_dir / "smoke_summary.md").exists())
+        self.assertFalse((output_dir / "pipeline_summary.json").exists())
+
     def test_experiment_audit_identifies_weak_graph_gain_and_generation_failure(self) -> None:
         run_dir = Path(self.temp_dir.name) / "audit_run"
         run_dir.mkdir()
