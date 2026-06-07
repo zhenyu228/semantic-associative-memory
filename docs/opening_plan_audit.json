@@ -361,6 +361,12 @@
           "path": "scripts/warm_embedding_cache.py",
           "kind": "code",
           "exists": true
+        },
+        {
+          "label": "官方 baseline 就绪审计",
+          "path": "evaluation/official_baselines/audit_official_baselines.py",
+          "kind": "code",
+          "exists": true
         }
       ],
       "experiment_evidence": [
@@ -399,12 +405,23 @@
           "path": "outputs/plans/hotpotqa_local_warmup/embedding_cache_warmup.json",
           "kind": "experiment",
           "exists": true
+        },
+        {
+          "label": "官方 baseline 就绪状态审计",
+          "path": "docs/official_baseline_audit.json",
+          "kind": "experiment",
+          "exists": true,
+          "summary": {
+            "ready_count": 1,
+            "partial_count": 2,
+            "prepared_dataset_count": 1
+          }
         }
       ],
       "remaining_work": [
         "正式 embedding endpoint/key 已在本地安全配置中提供，但当前真实 probe 返回 TimeoutError，HotpotQA 300 条和 NovelQA 正式在线 embedding 主实验尚未完成。",
         "GPT-5.4 生成和答案判别需要扩大到多样本正式结果。",
-        "官方 baseline 严格复现尚未完成。"
+        "官方 baseline 中 GraphRAG 已达到本地 ready 状态，RAPTOR 和 HippoRAG 仍需修复官方依赖后再跑正式分数。"
       ]
     }
   ],

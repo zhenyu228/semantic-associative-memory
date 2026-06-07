@@ -14,6 +14,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--api-version", default=None, help="默认读取 GPT54_API_VERSION 或 2024-02-01")
     parser.add_argument("--chat-model", default=None, help="默认读取 GPT54_MODEL 或 RAPTOR_QA_MODEL")
     parser.add_argument("--embedding-model", default=None, help="可选：测试 embedding deployment")
+    parser.add_argument("--embedding-api-key", default=None, help="默认读取 EMBEDDING_API_KEY、SAM_AZURE_EMBEDDING_API_KEY 或 chat key")
+    parser.add_argument("--embedding-base-url", default=None, help="默认读取 EMBEDDING_BASE_URL、SAM_AZURE_EMBEDDING_ENDPOINT 或 chat base url")
+    parser.add_argument("--embedding-api-version", default=None, help="默认读取 EMBEDDING_API_VERSION、SAM_AZURE_EMBEDDING_API_VERSION 或 chat api version")
+    parser.add_argument("--embedding-dimensions", type=int, default=None, help="可选：embedding 输出维度，例如 1024")
     return parser.parse_args()
 
 
@@ -47,22 +51,67 @@ def main() -> None:
     chat_text = chat_response["choices"][0]["message"]["content"].strip()
     print(f"chat_ok=true model={chat_model} response={chat_text}")
 
-    embedding_model = args.embedding_model or os.getenv("RAPTOR_EMBEDDING_MODEL") or os.getenv("GRAPHRAG_EMBEDDING_MODEL")
+    embedding_model = (
+        args.embedding_model
+        or os.getenv("EMBEDDING_MODEL")
+        or os.getenv("SAM_AZURE_EMBEDDING_MODEL")
+        or os.getenv("RAPTOR_EMBEDDING_MODEL")
+        or os.getenv("GRAPHRAG_EMBEDDING_MODEL")
+    )
     if not embedding_model:
         print("embedding_ok=skipped reason=未设置 embedding deployment")
         return
 
-    embedding_payload = {"input": ["SAM API probe"]}
+    embedding_api_key = (
+        args.embedding_api_key
+        or os.getenv("EMBEDDING_API_KEY")
+        or os.getenv("SAM_AZURE_EMBEDDING_API_KEY")
+        or os.getenv("RAPTOR_EMBEDDING_API_KEY")
+        or api_key
+    )
+    embedding_base_url = (
+        args.embedding_base_url
+        or os.getenv("EMBEDDING_BASE_URL")
+        or os.getenv("SAM_AZURE_EMBEDDING_ENDPOINT")
+        or os.getenv("RAPTOR_EMBEDDING_AZURE_ENDPOINT")
+        or base_url
+    )
+    embedding_api_version = (
+        args.embedding_api_version
+        or os.getenv("EMBEDDING_API_VERSION")
+        or os.getenv("SAM_AZURE_EMBEDDING_API_VERSION")
+        or os.getenv("RAPTOR_EMBEDDING_API_VERSION")
+        or api_version
+    )
+    dimensions = (
+        args.embedding_dimensions
+        or _int_env("EMBEDDING_DIMENSIONS")
+        or _int_env("SAM_AZURE_EMBEDDING_DIMENSIONS")
+        or _int_env("RAPTOR_EMBEDDING_DIMENSIONS")
+    )
+    embedding_payload = {"input": ["SAM API probe"], "model": embedding_model}
+    if dimensions:
+        embedding_payload["dimensions"] = dimensions
     embedding_response = _post_azure(
-        base_url=base_url,
+        base_url=embedding_base_url,
         deployment=embedding_model,
         endpoint="embeddings",
-        api_version=api_version,
-        api_key=api_key,
+        api_version=embedding_api_version,
+        api_key=embedding_api_key,
         payload=embedding_payload,
     )
     vector = embedding_response["data"][0]["embedding"]
     print(f"embedding_ok=true model={embedding_model} dimension={len(vector)}")
+
+
+def _int_env(name: str) -> int | None:
+    raw = os.getenv(name)
+    if not raw:
+        return None
+    try:
+        return int(raw)
+    except ValueError:
+        return None
 
 
 def _post_azure(

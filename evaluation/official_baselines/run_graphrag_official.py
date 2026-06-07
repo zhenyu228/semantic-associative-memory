@@ -31,6 +31,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--embedding-model", default=None, help="embedding 模型名，默认读取 GRAPHRAG_EMBEDDING_MODEL")
     parser.add_argument("--chat-deployment", default=None, help="Azure chat deployment，默认等于 chat-model")
     parser.add_argument("--embedding-deployment", default=None, help="Azure embedding deployment，默认等于 embedding-model")
+    parser.add_argument("--embedding-api-key", default=None, help="embedding API key，默认读取 GRAPHRAG_EMBEDDING_API_KEY、EMBEDDING_API_KEY 或 SAM_AZURE_EMBEDDING_API_KEY")
+    parser.add_argument("--embedding-api-base", default=None, help="embedding API base，默认读取 GRAPHRAG_EMBEDDING_API_BASE、EMBEDDING_BASE_URL 或 SAM_AZURE_EMBEDDING_ENDPOINT")
+    parser.add_argument("--embedding-api-version", default=None, help="embedding API version，默认读取 GRAPHRAG_EMBEDDING_API_VERSION、EMBEDDING_API_VERSION 或 SAM_AZURE_EMBEDDING_API_VERSION")
     parser.add_argument("--limit", type=int, default=None, help="最多评测多少个问题")
     parser.add_argument("--skip-index", action="store_true", help="跳过 graphrag index，仅运行 query")
     parser.add_argument("--output", default=None, help="结果 JSON 路径")
@@ -113,10 +116,37 @@ def _configure_graphrag_settings(work_dir: Path, args: argparse.Namespace) -> No
     api_base = args.api_base or os.getenv("GRAPHRAG_API_BASE") or os.getenv("OPENAI_BASE_URL")
     api_version = args.api_version or os.getenv("GRAPHRAG_API_VERSION") or os.getenv("GPT54_API_VERSION")
     chat_model = args.chat_model or os.getenv("GRAPHRAG_CHAT_MODEL") or "gpt-4o-mini"
-    embedding_model = args.embedding_model or os.getenv("GRAPHRAG_EMBEDDING_MODEL") or "text-embedding-3-small"
+    embedding_model = (
+        args.embedding_model
+        or os.getenv("GRAPHRAG_EMBEDDING_MODEL")
+        or os.getenv("EMBEDDING_MODEL")
+        or os.getenv("SAM_AZURE_EMBEDDING_MODEL")
+        or "text-embedding-3-small"
+    )
     chat_deployment = args.chat_deployment or os.getenv("GRAPHRAG_CHAT_DEPLOYMENT") or chat_model
     embedding_deployment = args.embedding_deployment or os.getenv("GRAPHRAG_EMBEDDING_DEPLOYMENT") or embedding_model
     api_key_value = os.getenv("GRAPHRAG_API_KEY") or os.getenv("OPENAI_API_KEY") or os.getenv("GPT54_API_KEY") or "<API_KEY>"
+    embedding_api_key_value = (
+        args.embedding_api_key
+        or os.getenv("GRAPHRAG_EMBEDDING_API_KEY")
+        or os.getenv("EMBEDDING_API_KEY")
+        or os.getenv("SAM_AZURE_EMBEDDING_API_KEY")
+        or api_key_value
+    )
+    embedding_api_base = (
+        args.embedding_api_base
+        or os.getenv("GRAPHRAG_EMBEDDING_API_BASE")
+        or os.getenv("EMBEDDING_BASE_URL")
+        or os.getenv("SAM_AZURE_EMBEDDING_ENDPOINT")
+        or api_base
+    )
+    embedding_api_version = (
+        args.embedding_api_version
+        or os.getenv("GRAPHRAG_EMBEDDING_API_VERSION")
+        or os.getenv("EMBEDDING_API_VERSION")
+        or os.getenv("SAM_AZURE_EMBEDDING_API_VERSION")
+        or api_version
+    )
 
     for model_config in settings.get("completion_models", {}).values():
         model_config["model_provider"] = model_provider
@@ -132,22 +162,29 @@ def _configure_graphrag_settings(work_dir: Path, args: argparse.Namespace) -> No
     for model_config in settings.get("embedding_models", {}).values():
         model_config["model_provider"] = model_provider
         model_config["model"] = embedding_model
-        model_config["api_key"] = "${GRAPHRAG_API_KEY}"
-        if api_base:
-            model_config["api_base"] = api_base
-        if api_version:
-            model_config["api_version"] = api_version
+        model_config["api_key"] = "${GRAPHRAG_EMBEDDING_API_KEY}"
+        if embedding_api_base:
+            model_config["api_base"] = embedding_api_base
+        if embedding_api_version:
+            model_config["api_version"] = embedding_api_version
         if model_provider == "azure":
             model_config["azure_deployment_name"] = embedding_deployment
 
     settings_path.write_text(yaml.safe_dump(settings, allow_unicode=True, sort_keys=False), encoding="utf-8")
 
     dotenv_path = work_dir / ".env"
-    dotenv_lines = [f"GRAPHRAG_API_KEY={api_key_value}"]
+    dotenv_lines = [
+        f"GRAPHRAG_API_KEY={api_key_value}",
+        f"GRAPHRAG_EMBEDDING_API_KEY={embedding_api_key_value}",
+    ]
     if api_base:
         dotenv_lines.append(f"GRAPHRAG_API_BASE={api_base}")
     if api_version:
         dotenv_lines.append(f"GRAPHRAG_API_VERSION={api_version}")
+    if embedding_api_base:
+        dotenv_lines.append(f"GRAPHRAG_EMBEDDING_API_BASE={embedding_api_base}")
+    if embedding_api_version:
+        dotenv_lines.append(f"GRAPHRAG_EMBEDDING_API_VERSION={embedding_api_version}")
     dotenv_path.write_text("\n".join(dotenv_lines) + "\n", encoding="utf-8")
 
 

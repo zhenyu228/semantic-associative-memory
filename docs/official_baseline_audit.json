@@ -2,8 +2,8 @@
   "title": "官方 baseline 就绪状态审计",
   "summary": {
     "method_count": 3,
-    "ready_count": 0,
-    "partial_count": 3,
+    "ready_count": 1,
+    "partial_count": 2,
     "blocked_count": 0,
     "prepared_dataset_count": 1
   },
@@ -14,29 +14,39 @@
         "official_repo_present": true,
         "venv_python_present": true,
         "official_import_ok": false,
-        "model_config_ready": false
+        "model_config_ready": true
       },
       "config": {
-        "ready": false,
+        "ready": true,
         "configured_variables": [
+          "EMBEDDING_API_KEY",
           "GPT54_API_KEY",
           "OPENAI_API_KEY",
           "RAPTOR_API_VERSION",
           "RAPTOR_AZURE_ENDPOINT",
+          "RAPTOR_EMBEDDING_API_KEY",
+          "RAPTOR_EMBEDDING_API_VERSION",
+          "RAPTOR_EMBEDDING_AZURE_ENDPOINT",
+          "RAPTOR_EMBEDDING_MODEL",
           "RAPTOR_QA_MODEL",
-          "RAPTOR_SUMMARY_MODEL"
+          "RAPTOR_SUMMARY_MODEL",
+          "SAM_AZURE_EMBEDDING_API_KEY"
         ],
         "configured_sources": {
+          "EMBEDDING_API_KEY": ".env.local",
           "GPT54_API_KEY": "evaluation/official_baselines/.env.local",
           "OPENAI_API_KEY": "evaluation/official_baselines/.env.local",
           "RAPTOR_API_VERSION": "evaluation/official_baselines/.env.local",
           "RAPTOR_AZURE_ENDPOINT": "evaluation/official_baselines/.env.local",
+          "RAPTOR_EMBEDDING_API_KEY": ".env.local",
+          "RAPTOR_EMBEDDING_API_VERSION": ".env.local",
+          "RAPTOR_EMBEDDING_AZURE_ENDPOINT": ".env.local",
+          "RAPTOR_EMBEDDING_MODEL": ".env.local",
           "RAPTOR_QA_MODEL": "evaluation/official_baselines/.env.local",
-          "RAPTOR_SUMMARY_MODEL": "evaluation/official_baselines/.env.local"
+          "RAPTOR_SUMMARY_MODEL": "evaluation/official_baselines/.env.local",
+          "SAM_AZURE_EMBEDDING_API_KEY": ".env.local"
         },
-        "missing_variables": [
-          "RAPTOR_EMBEDDING_MODEL"
-        ],
+        "missing_variables": [],
         "missing_any_groups": []
       },
       "import_check": {
@@ -52,39 +62,50 @@
       "display_name": "RAPTOR"
     },
     "graphrag": {
-      "status": "partial",
+      "status": "ready",
       "checks": {
         "official_repo_present": true,
         "cli_present": true,
         "cli_runs": true,
-        "model_config_ready": false
+        "model_config_ready": true
       },
       "config": {
-        "ready": false,
+        "ready": true,
         "configured_variables": [
+          "EMBEDDING_API_KEY",
           "GPT54_API_KEY",
           "GRAPHRAG_API_BASE",
           "GRAPHRAG_API_KEY",
           "GRAPHRAG_API_VERSION",
           "GRAPHRAG_CHAT_DEPLOYMENT",
           "GRAPHRAG_CHAT_MODEL",
+          "GRAPHRAG_EMBEDDING_API_BASE",
+          "GRAPHRAG_EMBEDDING_API_KEY",
+          "GRAPHRAG_EMBEDDING_API_VERSION",
+          "GRAPHRAG_EMBEDDING_DEPLOYMENT",
+          "GRAPHRAG_EMBEDDING_MODEL",
           "GRAPHRAG_MODEL_PROVIDER",
-          "OPENAI_API_KEY"
+          "OPENAI_API_KEY",
+          "SAM_AZURE_EMBEDDING_API_KEY"
         ],
         "configured_sources": {
+          "EMBEDDING_API_KEY": ".env.local",
           "GPT54_API_KEY": "evaluation/official_baselines/.env.local",
           "GRAPHRAG_API_BASE": "evaluation/official_baselines/.env.local",
           "GRAPHRAG_API_KEY": "evaluation/official_baselines/.env.local",
           "GRAPHRAG_API_VERSION": "evaluation/official_baselines/.env.local",
           "GRAPHRAG_CHAT_DEPLOYMENT": "evaluation/official_baselines/.env.local",
           "GRAPHRAG_CHAT_MODEL": "evaluation/official_baselines/.env.local",
+          "GRAPHRAG_EMBEDDING_API_BASE": ".env.local",
+          "GRAPHRAG_EMBEDDING_API_KEY": ".env.local",
+          "GRAPHRAG_EMBEDDING_API_VERSION": ".env.local",
+          "GRAPHRAG_EMBEDDING_DEPLOYMENT": ".env.local",
+          "GRAPHRAG_EMBEDDING_MODEL": ".env.local",
           "GRAPHRAG_MODEL_PROVIDER": "evaluation/official_baselines/.env.local",
-          "OPENAI_API_KEY": "evaluation/official_baselines/.env.local"
+          "OPENAI_API_KEY": "evaluation/official_baselines/.env.local",
+          "SAM_AZURE_EMBEDDING_API_KEY": ".env.local"
         },
-        "missing_variables": [
-          "GRAPHRAG_EMBEDDING_MODEL",
-          "GRAPHRAG_EMBEDDING_DEPLOYMENT"
-        ],
+        "missing_variables": [],
         "missing_any_groups": []
       },
       "cli_check": {
@@ -142,9 +163,8 @@
     }
   ],
   "next_actions": [
-    "RAPTOR 需要补齐模型配置变量后再运行官方 runner。",
     "RAPTOR 需要先修复官方依赖导入或 CLI 可用性。",
-    "Microsoft GraphRAG 需要补齐模型配置变量后再运行官方 runner。",
+    "Microsoft GraphRAG 已具备本地运行条件，可选择小样本 limit=1 做 smoke。",
     "HippoRAG 需要先修复官方依赖导入或 CLI 可用性。"
   ]
 }

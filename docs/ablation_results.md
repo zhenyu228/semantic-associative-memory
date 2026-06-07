@@ -628,3 +628,13 @@ conda run -n sam python scripts/run_demo.py \
 检索指标方面，Embedding Top-k 的证据召回率为 0.517，答案命中率为 0.567；SAM-full 的证据召回率为 0.567，答案命中率为 0.633。和不启用 RelationJudge 的 30 条 smoke 相比，SAM-full 证据召回率从 0.617 降至 0.567，答案命中率从 0.667 降至 0.633。进一步查看缓存可知，2 次真实 GPT-5.4 调用均返回 QPM 限流错误，其余候选边主要由预算耗尽策略处理。因此这个 run 的意义是验证在线关系判别链路、缓存和成本约束，而不是证明 RelationJudge 已改善检索质量。
 
 下一步应在 QPM 可用或额度扩容后，把调用预算逐步提高到 20、100，再比较 `relation_judge_policy=risky` 与 `off` 的建边质量差异。只有当 GPT-5.4 能返回有效关系类型和置信度时，才适合把 RelationJudge 结果纳入 300 条主实验结论。
+
+## 33. 官方 Baseline 独立 Embedding 配置与就绪审计
+
+为推进 RAPTOR、Microsoft GraphRAG 和 HippoRAG 官方 baseline，系统进一步改造 `evaluation/official_baselines/` 适配层。此前官方 baseline env 默认 chat 和 embedding 使用同一个 API key、base url 和 api version；但当前本地实际配置中 GPT-5.4 与 `text-embedding-3-large` 分属不同公司网关。如果不支持分离配置，RAPTOR 和 GraphRAG 即使有官方代码，也无法正确调用 embedding 模型。
+
+本轮改造后，官方 baseline 模板新增 `EMBEDDING_API_KEY`、`EMBEDDING_BASE_URL`、`EMBEDDING_API_VERSION`、`EMBEDDING_MODEL` 和 `EMBEDDING_DIMENSIONS`。`run_raptor_official.py` 支持独立的 `RAPTOR_EMBEDDING_API_KEY`、`RAPTOR_EMBEDDING_AZURE_ENDPOINT`、`RAPTOR_EMBEDDING_API_VERSION` 和 `RAPTOR_EMBEDDING_DIMENSIONS`；`run_graphrag_official.py` 支持独立的 `GRAPHRAG_EMBEDDING_API_KEY`、`GRAPHRAG_EMBEDDING_API_BASE` 和 `GRAPHRAG_EMBEDDING_API_VERSION`。`test_company_api.py` 也可以分别测试 chat endpoint 和 embedding endpoint。
+
+同时 `audit_official_baselines.py` 支持加载多个 ignored env 文件，并会把根目录 `.env.local` 中的 `SAM_AZURE_EMBEDDING_*` 自动映射为官方 baseline 所需变量。使用 `.env.local` 和 `evaluation/official_baselines/.env.local` 重新审计后，结果写入 `docs/official_baseline_audit.json`。当前 3 个官方 baseline 中，Microsoft GraphRAG 已达到 ready 状态；RAPTOR 的模型配置已完整，但官方导入检查超过 30 秒，仍为 partial；HippoRAG 的模型配置完整，但本机官方依赖缺失，仍为 partial。NovelQA demonstration 已导出为官方 prepared 数据，包含 120 个 documents 和 8 个 queries。
+
+该结果说明官方 baseline 对接已经从“缺少 embedding 配置”推进到“GraphRAG 可进行 limit=1 小样本 smoke，RAPTOR/HippoRAG 需要修复官方依赖”。下一步应优先对 GraphRAG 运行 1 条 NovelQA smoke；如果 embedding endpoint 仍然超时，则记录为外部服务可用性问题，而不是 SAM 数据导出或官方 baseline 适配缺失。

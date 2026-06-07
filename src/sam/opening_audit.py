@@ -142,6 +142,7 @@ OPENING_MODULE_SPECS: list[ModuleSpec] = [
             EvidenceSpec("Embedding provider 与缓存", "src/sam/embedding.py", "code"),
             EvidenceSpec("Embedding 正式运行前请求量规划", "scripts/plan_embedding_run.py", "code"),
             EvidenceSpec("Embedding cache 预热入口", "scripts/warm_embedding_cache.py", "code"),
+            EvidenceSpec("官方 baseline 就绪审计", "evaluation/official_baselines/audit_official_baselines.py", "code"),
         ],
         experiment_evidence=[
             EvidenceSpec("GPT-5.4 SDK HotpotQA smoke", "outputs/runs/provider_smoke_gpt54_sdk_hotpotqa1/pipeline_summary.json", "experiment"),
@@ -149,11 +150,12 @@ OPENING_MODULE_SPECS: list[ModuleSpec] = [
             EvidenceSpec("端到端本地 smoke", "outputs/runs/end_to_end_smoke/pipeline_summary.json", "experiment"),
             EvidenceSpec("HotpotQA embedding 请求量计划", "outputs/plans/hotpotqa_embedding_plan/embedding_run_plan.json", "experiment"),
             EvidenceSpec("HotpotQA embedding cache 本地预热 smoke", "outputs/plans/hotpotqa_local_warmup/embedding_cache_warmup.json", "experiment"),
+            EvidenceSpec("官方 baseline 就绪状态审计", "docs/official_baseline_audit.json", "experiment"),
         ],
         remaining_work=[
             "正式 embedding endpoint/key 已在本地安全配置中提供，但当前真实 probe 返回 TimeoutError，HotpotQA 300 条和 NovelQA 正式在线 embedding 主实验尚未完成。",
             "GPT-5.4 生成和答案判别需要扩大到多样本正式结果。",
-            "官方 baseline 严格复现尚未完成。",
+            "官方 baseline 中 GraphRAG 已达到本地 ready 状态，RAPTOR 和 HippoRAG 仍需修复官方依赖后再跑正式分数。",
         ],
     ),
 ]
@@ -252,6 +254,9 @@ def _json_summary(path: Path) -> dict[str, Any]:
                     "support_hit_gain",
                     "analogy_case_hit_rate",
                     "shared_memory_chain_success_rate",
+                    "ready_count",
+                    "partial_count",
+                    "prepared_dataset_count",
                 ]
                 if key in summary
             }

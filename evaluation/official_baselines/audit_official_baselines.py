@@ -18,7 +18,12 @@ DEFAULT_OUTPUT_DIR = ROOT / "docs"
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="审计官方 baseline 的本地就绪状态")
-    parser.add_argument("--env-file", default=None, help="可选：读取本地 env 文件，只统计变量名和是否配置，不输出值")
+    parser.add_argument(
+        "--env-file",
+        action="append",
+        default=[],
+        help="可重复传入本地 env 文件，只统计变量名和是否配置，不输出值",
+    )
     parser.add_argument("--output-dir", default=str(DEFAULT_OUTPUT_DIR), help="审计报告输出目录")
     parser.add_argument("--timeout", type=float, default=30.0, help="导入检查子进程超时时间")
     parser.add_argument("--json", action="store_true", help="同时打印 JSON")
@@ -29,11 +34,12 @@ def main() -> None:
     args = parse_args()
     env = dict(os.environ)
     env_sources = {key: "process" for key in env}
-    if args.env_file:
-        env_path = _resolve_path(args.env_file)
+    for raw_env_file in args.env_file:
+        env_path = _resolve_path(raw_env_file)
         file_env = _read_env_file(env_path)
         env.update(file_env)
         env_sources.update({key: str(env_path) for key in file_env})
+    _apply_official_baseline_aliases(env, env_sources)
 
     audit = build_official_baseline_audit(env=env, env_sources=env_sources, timeout=args.timeout)
     json_path, markdown_path = write_official_baseline_audit(audit, _resolve_path(args.output_dir))
@@ -107,7 +113,10 @@ def _audit_raptor(env: dict[str, str], env_sources: dict[str, str], timeout: flo
     config = _config_status(
         env,
         env_sources,
-        required_any=[["OPENAI_API_KEY", "GPT54_API_KEY"]],
+        required_any=[
+            ["OPENAI_API_KEY", "GPT54_API_KEY"],
+            ["RAPTOR_EMBEDDING_API_KEY", "EMBEDDING_API_KEY", "SAM_AZURE_EMBEDDING_API_KEY"],
+        ],
         required=[
             "RAPTOR_QA_MODEL",
             "RAPTOR_SUMMARY_MODEL",
@@ -116,6 +125,8 @@ def _audit_raptor(env: dict[str, str], env_sources: dict[str, str], timeout: flo
         required_for_azure=[
             "RAPTOR_AZURE_ENDPOINT",
             "RAPTOR_API_VERSION",
+            "RAPTOR_EMBEDDING_AZURE_ENDPOINT",
+            "RAPTOR_EMBEDDING_API_VERSION",
         ] if (env.get("RAPTOR_CLIENT_TYPE") == "azure") else [],
     )
     checks = {
@@ -143,7 +154,10 @@ def _audit_graphrag(env: dict[str, str], env_sources: dict[str, str], timeout: f
     config = _config_status(
         env,
         env_sources,
-        required_any=[["GRAPHRAG_API_KEY", "OPENAI_API_KEY", "GPT54_API_KEY"]],
+        required_any=[
+            ["GRAPHRAG_API_KEY", "OPENAI_API_KEY", "GPT54_API_KEY"],
+            ["GRAPHRAG_EMBEDDING_API_KEY", "EMBEDDING_API_KEY", "SAM_AZURE_EMBEDDING_API_KEY"],
+        ],
         required=[
             "GRAPHRAG_MODEL_PROVIDER",
             "GRAPHRAG_CHAT_MODEL",
@@ -153,6 +167,8 @@ def _audit_graphrag(env: dict[str, str], env_sources: dict[str, str], timeout: f
             "GRAPHRAG_API_BASE",
             "GRAPHRAG_API_VERSION",
             "GRAPHRAG_CHAT_DEPLOYMENT",
+            "GRAPHRAG_EMBEDDING_API_BASE",
+            "GRAPHRAG_EMBEDDING_API_VERSION",
             "GRAPHRAG_EMBEDDING_DEPLOYMENT",
         ] if (env.get("GRAPHRAG_MODEL_PROVIDER") == "azure") else [],
     )
@@ -239,6 +255,33 @@ def _config_status(
         "missing_variables": missing,
         "missing_any_groups": missing_any,
     }
+
+
+def _apply_official_baseline_aliases(env: dict[str, str], env_sources: dict[str, str]) -> None:
+    """把 SAM 本地模型配置映射为官方 baseline 变量名。"""
+
+    alias_pairs = [
+        ("EMBEDDING_API_KEY", "SAM_AZURE_EMBEDDING_API_KEY"),
+        ("EMBEDDING_BASE_URL", "SAM_AZURE_EMBEDDING_ENDPOINT"),
+        ("EMBEDDING_API_VERSION", "SAM_AZURE_EMBEDDING_API_VERSION"),
+        ("EMBEDDING_MODEL", "SAM_AZURE_EMBEDDING_MODEL"),
+        ("EMBEDDING_DIMENSIONS", "SAM_AZURE_EMBEDDING_DIMENSIONS"),
+        ("RAPTOR_EMBEDDING_MODEL", "EMBEDDING_MODEL"),
+        ("RAPTOR_EMBEDDING_API_KEY", "EMBEDDING_API_KEY"),
+        ("RAPTOR_EMBEDDING_AZURE_ENDPOINT", "EMBEDDING_BASE_URL"),
+        ("RAPTOR_EMBEDDING_API_VERSION", "EMBEDDING_API_VERSION"),
+        ("RAPTOR_EMBEDDING_DIMENSIONS", "EMBEDDING_DIMENSIONS"),
+        ("GRAPHRAG_EMBEDDING_MODEL", "EMBEDDING_MODEL"),
+        ("GRAPHRAG_EMBEDDING_DEPLOYMENT", "EMBEDDING_MODEL"),
+        ("GRAPHRAG_EMBEDDING_API_KEY", "EMBEDDING_API_KEY"),
+        ("GRAPHRAG_EMBEDDING_API_BASE", "EMBEDDING_BASE_URL"),
+        ("GRAPHRAG_EMBEDDING_API_VERSION", "EMBEDDING_API_VERSION"),
+    ]
+    for target, source in alias_pairs:
+        if not _missing(env, target) or _missing(env, source):
+            continue
+        env[target] = env[source]
+        env_sources[target] = env_sources.get(source, f"alias:{source}")
 
 
 def _prepared_dataset_summary(root: Path) -> list[dict[str, Any]]:
@@ -409,6 +452,8 @@ def _missing(env: dict[str, str], key: str) -> bool:
 
 def _source_label(source: str) -> str:
     if source == "process":
+        return source
+    if source.startswith("alias:"):
         return source
     try:
         return str(Path(source).relative_to(ROOT))

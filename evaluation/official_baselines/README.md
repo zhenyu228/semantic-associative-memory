@@ -93,13 +93,23 @@ export GPT54_BASE_URL="https://your-company-gateway.example.com/path"
 export GPT54_API_VERSION="2024-02-01"
 export GPT54_MODEL="your-chat-deployment"
 
+export EMBEDDING_API_KEY="your-embedding-api-key"
+export EMBEDDING_BASE_URL="https://your-embedding-gateway.example.com/path"
+export EMBEDDING_API_VERSION="2023-07-01-preview"
+export EMBEDDING_MODEL="text-embedding-3-large"
+export EMBEDDING_DIMENSIONS="1024"
+
 export OPENAI_API_KEY="$GPT54_API_KEY"
 export RAPTOR_CLIENT_TYPE="azure"
 export RAPTOR_AZURE_ENDPOINT="$GPT54_BASE_URL"
 export RAPTOR_API_VERSION="$GPT54_API_VERSION"
 export RAPTOR_QA_MODEL="$GPT54_MODEL"
 export RAPTOR_SUMMARY_MODEL="$GPT54_MODEL"
-export RAPTOR_EMBEDDING_MODEL="your-embedding-deployment"
+export RAPTOR_EMBEDDING_MODEL="$EMBEDDING_MODEL"
+export RAPTOR_EMBEDDING_API_KEY="$EMBEDDING_API_KEY"
+export RAPTOR_EMBEDDING_AZURE_ENDPOINT="$EMBEDDING_BASE_URL"
+export RAPTOR_EMBEDDING_API_VERSION="$EMBEDDING_API_VERSION"
+export RAPTOR_EMBEDDING_DIMENSIONS="$EMBEDDING_DIMENSIONS"
 
 export GRAPHRAG_API_KEY="$GPT54_API_KEY"
 export GRAPHRAG_API_BASE="$GPT54_BASE_URL"
@@ -107,8 +117,11 @@ export GRAPHRAG_API_VERSION="$GPT54_API_VERSION"
 export GRAPHRAG_MODEL_PROVIDER="azure"
 export GRAPHRAG_CHAT_MODEL="$GPT54_MODEL"
 export GRAPHRAG_CHAT_DEPLOYMENT="$GPT54_MODEL"
-export GRAPHRAG_EMBEDDING_MODEL="your-embedding-model"
-export GRAPHRAG_EMBEDDING_DEPLOYMENT="your-embedding-deployment"
+export GRAPHRAG_EMBEDDING_MODEL="$EMBEDDING_MODEL"
+export GRAPHRAG_EMBEDDING_DEPLOYMENT="$EMBEDDING_MODEL"
+export GRAPHRAG_EMBEDDING_API_KEY="$EMBEDDING_API_KEY"
+export GRAPHRAG_EMBEDDING_API_BASE="$EMBEDDING_BASE_URL"
+export GRAPHRAG_EMBEDDING_API_VERSION="$EMBEDDING_API_VERSION"
 ```
 
 每次运行官方 baseline 前，在同一个终端执行：
@@ -128,9 +141,9 @@ conda run -n sam python evaluation/official_baselines/test_company_api.py
 
 说明：
 
-- RAPTOR 普通模式读取 `OPENAI_API_KEY` 和 `OPENAI_BASE_URL`；Azure-style 模式由本仓库 runner 显式使用 `AzureOpenAI`。
+- RAPTOR 普通模式读取 `OPENAI_API_KEY` 和 `OPENAI_BASE_URL`；Azure-style 模式由本仓库 runner 显式使用 Azure-style HTTP 请求。若 chat 和 embedding 不在同一个 endpoint，使用 `RAPTOR_EMBEDDING_API_KEY`、`RAPTOR_EMBEDDING_AZURE_ENDPOINT`、`RAPTOR_EMBEDDING_API_VERSION` 和 `RAPTOR_EMBEDDING_DIMENSIONS`。
 - RAPTOR 需要 chat/summary 模型和 embedding 模型。没有 embedding deployment 时，不能完整构建 RAPTOR 摘要树。
-- GraphRAG 官方配置读取 `GRAPHRAG_API_KEY`，本仓库 runner 会把 `GRAPHRAG_API_BASE`、`GRAPHRAG_API_VERSION`、`GRAPHRAG_CHAT_MODEL`、`GRAPHRAG_EMBEDDING_MODEL`、deployment 信息自动写入该次运行的 `settings.yaml`。
+- GraphRAG 官方配置读取 `GRAPHRAG_API_KEY`，本仓库 runner 会把 `GRAPHRAG_API_BASE`、`GRAPHRAG_API_VERSION`、`GRAPHRAG_CHAT_MODEL`、`GRAPHRAG_EMBEDDING_MODEL`、deployment 信息自动写入该次运行的 `settings.yaml`。若 embedding 使用独立网关，设置 `GRAPHRAG_EMBEDDING_API_KEY`、`GRAPHRAG_EMBEDDING_API_BASE` 和 `GRAPHRAG_EMBEDDING_API_VERSION`。
 - `.env.local` 不会提交到 Git。
 - `OPENAI_BASE_URL` / `GRAPHRAG_API_BASE` 通常需要带 `/v1`。如果公司网关地址已经内置 `/v1`，不要重复写成 `/v1/v1`。
 - 如果公司网关要求额外 header、AK/SK 签名或非 OpenAI-compatible 路径，需要额外写适配层；只改 base url 不够。
@@ -172,6 +185,7 @@ evaluation/runs/novelqa_demo/prepared/
 
 ```bash
 conda run -n sam python evaluation/official_baselines/audit_official_baselines.py \
+  --env-file .env.local \
   --env-file evaluation/official_baselines/.env.local \
   --output-dir docs
 ```
@@ -183,7 +197,7 @@ docs/official_baseline_audit.json
 docs/official_baseline_audit.md
 ```
 
-当前审计结果显示：RAPTOR、Microsoft GraphRAG 和 HippoRAG 官方仓库均已下载，NovelQA demonstration 已导出为 prepared 数据；GraphRAG 官方 CLI 可运行。仍需补齐 embedding 模型配置，RAPTOR 导入检查在当前本机超过 30 秒，HippoRAG 官方依赖在 macOS arm64 环境未完整安装。
+当前审计结果显示：RAPTOR、Microsoft GraphRAG 和 HippoRAG 官方仓库均已下载，NovelQA demonstration 已导出为 prepared 数据；GraphRAG 官方 CLI 可运行。审计脚本会把根目录 `.env.local` 中的 `SAM_AZURE_EMBEDDING_*` 自动映射到官方 baseline 所需的 embedding 变量。RAPTOR 导入检查在当前本机可能超过 30 秒，HippoRAG 官方依赖在 macOS arm64 环境未完整安装。
 
 ## 3. 运行官方 baseline
 

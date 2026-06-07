@@ -9,7 +9,7 @@
 | 语义激活与联想检索机制 | 已完成阶段性目标 | 75% | 6/6 | 4/4 |
 | 类比推理触发与应用 | 已完成阶段性目标 | 50% | 5/5 | 3/3 |
 | 多智能体语义记忆协调机制 | 已完成阶段性目标 | 52% | 6/6 | 3/3 |
-| 评测体系与检索-生成闭环 | 已完成阶段性目标 | 58% | 7/7 | 5/5 |
+| 评测体系与检索-生成闭环 | 已完成阶段性目标 | 58% | 8/8 | 6/6 |
 
 ## 模块明细
 
@@ -108,16 +108,18 @@
   - 已存在：`src/sam/embedding.py`，Embedding provider 与缓存
   - 已存在：`scripts/plan_embedding_run.py`，Embedding 正式运行前请求量规划
   - 已存在：`scripts/warm_embedding_cache.py`，Embedding cache 预热入口
+  - 已存在：`evaluation/official_baselines/audit_official_baselines.py`，官方 baseline 就绪审计
 - 实验证据：
   - 已存在：`outputs/runs/provider_smoke_gpt54_sdk_hotpotqa1/pipeline_summary.json`，GPT-5.4 SDK HotpotQA smoke，摘要：{"answer_hit_rate": 0.0}
   - 已存在：`outputs/runs/novelqa_demo_eval12_edge_filter/metrics.json`，NovelQA 小样本
   - 已存在：`outputs/runs/end_to_end_smoke/pipeline_summary.json`，端到端本地 smoke，摘要：{"answer_hit_rate": 0.0}
   - 已存在：`outputs/plans/hotpotqa_embedding_plan/embedding_run_plan.json`，HotpotQA embedding 请求量计划
   - 已存在：`outputs/plans/hotpotqa_local_warmup/embedding_cache_warmup.json`，HotpotQA embedding cache 本地预热 smoke
+  - 已存在：`docs/official_baseline_audit.json`，官方 baseline 就绪状态审计，摘要：{"ready_count": 1, "partial_count": 2, "prepared_dataset_count": 1}
 - 剩余工作：
   - 正式 embedding endpoint/key 已在本地安全配置中提供，但当前真实 probe 返回 TimeoutError，HotpotQA 300 条和 NovelQA 正式在线 embedding 主实验尚未完成。
   - GPT-5.4 生成和答案判别需要扩大到多样本正式结果。
-  - 官方 baseline 严格复现尚未完成。
+  - 官方 baseline 中 GraphRAG 已达到本地 ready 状态，RAPTOR 和 HippoRAG 仍需修复官方依赖后再跑正式分数。
 
 ## 下一步优先事项
 
