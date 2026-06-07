@@ -618,3 +618,13 @@ conda run -n sam python scripts/run_demo.py \
 随后使用本地 `.env.local` 做低额度真实 probe，命令临时设置 `SAM_AZURE_EMBEDDING_TIMEOUT=5`、`SAM_AZURE_EMBEDDING_MAX_RETRIES=1`，并调用 `scripts/check_embedding_provider.py --provider azure_openai_sdk --probe ...`。诊断结果显示配置项完整，但真实请求返回结构化 `TimeoutError`。这说明当前本地已具备正式 embedding 的配置读取、SDK 调用路径、超时失败和错误报告能力；但公司 embedding endpoint 在本次测试窗口内没有返回向量，因此 HotpotQA 300 条和 NovelQA 的正式在线 embedding 重跑仍需要在接口可用后继续执行。
 
 该结果把问题边界收窄到在线 embedding 服务可用性，而不是 SAM 的配置读取或调用代码缺失。后续正式实验的推荐顺序是：先用 1 条 probe 确认 endpoint 返回 1024 维向量，再用 `plan_embedding_run.py` 估算请求量，再用 `warm_embedding_cache.py` 预热缓存，最后重跑 HotpotQA 300 条消融和 NovelQA 小样本实验。
+
+## 32. GPT-5.4 RelationJudge 低预算链路验证
+
+在关系判别预算控制完成后，系统运行了一个低预算 GPT-5.4 RelationJudge smoke，run 位于 `outputs/runs/relation_judge_gpt54_budget2_hotpotqa30_smoke/`。该实验使用 HotpotQA 30 条样本、local embedding、`cached_gpt54` 关系判别、`risky` 风险路由策略，并将 `SAM_RELATION_JUDGE_MAX_CALLS` 限制为 2。目的是验证 GPT-5.4 关系判别是否能进入按需建图链路，以及缓存和预算统计是否能真实记录调用成本。
+
+本次运行生成了 `relation_judge_usage.json`。统计显示 RelationJudge 已启用，缓存路径为 `outputs/cache/relation_judge_cache.json`，缓存大小为 1089，缓存命中 4 次，缓存未命中 1089 次；预算上限为 2，实际调用 2 次，预算耗尽后跳过 1087 次。这说明风险路由、缓存封装、预算封装和 run 级使用统计已经形成闭环。
+
+检索指标方面，Embedding Top-k 的证据召回率为 0.517，答案命中率为 0.567；SAM-full 的证据召回率为 0.567，答案命中率为 0.633。和不启用 RelationJudge 的 30 条 smoke 相比，SAM-full 证据召回率从 0.617 降至 0.567，答案命中率从 0.667 降至 0.633。进一步查看缓存可知，2 次真实 GPT-5.4 调用均返回 QPM 限流错误，其余候选边主要由预算耗尽策略处理。因此这个 run 的意义是验证在线关系判别链路、缓存和成本约束，而不是证明 RelationJudge 已改善检索质量。
+
+下一步应在 QPM 可用或额度扩容后，把调用预算逐步提高到 20、100，再比较 `relation_judge_policy=risky` 与 `off` 的建边质量差异。只有当 GPT-5.4 能返回有效关系类型和置信度时，才适合把 RelationJudge 结果纳入 300 条主实验结论。

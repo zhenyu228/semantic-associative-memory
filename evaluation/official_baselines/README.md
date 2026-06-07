@@ -166,6 +166,25 @@ evaluation/runs/novelqa_demo/prepared/
 
 `common/` 是我们自己的统一评测输入；其他目录是给官方方法准备的格式。
 
+## 2.1 审计官方 baseline 就绪状态
+
+正式运行官方 baseline 前，先做本地审计。该脚本不会调用外部 API，也不会输出 API key 或 endpoint 明文，只检查官方仓库、隔离环境、导入/CLI、prepared 数据和模型配置变量是否齐全：
+
+```bash
+conda run -n sam python evaluation/official_baselines/audit_official_baselines.py \
+  --env-file evaluation/official_baselines/.env.local \
+  --output-dir docs
+```
+
+输出：
+
+```text
+docs/official_baseline_audit.json
+docs/official_baseline_audit.md
+```
+
+当前审计结果显示：RAPTOR、Microsoft GraphRAG 和 HippoRAG 官方仓库均已下载，NovelQA demonstration 已导出为 prepared 数据；GraphRAG 官方 CLI 可运行。仍需补齐 embedding 模型配置，RAPTOR 导入检查在当前本机超过 30 秒，HippoRAG 官方依赖在 macOS arm64 环境未完整安装。
+
 ## 3. 运行官方 baseline
 
 ### RAPTOR

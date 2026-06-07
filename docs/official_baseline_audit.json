@@ -1,0 +1,150 @@
+{
+  "title": "官方 baseline 就绪状态审计",
+  "summary": {
+    "method_count": 3,
+    "ready_count": 0,
+    "partial_count": 3,
+    "blocked_count": 0,
+    "prepared_dataset_count": 1
+  },
+  "methods": {
+    "raptor": {
+      "status": "partial",
+      "checks": {
+        "official_repo_present": true,
+        "venv_python_present": true,
+        "official_import_ok": false,
+        "model_config_ready": false
+      },
+      "config": {
+        "ready": false,
+        "configured_variables": [
+          "GPT54_API_KEY",
+          "OPENAI_API_KEY",
+          "RAPTOR_API_VERSION",
+          "RAPTOR_AZURE_ENDPOINT",
+          "RAPTOR_QA_MODEL",
+          "RAPTOR_SUMMARY_MODEL"
+        ],
+        "configured_sources": {
+          "GPT54_API_KEY": "evaluation/official_baselines/.env.local",
+          "OPENAI_API_KEY": "evaluation/official_baselines/.env.local",
+          "RAPTOR_API_VERSION": "evaluation/official_baselines/.env.local",
+          "RAPTOR_AZURE_ENDPOINT": "evaluation/official_baselines/.env.local",
+          "RAPTOR_QA_MODEL": "evaluation/official_baselines/.env.local",
+          "RAPTOR_SUMMARY_MODEL": "evaluation/official_baselines/.env.local"
+        },
+        "missing_variables": [
+          "RAPTOR_EMBEDDING_MODEL"
+        ],
+        "missing_any_groups": []
+      },
+      "import_check": {
+        "ok": false,
+        "error_type": "timeout",
+        "message": ">30.0s"
+      },
+      "runner": "evaluation/official_baselines/run_raptor_official.py",
+      "notes": [
+        "RAPTOR 官方高层 API 主要返回答案文本，当前 runner 的 evidence 字段只作诊断。"
+      ],
+      "official_repo": "https://github.com/parthsarthi03/raptor.git",
+      "display_name": "RAPTOR"
+    },
+    "graphrag": {
+      "status": "partial",
+      "checks": {
+        "official_repo_present": true,
+        "cli_present": true,
+        "cli_runs": true,
+        "model_config_ready": false
+      },
+      "config": {
+        "ready": false,
+        "configured_variables": [
+          "GPT54_API_KEY",
+          "GRAPHRAG_API_BASE",
+          "GRAPHRAG_API_KEY",
+          "GRAPHRAG_API_VERSION",
+          "GRAPHRAG_CHAT_DEPLOYMENT",
+          "GRAPHRAG_CHAT_MODEL",
+          "GRAPHRAG_MODEL_PROVIDER",
+          "OPENAI_API_KEY"
+        ],
+        "configured_sources": {
+          "GPT54_API_KEY": "evaluation/official_baselines/.env.local",
+          "GRAPHRAG_API_BASE": "evaluation/official_baselines/.env.local",
+          "GRAPHRAG_API_KEY": "evaluation/official_baselines/.env.local",
+          "GRAPHRAG_API_VERSION": "evaluation/official_baselines/.env.local",
+          "GRAPHRAG_CHAT_DEPLOYMENT": "evaluation/official_baselines/.env.local",
+          "GRAPHRAG_CHAT_MODEL": "evaluation/official_baselines/.env.local",
+          "GRAPHRAG_MODEL_PROVIDER": "evaluation/official_baselines/.env.local",
+          "OPENAI_API_KEY": "evaluation/official_baselines/.env.local"
+        },
+        "missing_variables": [
+          "GRAPHRAG_EMBEDDING_MODEL",
+          "GRAPHRAG_EMBEDDING_DEPLOYMENT"
+        ],
+        "missing_any_groups": []
+      },
+      "cli_check": {
+        "ok": true,
+        "returncode": 0,
+        "message": "Usage: graphrag [OPTIONS] COMMAND [ARGS]...                                    \n                                                                                \n GraphRAG: A graph-based retrieval-augmented generation (RAG) system.           \n                                                                                \n╭─ Options ────────────────────────────────────────────────────────────────────╮\n│ --install-completion          Install completion for the current shell.      │\n│ --show-comple"
+      },
+      "runner": "evaluation/official_baselines/run_graphrag_official.py",
+      "notes": [
+        "GraphRAG 官方 CLI 需要先完成 index，再运行 local/global/drift query。"
+      ],
+      "official_repo": "https://github.com/microsoft/graphrag.git",
+      "display_name": "Microsoft GraphRAG"
+    },
+    "hipporag": {
+      "status": "partial",
+      "checks": {
+        "official_repo_present": true,
+        "venv_python_present": true,
+        "official_import_ok": false,
+        "model_config_ready": true
+      },
+      "config": {
+        "ready": true,
+        "configured_variables": [
+          "GPT54_API_KEY",
+          "OPENAI_API_KEY"
+        ],
+        "configured_sources": {
+          "GPT54_API_KEY": "evaluation/official_baselines/.env.local",
+          "OPENAI_API_KEY": "evaluation/official_baselines/.env.local"
+        },
+        "missing_variables": [],
+        "missing_any_groups": []
+      },
+      "import_check": {
+        "ok": false,
+        "returncode": 1,
+        "message": "Traceback (most recent call last):\n  File \"<string>\", line 1, in <module>\n  File \"/Users/bytedance/Desktop/masterThesis/SAM/evaluation/external/hipporag/src/hipporag/__init__.py\", line 1, in <module>\n    from .HippoRAG import HippoRAG\n  File \"/Users/bytedance/Desktop/masterThesis/SAM/evaluation/external/hipporag/src/hipporag/HippoRAG.py\", line 7, in <module>\n    import numpy as np\nModuleNotFoundError: No module named 'numpy'"
+      },
+      "runner": "evaluation/official_baselines/run_hipporag_official.py",
+      "notes": [
+        "当前 macOS arm64 本机未完整安装 HippoRAG 官方依赖；官方 requirements 包含更适合 Linux/CUDA 的重依赖。"
+      ],
+      "official_repo": "https://github.com/OSU-NLP-Group/HippoRAG.git",
+      "display_name": "HippoRAG"
+    }
+  },
+  "prepared_datasets": [
+    {
+      "dataset_name": "novelqa_demo",
+      "document_count": 120,
+      "query_count": 8,
+      "prepared_dir": "evaluation/runs/novelqa_demo/prepared"
+    }
+  ],
+  "next_actions": [
+    "RAPTOR 需要补齐模型配置变量后再运行官方 runner。",
+    "RAPTOR 需要先修复官方依赖导入或 CLI 可用性。",
+    "Microsoft GraphRAG 需要补齐模型配置变量后再运行官方 runner。",
+    "HippoRAG 需要先修复官方依赖导入或 CLI 可用性。"
+  ]
+}
