@@ -134,7 +134,7 @@ source evaluation/official_baselines/.env.local
 
 ```bash
 source evaluation/official_baselines/.env.local
-conda run -n sam python evaluation/official_baselines/test_company_api.py
+conda run -n sam python evaluation/official_baselines/test_company_api.py --timeout 8
 ```
 
 如果暂时没有 embedding deployment，脚本会只测试 chat，然后提示 `embedding_ok=skipped`。RAPTOR 和 GraphRAG 的正式检索/建索引都需要 embedding 模型；只有 GPT-5.4 这类 chat 模型还不够。

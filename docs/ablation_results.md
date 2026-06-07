@@ -638,3 +638,5 @@ conda run -n sam python scripts/run_demo.py \
 同时 `audit_official_baselines.py` 支持加载多个 ignored env 文件，并会把根目录 `.env.local` 中的 `SAM_AZURE_EMBEDDING_*` 自动映射为官方 baseline 所需变量。使用 `.env.local` 和 `evaluation/official_baselines/.env.local` 重新审计后，结果写入 `docs/official_baseline_audit.json`。当前 3 个官方 baseline 中，Microsoft GraphRAG 已达到 ready 状态；RAPTOR 的模型配置已完整，但官方导入检查超过 30 秒，仍为 partial；HippoRAG 的模型配置完整，但本机官方依赖缺失，仍为 partial。NovelQA demonstration 已导出为官方 prepared 数据，包含 120 个 documents 和 8 个 queries。
 
 该结果说明官方 baseline 对接已经从“缺少 embedding 配置”推进到“GraphRAG 可进行 limit=1 小样本 smoke，RAPTOR/HippoRAG 需要修复官方依赖”。下一步应优先对 GraphRAG 运行 1 条 NovelQA smoke；如果 embedding endpoint 仍然超时，则记录为外部服务可用性问题，而不是 SAM 数据导出或官方 baseline 适配缺失。
+
+随后使用 `test_company_api.py --timeout 8` 对公司网关做低额度 gate。该脚本现在支持 chat endpoint 与 embedding endpoint 分离，并对单次 HTTP 请求加硬超时。测试中 GPT-5.4 chat 请求成功返回 `OK`，说明 chat key、deployment 和 base url 可用；embedding 请求在 8 秒内未返回，外层 25 秒兜底有时仍会截断整个 gate。因此当前不继续启动 GraphRAG 官方 index，避免在 embedding 服务不稳定时产生不可控等待。后续只有当 embedding gate 能稳定返回向量维度后，才运行 GraphRAG `limit=1` smoke。

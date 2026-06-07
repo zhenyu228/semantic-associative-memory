@@ -3,8 +3,11 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import signal
+import socket
 import urllib.error
 import urllib.request
+from contextlib import contextmanager
 
 
 def parse_args() -> argparse.Namespace:
@@ -18,6 +21,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--embedding-base-url", default=None, help="默认读取 EMBEDDING_BASE_URL、SAM_AZURE_EMBEDDING_ENDPOINT 或 chat base url")
     parser.add_argument("--embedding-api-version", default=None, help="默认读取 EMBEDDING_API_VERSION、SAM_AZURE_EMBEDDING_API_VERSION 或 chat api version")
     parser.add_argument("--embedding-dimensions", type=int, default=None, help="可选：embedding 输出维度，例如 1024")
+    parser.add_argument("--timeout", type=float, default=20.0, help="单次 HTTP 请求超时时间，默认 20 秒")
     return parser.parse_args()
 
 
@@ -47,6 +51,7 @@ def main() -> None:
         api_version=api_version,
         api_key=api_key,
         payload=chat_payload,
+        timeout=args.timeout,
     )
     chat_text = chat_response["choices"][0]["message"]["content"].strip()
     print(f"chat_ok=true model={chat_model} response={chat_text}")
@@ -99,6 +104,7 @@ def main() -> None:
         api_version=embedding_api_version,
         api_key=embedding_api_key,
         payload=embedding_payload,
+        timeout=args.timeout,
     )
     vector = embedding_response["data"][0]["embedding"]
     print(f"embedding_ok=true model={embedding_model} dimension={len(vector)}")
@@ -121,6 +127,7 @@ def _post_azure(
     api_version: str,
     api_key: str,
     payload: dict,
+    timeout: float,
 ) -> dict:
     url = f"{base_url.rstrip('/')}/openai/deployments/{deployment}/{endpoint}?api-version={api_version}"
     request = urllib.request.Request(
@@ -133,12 +140,37 @@ def _post_azure(
         method="POST",
     )
     try:
-        with urllib.request.urlopen(request, timeout=60) as response:
+        with _deadline(timeout), urllib.request.urlopen(request, timeout=timeout) as response:
             return json.loads(response.read().decode("utf-8"))
     except urllib.error.HTTPError as exc:
         body = exc.read().decode("utf-8", errors="replace")
         raise RuntimeError(f"请求失败：HTTP {exc.code} {body[:500]}") from exc
+    except urllib.error.URLError as exc:
+        if isinstance(exc.reason, TimeoutError):
+            raise RuntimeError(f"请求超时：endpoint={endpoint} timeout={timeout}") from exc
+        raise RuntimeError(f"请求失败：endpoint={endpoint} error={type(exc.reason).__name__}") from exc
+    except (TimeoutError, socket.timeout) as exc:
+        raise RuntimeError(f"请求超时：endpoint={endpoint} timeout={timeout}") from exc
+
+
+@contextmanager
+def _deadline(timeout: float):
+    def raise_timeout(signum, frame):
+        raise TimeoutError(f"request exceeded {timeout}s")
+
+    old_handler = signal.getsignal(signal.SIGALRM)
+    signal.signal(signal.SIGALRM, raise_timeout)
+    signal.setitimer(signal.ITIMER_REAL, timeout)
+    try:
+        yield
+    finally:
+        signal.setitimer(signal.ITIMER_REAL, 0)
+        signal.signal(signal.SIGALRM, old_handler)
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except RuntimeError as exc:
+        print(str(exc))
+        raise SystemExit(2) from exc
