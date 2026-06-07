@@ -7,7 +7,7 @@ import re
 import urllib.request
 from abc import ABC, abstractmethod
 
-from sam.env import apply_provider_env_aliases
+from sam.env import apply_provider_env_aliases, load_default_env_file
 
 
 class ChatClient(ABC):
@@ -148,6 +148,8 @@ class AzureOpenAISDKChatClient(ChatClient):
 
 
 def create_chat_client(name: str | None = None) -> ChatClient:
+    if name is None:
+        load_default_env_file()
     provider_name = name or os.environ.get("SAM_CHAT_PROVIDER", "heuristic")
     if provider_name in {"heuristic", "local"}:
         return HeuristicChatClient()
@@ -166,6 +168,8 @@ def inspect_chat_provider_config(name: str | None = None) -> dict[str, object]:
     返回结果只包含环境变量名称和开关状态，不暴露 API key 或 endpoint 明文。
     """
 
+    if name is None:
+        load_default_env_file()
     provider_name = name or os.environ.get("SAM_CHAT_PROVIDER", "heuristic")
     aliases = {"azure": "azure_openai", "local": "heuristic", "azure_sdk": "azure_openai_sdk"}
     provider_name = aliases.get(provider_name, provider_name)

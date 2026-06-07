@@ -13,7 +13,7 @@ from abc import ABC, abstractmethod
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-from sam.env import apply_provider_env_aliases
+from sam.env import apply_provider_env_aliases, load_default_env_file
 from sam.text import tokenize
 
 
@@ -399,6 +399,8 @@ class CachedEmbeddingProvider(EmbeddingProvider):
 
 
 def create_embedding_provider(name: str | None = None) -> EmbeddingProvider:
+    if name is None:
+        load_default_env_file()
     provider_name = name or os.environ.get("SAM_EMBEDDING_PROVIDER", "local")
     if provider_name == "openai":
         provider: EmbeddingProvider = OpenAIEmbeddingProvider()
@@ -426,6 +428,8 @@ def inspect_embedding_provider_config(name: str | None = None) -> dict[str, obje
     返回值只包含变量名和开关状态，不返回任何密钥或 endpoint 明文。
     """
 
+    if name is None:
+        load_default_env_file()
     provider_name = name or os.environ.get("SAM_EMBEDDING_PROVIDER", "local")
     aliases = {"azure": "azure_openai"}
     provider_name = aliases.get(provider_name, provider_name)

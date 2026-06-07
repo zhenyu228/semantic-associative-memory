@@ -41,6 +41,22 @@ PROVIDER_ENV_ALIASES: dict[str, tuple[str, ...]] = {
 }
 
 
+def load_default_env_file(*, override: bool = False) -> dict[str, bool]:
+    """加载本仓库默认本地环境文件。
+
+    默认读取仓库根目录的 `.env.local`。该文件被 gitignore 忽略，适合保存
+    GPT-5.4、embedding 等本地私密配置。显式环境变量优先，不会被覆盖。
+    """
+
+    if os.environ.get("SAM_AUTO_LOAD_ENV", "1") == "0":
+        return {}
+    configured_path = os.environ.get("SAM_ENV_FILE")
+    env_path = Path(configured_path) if configured_path else Path(__file__).resolve().parents[2] / ".env.local"
+    if not env_path.exists():
+        return {}
+    return load_env_file(env_path, override=override)
+
+
 def load_env_file(path: str | Path, *, override: bool = False) -> dict[str, bool]:
     """加载本地 env 文件，返回每个变量是否写入当前进程环境。"""
 

@@ -44,7 +44,7 @@ from sam.embedding import (
 )
 from sam.embedding_plan import build_embedding_run_plan, warm_embedding_cache
 from sam.edge_audit import audit_edge_quality, write_edge_quality_audit
-from sam.env import apply_provider_env_aliases, load_env_file
+from sam.env import apply_provider_env_aliases, load_default_env_file, load_env_file
 from sam.evaluator import Evaluator
 from sam.experiment_audit import audit_run_directory, write_experiment_audit
 from sam.generation import (
@@ -2684,6 +2684,54 @@ class SamCoreTest(unittest.TestCase):
                 "https://example.test/gpt/openapi/online/v2/crawl",
             )
             self.assertEqual(os.environ["RAPTOR_API_VERSION"], "2023-07-01-preview")
+
+    def test_load_default_env_file_uses_configured_env_path(self) -> None:
+        env_path = Path(self.temp_dir.name) / ".env.local"
+        env_path.write_text(
+            "\n".join(
+                [
+                    "SAM_EMBEDDING_PROVIDER=azure_openai_sdk",
+                    "SAM_AZURE_EMBEDDING_API_KEY=local-secret",
+                    "SAM_AZURE_EMBEDDING_ENDPOINT=https://example.test/gpt/openapi/online/v2/crawl",
+                    "SAM_AZURE_EMBEDDING_MODEL=text-embedding-3-large",
+                ]
+            ),
+            encoding="utf-8",
+        )
+
+        with patch.dict(
+            "os.environ",
+            {
+                "SAM_ENV_FILE": str(env_path),
+            },
+            clear=True,
+        ), patch("importlib.util.find_spec", return_value=object()):
+            loaded = load_default_env_file()
+            status = inspect_embedding_provider_config()
+
+        self.assertTrue(loaded["SAM_AZURE_EMBEDDING_API_KEY"])
+        self.assertEqual(status["provider"], "azure_openai_sdk")
+        self.assertTrue(status["ready"])
+        self.assertNotIn("local-secret", json.dumps(status))
+
+    def test_load_default_env_file_can_be_disabled(self) -> None:
+        env_path = Path(self.temp_dir.name) / ".env.local"
+        env_path.write_text("SAM_EMBEDDING_PROVIDER=azure_openai_sdk\n", encoding="utf-8")
+
+        with patch.dict(
+            "os.environ",
+            {
+                "SAM_ENV_FILE": str(env_path),
+                "SAM_AUTO_LOAD_ENV": "0",
+            },
+            clear=True,
+        ):
+            loaded = load_default_env_file()
+            status = inspect_embedding_provider_config()
+
+        self.assertEqual(loaded, {})
+        self.assertEqual(status["provider"], "local")
+        self.assertTrue(status["ready"])
 
     def test_create_env_template_writes_placeholders_without_overwrite(self) -> None:
         env_path = Path(self.temp_dir.name) / ".env.local"
