@@ -41,6 +41,7 @@ from sam.embedding import (
     LocalHashEmbeddingProvider,
     create_embedding_provider,
     inspect_embedding_provider_config,
+    preflight_embedding_endpoint,
 )
 from sam.embedding_plan import build_embedding_run_plan, warm_embedding_cache
 from sam.edge_audit import audit_edge_quality, write_edge_quality_audit
@@ -2034,6 +2035,24 @@ class SamCoreTest(unittest.TestCase):
             [["SAM_AZURE_EMBEDDING_ENDPOINT", "SAM_AZURE_EMBEDDING_URL"]],
         )
 
+    def test_embedding_network_preflight_does_not_expose_endpoint_or_key(self) -> None:
+        with patch.dict(
+            "os.environ",
+            {
+                "SAM_AZURE_EMBEDDING_API_KEY": "test-secret-value",
+                "SAM_AZURE_EMBEDDING_ENDPOINT": "https://example.test/gpt/openapi/online/v2/crawl",
+            },
+            clear=True,
+        ), patch("sam.embedding.socket.create_connection", side_effect=TimeoutError("timed out")):
+            status = preflight_embedding_endpoint("azure_openai_sdk", timeout=0.01)
+
+        rendered = json.dumps(status, ensure_ascii=False)
+        self.assertTrue(status["checked"])
+        self.assertFalse(status["ok"])
+        self.assertEqual(status["error_type"], "TimeoutError")
+        self.assertNotIn("example.test", rendered)
+        self.assertNotIn("test-secret-value", rendered)
+
     def test_azure_chat_client_can_use_full_request_url(self) -> None:
         with patch.dict(
             "os.environ",
@@ -2161,6 +2180,7 @@ class SamCoreTest(unittest.TestCase):
                 "SAM_AZURE_CHAT_ENDPOINT": "https://example.test/api/modelhub/online/v2/crawl",
                 "SAM_AZURE_CHAT_API_VERSION": "2024-02-01",
                 "SAM_AZURE_CHAT_MODEL": "gpt-5.4-2026-03-05",
+                "SAM_AZURE_CHAT_TIMEOUT": "42",
             },
             clear=True,
         ), patch.dict("sys.modules", {"openai": fake_openai}):
@@ -2173,6 +2193,7 @@ class SamCoreTest(unittest.TestCase):
         self.assertEqual(captured["client"]["azure_endpoint"], "https://example.test/api/modelhub/online/v2/crawl")
         self.assertEqual(captured["client"]["api_version"], "2024-02-01")
         self.assertEqual(captured["client"]["api_key"], "test-key")
+        self.assertEqual(captured["client"]["timeout"], 42.0)
         self.assertEqual(captured["payload"]["model"], "gpt-5.4-2026-03-05")
         self.assertEqual(captured["payload"]["max_tokens"], 32)
         self.assertFalse(captured["payload"]["stream"])
@@ -2274,6 +2295,37 @@ class SamCoreTest(unittest.TestCase):
         self.assertIn("HTTP 429", status["chat"]["probe_error"]["message"])
         self.assertNotIn("https://example.test/custom/chat/completions", rendered)
         self.assertNotIn("chat-secret", rendered)
+
+    def test_combined_provider_diagnostic_skips_embedding_probe_after_preflight_failure(self) -> None:
+        with patch.dict(
+            "os.environ",
+            {
+                "SAM_AZURE_EMBEDDING_API_KEY": "embedding-secret",
+                "SAM_AZURE_EMBEDDING_ENDPOINT": "https://example.test/gpt/openapi/online/v2/crawl",
+            },
+            clear=True,
+        ), patch(
+            "scripts.check_model_providers.preflight_embedding_endpoint",
+            return_value={
+                "checked": True,
+                "ok": False,
+                "error_type": "TimeoutError",
+                "message": "embedding endpoint TCP preflight failed",
+            },
+        ), patch("scripts.check_model_providers.create_embedding_provider") as create_provider:
+            status = build_provider_status(
+                embedding_provider="azure_openai_sdk",
+                chat_provider="heuristic",
+                embedding_probe="probe text",
+                required_providers="embedding",
+            )
+
+        rendered = json.dumps(status, ensure_ascii=False)
+        create_provider.assert_not_called()
+        self.assertFalse(status["ready"])
+        self.assertEqual(status["embedding"]["probe_error"]["type"], "TimeoutError")
+        self.assertNotIn("example.test", rendered)
+        self.assertNotIn("embedding-secret", rendered)
 
     def test_embedding_provider_diagnostic_reports_probe_errors_without_traceback(self) -> None:
         class FailingEmbeddingProvider(LocalHashEmbeddingProvider):

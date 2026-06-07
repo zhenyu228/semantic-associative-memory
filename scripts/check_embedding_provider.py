@@ -12,7 +12,7 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from sam.embedding import create_embedding_provider, inspect_embedding_provider_config  # noqa: E402
+from sam.embedding import create_embedding_provider, inspect_embedding_provider_config, preflight_embedding_endpoint  # noqa: E402
 from sam.env import load_env_file  # noqa: E402
 
 
@@ -21,6 +21,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--provider", default=None, help="local、openai、azure_openai 或 azure_openai_sdk；默认读取 SAM_EMBEDDING_PROVIDER")
     parser.add_argument("--env-file", default=None, help="可选：加载本地 .env.local；文件已被 gitignore 忽略")
     parser.add_argument("--probe", default=None, help="可选：发送一条测试文本并返回维度和范数，不打印向量内容")
+    parser.add_argument("--preflight-timeout", type=float, default=8.0, help="在线 provider 发请求前的 TCP 预检超时秒数")
     parser.add_argument("--json", action="store_true", help="以 JSON 输出诊断结果")
     return parser.parse_args()
 
@@ -29,11 +30,21 @@ def build_embedding_status(
     *,
     provider_name: str | None = None,
     probe: str | None = None,
+    preflight_timeout: float = 8.0,
 ) -> dict[str, object]:
     """构建 embedding provider 诊断结果，不暴露 key、endpoint 或向量内容。"""
 
     status = inspect_embedding_provider_config(provider_name)
     if probe and status.get("ready"):
+        preflight = preflight_embedding_endpoint(provider_name, timeout=preflight_timeout)
+        status["network_preflight"] = preflight
+        if preflight.get("checked") and not preflight.get("ok"):
+            status["ready"] = False
+            status["probe_error"] = {
+                "type": str(preflight.get("error_type", "NetworkPreflightError")),
+                "message": str(preflight.get("message", "embedding endpoint network preflight failed")),
+            }
+            return status
         provider = create_embedding_provider(provider_name)
         try:
             embedding = provider.embed(probe)
@@ -55,7 +66,11 @@ def main() -> None:
     args = parse_args()
     if args.env_file:
         load_env_file(ROOT / args.env_file)
-    status = build_embedding_status(provider_name=args.provider, probe=args.probe)
+    status = build_embedding_status(
+        provider_name=args.provider,
+        probe=args.probe,
+        preflight_timeout=args.preflight_timeout,
+    )
 
     if args.json:
         print(json.dumps(status, ensure_ascii=False, indent=2))
@@ -84,6 +99,8 @@ def main() -> None:
             probe = status["probe"]
             print(f"probe dimension: {probe['dimension']}")
             print(f"probe l2_norm: {probe['l2_norm']}")
+        if status.get("network_preflight"):
+            print(f"network preflight: {json.dumps(status['network_preflight'], ensure_ascii=False)}")
         if status.get("probe_error"):
             print(f"probe error: {json.dumps(status['probe_error'], ensure_ascii=False)}")
         if status.get("error"):

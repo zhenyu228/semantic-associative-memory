@@ -160,7 +160,54 @@ logs/run_summary.txt       本次运行摘要
 - 语义相似得分。
 - 建边阈值。
 
-## 5. 当前结论
+## 5. 运行时样本限制
+
+已有 `data/processed/*.json` 数据集文件时，`--sample-size` 只在重建数据集时生效，不会限制当前运行评测的 query 数量。为了避免 smoke 实验误跑完整数据集，当前新增 `--query-limit` 参数：
+
+```bash
+conda run -n sam python scripts/run_demo.py \
+  --dataset hotpotqa \
+  --dataset-file data/processed/hotpotqa_midterm300_sam_sample.json \
+  --query-limit 5 \
+  --methods embedding_topk,sam_full \
+  --embedding-provider local \
+  --reset
+```
+
+该参数只影响本次运行，不改写数据集文件；脚本会同步过滤候选文档，因此日志中的 query 数和文档数就是实际评测规模。
+
+## 6. 模型 Provider 状态
+
+当前本地 `.env.local` 已配置 GPT-5.4 和 embedding provider，文件被 `.gitignore` 忽略，不进入仓库。Provider 诊断命令如下：
+
+```bash
+conda run -n sam python scripts/check_model_providers.py \
+  --env-file .env.local \
+  --embedding-provider azure_openai_sdk \
+  --chat-provider heuristic \
+  --embedding-probe "SAM embedding connectivity probe" \
+  --require embedding \
+  --json
+```
+
+当前诊断结果显示 embedding 配置完整，但本机到 embedding endpoint 的 TCP 预检超时，因此暂不能启动正式在线 embedding 主实验。脚本已经加入网络预检，避免 endpoint 不可达时长时间挂起。
+
+GPT-5.4 chat provider 可用，低额度验证命令如下：
+
+```bash
+conda run -n sam python scripts/check_model_providers.py \
+  --env-file .env.local \
+  --embedding-provider local \
+  --chat-provider azure_openai_sdk \
+  --chat-probe "What is the result of 1+1?" \
+  --chat-max-tokens 32 \
+  --require chat \
+  --json
+```
+
+验证结果中 chat probe 返回 `2`，说明 GPT-5.4 SDK 链路可用。当前已在 `outputs/runs/relation_judge_gpt54_querylimit5_smoke/` 完成低预算 RelationJudge smoke，证明 GPT-5.4 能参与关系级建边判别流程。
+
+## 7. 当前结论
 
 当前中期展示实验可以支持以下表述：
 

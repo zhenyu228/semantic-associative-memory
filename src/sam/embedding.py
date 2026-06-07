@@ -6,8 +6,10 @@ import importlib.util
 import json
 import math
 import os
+import socket
 import sqlite3
 import time
+import urllib.parse
 import urllib.request
 from abc import ABC, abstractmethod
 from concurrent.futures import ThreadPoolExecutor
@@ -509,6 +511,47 @@ def inspect_embedding_provider_config(name: str | None = None) -> dict[str, obje
             if key.startswith("SAM_AZURE_EMBEDDING_")
         },
     }
+
+
+def preflight_embedding_endpoint(name: str | None = None, *, timeout: float = 8.0) -> dict[str, object]:
+    """用短超时检查在线 embedding endpoint 是否具备基础网络连通性。
+
+    返回值不包含 endpoint 明文，只报告是否检查、是否通过和错误类型。
+    该函数用于 provider smoke，避免公司网关不可达时真实请求长时间挂起。
+    """
+
+    if name is None:
+        load_default_env_file()
+    provider_name = name or os.environ.get("SAM_EMBEDDING_PROVIDER", "local")
+    provider_name = {"azure": "azure_openai", "azure_sdk": "azure_openai_sdk"}.get(provider_name, provider_name)
+    if provider_name == "local":
+        return {"checked": False, "ok": True, "reason": "local_provider"}
+    if provider_name == "openai":
+        url = os.environ.get("OPENAI_BASE_URL", "https://api.openai.com/v1")
+    elif provider_name in {"azure_openai", "azure_openai_sdk"}:
+        apply_provider_env_aliases(target_prefix="SAM_AZURE_EMBEDDING_")
+        url = (
+            os.environ.get("SAM_AZURE_EMBEDDING_URL")
+            or os.environ.get("SAM_AZURE_EMBEDDING_ENDPOINT")
+            or ""
+        )
+    else:
+        return {"checked": False, "ok": False, "error_type": "UnknownProvider"}
+    parsed = urllib.parse.urlparse(url)
+    host = parsed.hostname
+    if not host:
+        return {"checked": False, "ok": False, "error_type": "MissingEndpoint"}
+    port = parsed.port or (443 if parsed.scheme == "https" else 80)
+    try:
+        with socket.create_connection((host, port), timeout=timeout):
+            return {"checked": True, "ok": True}
+    except Exception as exc:
+        return {
+            "checked": True,
+            "ok": False,
+            "error_type": type(exc).__name__,
+            "message": "embedding endpoint TCP preflight failed",
+        }
 
 
 def _missing_env(keys: list[str]) -> list[str]:

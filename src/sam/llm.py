@@ -128,10 +128,12 @@ class AzureOpenAISDKChatClient(ChatClient):
         self.azure_endpoint = _require_env("SAM_AZURE_CHAT_ENDPOINT").rstrip("/")
         self.api_version = os.environ.get("SAM_AZURE_CHAT_API_VERSION", "2024-02-01")
         self.model = os.environ.get("SAM_AZURE_CHAT_MODEL", "gpt-5.4-2026-03-05")
+        self.request_timeout = float(os.environ.get("SAM_AZURE_CHAT_TIMEOUT", "60"))
         self.client = openai.AzureOpenAI(
             api_key=self.api_key,
             api_version=self.api_version,
             azure_endpoint=self.azure_endpoint,
+            timeout=self.request_timeout,
         )
 
     def complete(self, messages: list[dict[str, object]], max_tokens: int = 500) -> str:
@@ -199,6 +201,7 @@ def inspect_chat_provider_config(name: str | None = None) -> dict[str, object]:
             "SAM_AZURE_CHAT_AUTH_HEADER",
             "SAM_AZURE_CHAT_URL",
             "SAM_AZURE_CHAT_ENDPOINT",
+            "SAM_AZURE_CHAT_TIMEOUT",
         ]
     else:
         return {

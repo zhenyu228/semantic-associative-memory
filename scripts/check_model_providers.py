@@ -12,7 +12,7 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from sam.embedding import create_embedding_provider, inspect_embedding_provider_config  # noqa: E402
+from sam.embedding import create_embedding_provider, inspect_embedding_provider_config, preflight_embedding_endpoint  # noqa: E402
 from sam.env import load_env_file  # noqa: E402
 from sam.llm import create_chat_client, inspect_chat_provider_config  # noqa: E402
 
@@ -23,6 +23,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--chat-provider", default=None, help="heuristic 或 azure_openai；默认读取 SAM_CHAT_PROVIDER")
     parser.add_argument("--env-file", default=None, help="可选：加载本地 .env.local；文件已被 gitignore 忽略")
     parser.add_argument("--embedding-probe", default=None, help="可选：发送一条 embedding 测试文本")
+    parser.add_argument("--embedding-preflight-timeout", type=float, default=8.0, help="embedding endpoint TCP 预检超时秒数")
     parser.add_argument("--chat-probe", default=None, help="可选：发送一条聊天模型测试消息")
     parser.add_argument("--chat-max-tokens", type=int, default=64, help="chat probe 最大输出 token")
     parser.add_argument(
@@ -40,6 +41,7 @@ def build_provider_status(
     embedding_provider: str | None = None,
     chat_provider: str | None = None,
     embedding_probe: str | None = None,
+    embedding_preflight_timeout: float = 8.0,
     chat_probe: str | None = None,
     chat_max_tokens: int = 64,
     required_providers: str = "both",
@@ -52,20 +54,29 @@ def build_provider_status(
     embedding_status = inspect_embedding_provider_config(embedding_provider)
     chat_status = inspect_chat_provider_config(chat_provider)
     if embedding_probe and embedding_status.get("ready"):
-        provider = create_embedding_provider(embedding_provider)
-        try:
-            embedding = provider.embed(embedding_probe)
-            embedding_status["probe"] = {
-                "dimension": len(embedding),
-                "l2_norm": round(math.sqrt(sum(value * value for value in embedding)), 6),
-            }
-        except Exception as exc:
+        preflight = preflight_embedding_endpoint(embedding_provider, timeout=embedding_preflight_timeout)
+        embedding_status["network_preflight"] = preflight
+        if preflight.get("checked") and not preflight.get("ok"):
             embedding_status["ready"] = False
-            embedding_status["probe_error"] = _safe_probe_error(exc)
-        finally:
-            close = getattr(provider, "close", None)
-            if callable(close):
-                close()
+            embedding_status["probe_error"] = {
+                "type": str(preflight.get("error_type", "NetworkPreflightError")),
+                "message": str(preflight.get("message", "embedding endpoint network preflight failed")),
+            }
+        else:
+            provider = create_embedding_provider(embedding_provider)
+            try:
+                embedding = provider.embed(embedding_probe)
+                embedding_status["probe"] = {
+                    "dimension": len(embedding),
+                    "l2_norm": round(math.sqrt(sum(value * value for value in embedding)), 6),
+                }
+            except Exception as exc:
+                embedding_status["ready"] = False
+                embedding_status["probe_error"] = _safe_probe_error(exc)
+            finally:
+                close = getattr(provider, "close", None)
+                if callable(close):
+                    close()
     if chat_probe and chat_status.get("ready"):
         client = create_chat_client(chat_provider)
         try:
@@ -101,6 +112,7 @@ def main() -> None:
         embedding_provider=args.embedding_provider,
         chat_provider=args.chat_provider,
         embedding_probe=args.embedding_probe,
+        embedding_preflight_timeout=args.embedding_preflight_timeout,
         chat_probe=args.chat_probe,
         chat_max_tokens=args.chat_max_tokens,
         required_providers=args.require,
@@ -140,6 +152,8 @@ def _print_section(name: str, status: object) -> None:
         print(f"[{name}] cache enabled: {status.get('cache_enabled')}")
     if status.get("probe"):
         print(f"[{name}] probe: {json.dumps(status['probe'], ensure_ascii=False)}")
+    if status.get("network_preflight"):
+        print(f"[{name}] network preflight: {json.dumps(status['network_preflight'], ensure_ascii=False)}")
     if status.get("probe_error"):
         print(f"[{name}] probe error: {json.dumps(status['probe_error'], ensure_ascii=False)}")
 

@@ -40,6 +40,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--dataset-file", default="data/processed/hotpotqa_sam_sample.json", help="SAM 统一数据格式文件")
     parser.add_argument("--novelqa-source", default="data/raw/NovelQA", help="NovelQA 本地 zip 或解压目录")
     parser.add_argument("--sample-size", type=int, default=8, help="真实数据集抽样数量")
+    parser.add_argument("--query-limit", type=int, default=None, help="运行时只评测前 N 条 query；不改变已处理数据集文件")
     parser.add_argument("--max-scan", type=int, default=800, help="真实数据集最大扫描样本数")
     parser.add_argument("--max-books", type=int, default=1, help="NovelQA 最多读取小说数量")
     parser.add_argument("--chunk-chars", type=int, default=1800, help="NovelQA 小说切块字符数")
@@ -127,6 +128,45 @@ def _nodes_for_graph_export(store: MemoryStore):
     return store.get_nodes()
 
 
+def _limit_dataset_for_run(documents, queries, query_limit: int | None):
+    """运行时截断 query，并只保留这些 query 引用的候选文档。"""
+
+    if query_limit is None:
+        return documents, queries
+    if query_limit <= 0:
+        raise ValueError("--query-limit 必须为正整数")
+    selected_queries = queries[:query_limit]
+    candidate_doc_ids = {
+        doc_id
+        for query in selected_queries
+        for doc_id in query.candidate_doc_ids
+    }
+    selected_documents = [
+        document
+        for document in documents
+        if document.id in candidate_doc_ids
+    ]
+    return selected_documents, selected_queries
+
+
+def _compact_dataset_summary(dataset_path: Path) -> dict[str, object]:
+    """终端打印用紧凑摘要；完整 manifest 仍写入 run 目录。"""
+
+    summary = summarize_sam_dataset(dataset_path)
+    processing = dict(summary.get("processing", {}))
+    manifest = processing.get("manifest")
+    if isinstance(manifest, dict):
+        selected_examples = manifest.get("selected_examples", [])
+        processing["manifest"] = {
+            key: value
+            for key, value in manifest.items()
+            if key != "selected_examples"
+        }
+        processing["selected_example_count"] = len(selected_examples)
+    summary["processing"] = processing
+    return summary
+
+
 def main() -> None:
     args = parse_args()
     if args.env_file:
@@ -195,6 +235,7 @@ def main() -> None:
                 },
             )
         documents, queries, dataset_payload = load_sam_dataset(dataset_path)
+        documents, queries = _limit_dataset_for_run(documents, queries, args.query_limit)
         focus_query_id = None
         if args.case_index is not None:
             focus_query_id = _query_id_for_case_index(dataset_payload, queries, args.case_index)
@@ -204,7 +245,9 @@ def main() -> None:
             encoding="utf-8",
         )
         print(f"使用 SAM 数据格式文件：{dataset_path}")
-        print(json.dumps(summarize_sam_dataset(dataset_path), ensure_ascii=False, indent=2))
+        print(json.dumps(_compact_dataset_summary(dataset_path), ensure_ascii=False, indent=2))
+        if args.query_limit is not None:
+            print(f"运行时 query-limit={args.query_limit}，实际评测 query 数={len(queries)}，候选文档数={len(documents)}")
         if args.case_index is not None:
             print(f"HTML 页面将默认聚焦 HotpotQA 原始 index={args.case_index} 对应的样本")
     elif args.dataset == "novelqa":
@@ -238,6 +281,7 @@ def main() -> None:
                 },
             )
         documents, queries, dataset_payload = load_sam_dataset(dataset_path)
+        documents, queries = _limit_dataset_for_run(documents, queries, args.query_limit)
         focus_query_id = str(queries[0].id) if queries else None
         manifest = dataset_payload["processing"].get("manifest", {})
         (run_dir / "novelqa_sample_manifest.json").write_text(
@@ -245,9 +289,12 @@ def main() -> None:
             encoding="utf-8",
         )
         print(f"使用 NovelQA SAM 数据格式文件：{dataset_path}")
-        print(json.dumps(summarize_sam_dataset(dataset_path), ensure_ascii=False, indent=2))
+        print(json.dumps(_compact_dataset_summary(dataset_path), ensure_ascii=False, indent=2))
+        if args.query_limit is not None:
+            print(f"运行时 query-limit={args.query_limit}，实际评测 query 数={len(queries)}，候选文档数={len(documents)}")
     else:
         documents, queries = load_builtin_benchmark_sample()
+        documents, queries = _limit_dataset_for_run(documents, queries, args.query_limit)
         focus_query_id = None
         print(f"使用内置兜底样本：{len(queries)} 条")
 
