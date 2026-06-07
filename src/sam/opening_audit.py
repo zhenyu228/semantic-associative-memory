@@ -151,7 +151,7 @@ OPENING_MODULE_SPECS: list[ModuleSpec] = [
             EvidenceSpec("HotpotQA embedding cache 本地预热 smoke", "outputs/plans/hotpotqa_local_warmup/embedding_cache_warmup.json", "experiment"),
         ],
         remaining_work=[
-            "正式 embedding endpoint/key 未在本地安全配置中提供，无法完成正式 embedding 主实验。",
+            "正式 embedding endpoint/key 已在本地安全配置中提供，但当前真实 probe 返回 TimeoutError，HotpotQA 300 条和 NovelQA 正式在线 embedding 主实验尚未完成。",
             "GPT-5.4 生成和答案判别需要扩大到多样本正式结果。",
             "官方 baseline 严格复现尚未完成。",
         ],

@@ -3,6 +3,7 @@ from __future__ import annotations
 import tempfile
 import unittest
 from pathlib import Path
+import asyncio
 import os
 import sys
 import json
@@ -2452,6 +2453,33 @@ class SamCoreTest(unittest.TestCase):
 
         self.assertEqual([payload["input"] for payload in payloads], [["alpha", "beta"]])
         self.assertEqual(embeddings, [[0.0, 5.0], [1.0, 4.0]])
+
+    def test_azure_embedding_sdk_provider_times_out_hanging_request(self) -> None:
+        class FakeEmbeddings:
+            async def create(self, **kwargs):
+                await asyncio.sleep(1.0)
+                raise AssertionError("请求应该先被 wait_for 超时中断")
+
+        class FakeAsyncAzureOpenAI:
+            def __init__(self, **kwargs) -> None:
+                self.embeddings = FakeEmbeddings()
+
+        fake_openai = type("FakeOpenAI", (), {"AsyncAzureOpenAI": FakeAsyncAzureOpenAI})()
+
+        with patch.dict(
+            "os.environ",
+            {
+                "SAM_AZURE_EMBEDDING_API_KEY": "test-key",
+                "SAM_AZURE_EMBEDDING_ENDPOINT": "https://example.test/gpt/openapi/online/v2/crawl",
+                "SAM_AZURE_EMBEDDING_TIMEOUT": "0.01",
+                "SAM_AZURE_EMBEDDING_MAX_RETRIES": "1",
+            },
+            clear=True,
+        ), patch.dict("sys.modules", {"openai": fake_openai}):
+            provider = AzureOpenAISDKEmbeddingProvider()
+
+            with self.assertRaises(TimeoutError):
+                provider.embed("alpha")
 
     def test_create_embedding_provider_supports_azure_openai_sdk(self) -> None:
         fake_openai = type("FakeOpenAI", (), {"AsyncAzureOpenAI": staticmethod(lambda **kwargs: object())})()

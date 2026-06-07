@@ -279,7 +279,10 @@ class AzureOpenAISDKEmbeddingProvider(EmbeddingProvider):
             payload["dimensions"] = self.dimensions
         for attempt in range(self.max_retries):
             try:
-                response = await self.client.embeddings.create(**payload)
+                response = await asyncio.wait_for(
+                    self.client.embeddings.create(**payload),
+                    timeout=self.request_timeout,
+                )
                 return [float(value) for value in response.data[0].embedding]
             except Exception:
                 if attempt == self.max_retries - 1:
@@ -296,7 +299,10 @@ class AzureOpenAISDKEmbeddingProvider(EmbeddingProvider):
             payload["dimensions"] = self.dimensions
         for attempt in range(self.max_retries):
             try:
-                response = await self.client.embeddings.create(**payload)
+                response = await asyncio.wait_for(
+                    self.client.embeddings.create(**payload),
+                    timeout=self.request_timeout,
+                )
                 return [
                     [float(value) for value in item.embedding]
                     for item in response.data

@@ -608,3 +608,13 @@ conda run -n sam python scripts/run_demo.py \
 本轮已通过单元测试验证：预算上限为 1 时，第一次判别会调用底层模型，第二次判别会被预算拦截；在缓存模式下，同一候选边第二次命中缓存，不会再次消耗预算。无网络 smoke `outputs/runs/relation_budget_off_hotpotqa30_smoke/` 也验证了新增参数不会影响默认检索结果，SAM-full 证据召回率保持 0.617，答案命中率保持 0.667。
 
 随后系统补充了关系判别使用统计产物。`run_demo.py` 和端到端 pipeline 会在每个 run 目录下写入 `relation_judge_usage.json`，记录 RelationJudge 是否启用、缓存路径、缓存大小、缓存命中/未命中、预算上限、实际调用次数和预算跳过次数。无网络 smoke `outputs/runs/relation_usage_output_hotpotqa30_smoke/` 已验证该文件会随运行产物生成；当关系判别关闭时，文件内容为 `enabled=false`，后续启用 `cached_gpt54` 后可用同一字段追踪真实 GPT-5.4 调用成本。
+
+## 31. 在线 Embedding 调用超时保护
+
+为继续推进正式 embedding 主实验，系统对 `azure_openai_sdk` provider 增加脚本级超时保护。旧版本虽然已经把 `SAM_AZURE_EMBEDDING_TIMEOUT` 传给 OpenAI SDK client，但单次 `embeddings.create` 没有外层 `asyncio.wait_for` 保护；如果公司网关或 SDK 内部连接阶段长时间无响应，实验脚本仍可能一直等待，导致 300 条主实验无法稳定失败、恢复或复跑。
+
+本轮改造后，`AzureOpenAISDKEmbeddingProvider` 在 single 和 batch 两种输入模式下都会对 `embeddings.create` 设置同一个 timeout，并保留原有并发、维度、模型名和重试参数。单元测试 `test_azure_embedding_sdk_provider_times_out_hanging_request` 模拟网关挂起，验证 provider 能在低 timeout 设置下快速抛出 `TimeoutError`，不会无限阻塞。
+
+随后使用本地 `.env.local` 做低额度真实 probe，命令临时设置 `SAM_AZURE_EMBEDDING_TIMEOUT=5`、`SAM_AZURE_EMBEDDING_MAX_RETRIES=1`，并调用 `scripts/check_embedding_provider.py --provider azure_openai_sdk --probe ...`。诊断结果显示配置项完整，但真实请求返回结构化 `TimeoutError`。这说明当前本地已具备正式 embedding 的配置读取、SDK 调用路径、超时失败和错误报告能力；但公司 embedding endpoint 在本次测试窗口内没有返回向量，因此 HotpotQA 300 条和 NovelQA 的正式在线 embedding 重跑仍需要在接口可用后继续执行。
+
+该结果把问题边界收窄到在线 embedding 服务可用性，而不是 SAM 的配置读取或调用代码缺失。后续正式实验的推荐顺序是：先用 1 条 probe 确认 endpoint 返回 1024 维向量，再用 `plan_embedding_run.py` 估算请求量，再用 `warm_embedding_cache.py` 预热缓存，最后重跑 HotpotQA 300 条消融和 NovelQA 小样本实验。

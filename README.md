@@ -295,6 +295,16 @@ conda run -n sam python scripts/run_demo.py \
 export SAM_AZURE_EMBEDDING_SEND_MODEL="0"
 ```
 
+`azure_openai_sdk` 会同时设置 OpenAI SDK client timeout 和单次 `embeddings.create` 的 `asyncio.wait_for` 超时。默认读取 `SAM_AZURE_EMBEDDING_TIMEOUT`，这样公司网关无响应时诊断脚本会返回结构化 `TimeoutError`，不会让实验进程无限挂起。低额度连通性测试可以临时降低 timeout 和重试次数：
+
+```bash
+SAM_AZURE_EMBEDDING_TIMEOUT=5 SAM_AZURE_EMBEDDING_MAX_RETRIES=1 \
+conda run -n sam python scripts/check_embedding_provider.py \
+  --env-file .env.local \
+  --provider azure_openai_sdk \
+  --probe "SAM embedding connectivity test."
+```
+
 正式跑实验前，建议先用诊断脚本检查配置。默认只检查环境变量，不会发请求：
 
 ```bash
@@ -318,7 +328,7 @@ conda run -n sam python -m pip install "openai>=1.0.0"
 ```bash
 conda run -n sam python scripts/check_embedding_provider.py \
   --env-file .env.local \
-  --provider azure_openai \
+  --provider azure_openai_sdk \
   --probe "SAM embedding connectivity test."
 ```
 

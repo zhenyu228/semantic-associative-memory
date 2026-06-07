@@ -115,7 +115,7 @@
   - 已存在：`outputs/plans/hotpotqa_embedding_plan/embedding_run_plan.json`，HotpotQA embedding 请求量计划
   - 已存在：`outputs/plans/hotpotqa_local_warmup/embedding_cache_warmup.json`，HotpotQA embedding cache 本地预热 smoke
 - 剩余工作：
-  - 正式 embedding endpoint/key 未在本地安全配置中提供，无法完成正式 embedding 主实验。
+  - 正式 embedding endpoint/key 已在本地安全配置中提供，但当前真实 probe 返回 TimeoutError，HotpotQA 300 条和 NovelQA 正式在线 embedding 主实验尚未完成。
   - GPT-5.4 生成和答案判别需要扩大到多样本正式结果。
   - 官方 baseline 严格复现尚未完成。
 
@@ -123,6 +123,6 @@
 
 - 类比推理触发与应用：类比提示对最终答案质量的提升尚未用 GPT-5.4 正式验证。
 - 多智能体语义记忆协调机制：当前多智能体实验仍偏受控流程，不是完整 Deep Research 任务。
-- 评测体系与检索-生成闭环：正式 embedding endpoint/key 未在本地安全配置中提供，无法完成正式 embedding 主实验。
+- 评测体系与检索-生成闭环：正式 embedding endpoint/key 已在本地安全配置中提供，但当前真实 probe 返回 TimeoutError，HotpotQA 300 条和 NovelQA 正式在线 embedding 主实验尚未完成。
 - 知识提取与动态知识图谱构建：GPT-5.4 RelationJudge 尚未形成正式规模实验。
 - 语义激活与联想检索机制：正式 embedding 尚未重跑 HotpotQA 300 条和 NovelQA。
