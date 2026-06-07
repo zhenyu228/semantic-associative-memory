@@ -2,18 +2,18 @@
   "title": "官方 baseline 就绪状态审计",
   "summary": {
     "method_count": 3,
-    "ready_count": 1,
-    "partial_count": 2,
+    "ready_count": 2,
+    "partial_count": 1,
     "blocked_count": 0,
     "prepared_dataset_count": 1
   },
   "methods": {
     "raptor": {
-      "status": "partial",
+      "status": "ready",
       "checks": {
         "official_repo_present": true,
         "venv_python_present": true,
-        "official_import_ok": false,
+        "official_import_ok": true,
         "model_config_ready": true
       },
       "config": {
@@ -50,9 +50,9 @@
         "missing_any_groups": []
       },
       "import_check": {
-        "ok": false,
-        "error_type": "timeout",
-        "message": ">30.0s"
+        "ok": true,
+        "returncode": 0,
+        "message": "ok\n\n2026-06-07 13:34:40,928 - Loading faiss.\n2026-06-07 13:34:40,962 - Successfully loaded faiss."
       },
       "runner": "evaluation/official_baselines/run_raptor_official.py",
       "notes": [
@@ -163,7 +163,7 @@
     }
   ],
   "next_actions": [
-    "RAPTOR 需要先修复官方依赖导入或 CLI 可用性。",
+    "RAPTOR 已具备本地运行条件，可选择小样本 limit=1 做 smoke。",
     "Microsoft GraphRAG 已具备本地运行条件，可选择小样本 limit=1 做 smoke。",
     "HippoRAG 需要先修复官方依赖导入或 CLI 可用性。"
   ]

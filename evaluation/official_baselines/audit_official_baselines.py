@@ -25,7 +25,7 @@ def parse_args() -> argparse.Namespace:
         help="可重复传入本地 env 文件，只统计变量名和是否配置，不输出值",
     )
     parser.add_argument("--output-dir", default=str(DEFAULT_OUTPUT_DIR), help="审计报告输出目录")
-    parser.add_argument("--timeout", type=float, default=30.0, help="导入检查子进程超时时间")
+    parser.add_argument("--timeout", type=float, default=75.0, help="导入检查子进程超时时间；RAPTOR 冷启动导入较慢")
     parser.add_argument("--json", action="store_true", help="同时打印 JSON")
     return parser.parse_args()
 
@@ -53,7 +53,7 @@ def build_official_baseline_audit(
     *,
     env: dict[str, str] | None = None,
     env_sources: dict[str, str] | None = None,
-    timeout: float = 15.0,
+    timeout: float = 75.0,
 ) -> dict[str, Any]:
     """构建官方 baseline 就绪状态审计，不输出任何密钥或 endpoint 明文。"""
 

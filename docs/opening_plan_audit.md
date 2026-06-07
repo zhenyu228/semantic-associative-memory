@@ -115,7 +115,7 @@
   - 已存在：`outputs/runs/end_to_end_smoke/pipeline_summary.json`，端到端本地 smoke，摘要：{"answer_hit_rate": 0.0}
   - 已存在：`outputs/plans/hotpotqa_embedding_plan/embedding_run_plan.json`，HotpotQA embedding 请求量计划
   - 已存在：`outputs/plans/hotpotqa_local_warmup/embedding_cache_warmup.json`，HotpotQA embedding cache 本地预热 smoke
-  - 已存在：`docs/official_baseline_audit.json`，官方 baseline 就绪状态审计，摘要：{"ready_count": 1, "partial_count": 2, "prepared_dataset_count": 1}
+  - 已存在：`docs/official_baseline_audit.json`，官方 baseline 就绪状态审计，摘要：{"ready_count": 2, "partial_count": 1, "prepared_dataset_count": 1}
 - 剩余工作：
   - 正式 embedding endpoint/key 已在本地安全配置中提供，但当前真实 probe 返回 TimeoutError，HotpotQA 300 条和 NovelQA 正式在线 embedding 主实验尚未完成。
   - GPT-5.4 生成和答案判别需要扩大到多样本正式结果。

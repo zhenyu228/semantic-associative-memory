@@ -199,6 +199,8 @@ docs/official_baseline_audit.md
 
 当前审计结果显示：RAPTOR、Microsoft GraphRAG 和 HippoRAG 官方仓库均已下载，NovelQA demonstration 已导出为 prepared 数据；GraphRAG 官方 CLI 可运行。审计脚本会把根目录 `.env.local` 中的 `SAM_AZURE_EMBEDDING_*` 自动映射到官方 baseline 所需的 embedding 变量。RAPTOR 导入检查在当前本机可能超过 30 秒，HippoRAG 官方依赖在 macOS arm64 环境未完整安装。
 
+RAPTOR 官方包的顶层 `raptor.__init__` 会一次性导入 `sentence_transformers`、`torch`、`transformers`、`faiss`、`umap` 等重依赖，macOS 冷启动导入可能超过 30 秒。因此审计脚本默认 `--timeout 75`。如果本机已完成依赖缓存，RAPTOR 和 GraphRAG 都应显示为 ready；HippoRAG 仍建议放到 Linux/CUDA 环境运行。
+
 ## 3. 运行官方 baseline
 
 ### RAPTOR

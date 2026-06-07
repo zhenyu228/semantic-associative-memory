@@ -640,3 +640,5 @@ conda run -n sam python scripts/run_demo.py \
 该结果说明官方 baseline 对接已经从“缺少 embedding 配置”推进到“GraphRAG 可进行 limit=1 小样本 smoke，RAPTOR/HippoRAG 需要修复官方依赖”。下一步应优先对 GraphRAG 运行 1 条 NovelQA smoke；如果 embedding endpoint 仍然超时，则记录为外部服务可用性问题，而不是 SAM 数据导出或官方 baseline 适配缺失。
 
 随后使用 `test_company_api.py --timeout 8` 对公司网关做低额度 gate。该脚本现在支持 chat endpoint 与 embedding endpoint 分离，并对单次 HTTP 请求加硬超时。测试中 GPT-5.4 chat 请求成功返回 `OK`，说明 chat key、deployment 和 base url 可用；embedding 请求在 8 秒内未返回，外层 25 秒兜底有时仍会截断整个 gate。因此当前不继续启动 GraphRAG 官方 index，避免在 embedding 服务不稳定时产生不可控等待。后续只有当 embedding gate 能稳定返回向量维度后，才运行 GraphRAG `limit=1` smoke。
+
+随后对 RAPTOR 官方导入超时做了定位。逐项导入检查显示，`umap`、`torch`、`transformers` 和 `sentence_transformers` 的冷启动导入本身就需要较长时间；RAPTOR 顶层 `raptor.__init__` 又会 eager import 多个重依赖模块。因此此前 30 秒审计阈值会把“冷启动较慢”误判为“官方依赖不可用”。将 `audit_official_baselines.py` 默认导入检查 timeout 调整为 75 秒后，RAPTOR import 检查通过。最新审计结果显示：RAPTOR 和 Microsoft GraphRAG 均达到 ready，HippoRAG 仍为 partial；prepared NovelQA demonstration 仍为 120 个 documents 和 8 个 queries。这样官方 baseline 的下一步已经明确为：在 embedding gate 成功后优先跑 RAPTOR 与 GraphRAG 的 `limit=1` smoke，HippoRAG 放到 Linux/CUDA 或单独依赖环境处理。

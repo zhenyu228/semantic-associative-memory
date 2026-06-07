@@ -412,8 +412,8 @@
           "kind": "experiment",
           "exists": true,
           "summary": {
-            "ready_count": 1,
-            "partial_count": 2,
+            "ready_count": 2,
+            "partial_count": 1,
             "prepared_dataset_count": 1
           }
         }
