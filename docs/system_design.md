@@ -500,6 +500,8 @@ final_score = semantic_score + graph_score + path_quality + memory_state + feedb
 
 本轮进一步补充共享记忆查询控制：`query_memory()` 现在可以限定 `task_id`、来源 agent、目标 agent、冲突状态和最新版本。`MultiAgentResearchWorkflow` 在 writer/verifier 查询共享记忆时会限定当前任务，并只保留同一 agent-handoff 分组下的最新版本。5 条 HotpotQA workflow smoke 位于 `outputs/runs/agent_workflow_version_filter_smoke/`，每条样本均记录 5 条共享记忆、2 次 handoff、1 次冲突裁决、最大版本号 5。该结果说明多智能体模块已经具备“写入、交接、裁决、版本过滤、协作指标输出”的完整受控链路。
 
+随后新增 `agent_workflow_audit` 审计产物。`write_agent_workflow_reports()` 会自动额外输出 `agent_workflow_audit.json` 和 `agent_workflow_audit.md`，统计样本数、验证通过数、handoff 总数、冲突裁决数、平均共享记忆数量、被 rejected 记忆污染的次数和污染案例数。5 条审计 smoke 位于 `outputs/runs/agent_workflow_audit_smoke/`：总计 25 条共享记忆、10 次 handoff、5 次冲突裁决，`rejected_memory_used_count=0`，`contaminated_case_count=0`。这说明版本过滤机制不只是代码接口，也能在实验产物中证明 rejected 版本没有进入 writer/verifier 的后续上下文。
+
 ### P7：检索-生成闭环与 Bad Case 驱动改进
 
 开题计划中的系统最终应形成“记忆检索 -> 证据组织 -> 答案生成 -> 结果反馈”的闭环。当前已补充：

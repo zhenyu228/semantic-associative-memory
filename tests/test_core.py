@@ -17,6 +17,7 @@ if str(SRC) not in sys.path:
 
 from sam.datasets import load_builtin_benchmark_sample, load_novelqa_sample
 from sam.dataset_format import load_sam_dataset, save_sam_dataset, summarize_sam_dataset
+from sam import agent_workflow
 from sam.agent_workflow import MultiAgentResearchWorkflow, write_agent_workflow_reports
 from sam.agent_reuse_experiment import (
     compare_agent_generation_variants,
@@ -3975,6 +3976,58 @@ class SamCoreTest(unittest.TestCase):
         resolution = self.store.get_nodes(result["conflict_resolution_node_ids"])[0]
         self.assertEqual(resolution.metadata["node_type"], "agent_conflict_resolution")
         self.assertEqual(resolution.metadata["topic"], "answer_generation")
+
+    def test_agent_workflow_audit_detects_rejected_memory_contamination(self) -> None:
+        results = [
+            {
+                "query_id": "clean_case",
+                "verifier": {"status": "passed"},
+                "writer_memory": [
+                    {"node_id": "selected_mem", "conflict_status": "selected"},
+                ],
+                "verifier_memory": [],
+                "collaboration_metrics": {
+                    "memory_count": 4,
+                    "handoff_count": 2,
+                    "conflict_resolution_count": 1,
+                    "max_memory_version": 4,
+                },
+            },
+            {
+                "query_id": "contaminated_case",
+                "verifier": {"status": "failed"},
+                "writer_memory": [
+                    {"node_id": "rejected_mem", "conflict_status": "rejected"},
+                ],
+                "verifier_memory": [
+                    {"node_id": "verifier_rejected", "conflict_status": "rejected"},
+                ],
+                "collaboration_metrics": {
+                    "memory_count": 5,
+                    "handoff_count": 2,
+                    "conflict_resolution_count": 1,
+                    "max_memory_version": 5,
+                },
+            },
+        ]
+
+        audit = agent_workflow.audit_agent_workflow_results(results)
+
+        self.assertEqual(audit["summary"]["case_count"], 2)
+        self.assertEqual(audit["summary"]["passed_count"], 1)
+        self.assertEqual(audit["summary"]["rejected_memory_used_count"], 2)
+        self.assertEqual(audit["summary"]["contaminated_case_count"], 1)
+        contaminated = audit["cases"][1]
+        self.assertEqual(contaminated["query_id"], "contaminated_case")
+        self.assertEqual(
+            contaminated["rejected_memory_node_ids"],
+            ["rejected_mem", "verifier_rejected"],
+        )
+
+        output_dir = Path(self.temp_dir.name) / "agent_workflow_audit"
+        json_path, markdown_path = agent_workflow.write_agent_workflow_audit(audit, output_dir)
+        self.assertTrue(json_path.exists())
+        self.assertIn("共享记忆污染案例数", markdown_path.read_text(encoding="utf-8"))
 
     def test_agent_memory_reuse_probe_reports_cross_agent_reuse(self) -> None:
         class EvidenceAwareChatClient(ChatClient):

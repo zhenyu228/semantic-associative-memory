@@ -197,6 +197,128 @@ def write_agent_workflow_reports(
             f"{step_text} |"
         )
     markdown_path.write_text("\n".join(lines), encoding="utf-8")
+    write_agent_workflow_audit(audit_agent_workflow_results(results), target)
+    return json_path, markdown_path
+
+
+def audit_agent_workflow_results(results: list[dict[str, object]]) -> dict[str, object]:
+    """审计多智能体 workflow 中的共享记忆使用和污染风险。"""
+
+    cases: list[dict[str, object]] = []
+    passed_count = 0
+    total_handoff_count = 0
+    total_conflict_resolution_count = 0
+    total_memory_count = 0
+    rejected_memory_used_count = 0
+    contaminated_case_count = 0
+
+    for result in results:
+        verifier = result.get("verifier", {})
+        status = verifier.get("status") if isinstance(verifier, dict) else None
+        if status == "passed":
+            passed_count += 1
+        metrics = result.get("collaboration_metrics", {})
+        if not isinstance(metrics, dict):
+            metrics = {}
+        memory_count = int(metrics.get("memory_count", len(result.get("shared_memory_node_ids", [])) or 0))
+        handoff_count = int(metrics.get("handoff_count", 0))
+        conflict_resolution_count = int(metrics.get("conflict_resolution_count", 0))
+        total_memory_count += memory_count
+        total_handoff_count += handoff_count
+        total_conflict_resolution_count += conflict_resolution_count
+
+        writer_memory = _memory_list(result.get("writer_memory"))
+        verifier_memory = _memory_list(result.get("verifier_memory"))
+        rejected_ids = [
+            str(memory.get("node_id"))
+            for memory in [*writer_memory, *verifier_memory]
+            if memory.get("conflict_status") == "rejected" and memory.get("node_id")
+        ]
+        selected_ids = [
+            str(memory.get("node_id"))
+            for memory in [*writer_memory, *verifier_memory]
+            if memory.get("conflict_status") == "selected" and memory.get("node_id")
+        ]
+        rejected_memory_used_count += len(rejected_ids)
+        contaminated = bool(rejected_ids)
+        if contaminated:
+            contaminated_case_count += 1
+        cases.append(
+            {
+                "query_id": result.get("query_id", ""),
+                "status": status or "",
+                "memory_count": memory_count,
+                "handoff_count": handoff_count,
+                "conflict_resolution_count": conflict_resolution_count,
+                "max_memory_version": int(metrics.get("max_memory_version", 0)),
+                "writer_memory_count": len(writer_memory),
+                "verifier_memory_count": len(verifier_memory),
+                "selected_memory_node_ids": selected_ids,
+                "rejected_memory_node_ids": rejected_ids,
+                "contaminated_by_rejected_memory": contaminated,
+            }
+        )
+
+    case_count = len(results)
+    return {
+        "summary": {
+            "case_count": case_count,
+            "passed_count": passed_count,
+            "failed_count": case_count - passed_count,
+            "pass_rate": passed_count / case_count if case_count else 0.0,
+            "memory_count": total_memory_count,
+            "average_memory_count": total_memory_count / case_count if case_count else 0.0,
+            "handoff_count": total_handoff_count,
+            "conflict_resolution_count": total_conflict_resolution_count,
+            "rejected_memory_used_count": rejected_memory_used_count,
+            "contaminated_case_count": contaminated_case_count,
+            "contaminated_case_rate": contaminated_case_count / case_count if case_count else 0.0,
+        },
+        "cases": cases,
+    }
+
+
+def write_agent_workflow_audit(
+    audit: dict[str, object],
+    output_dir: str | Path,
+) -> tuple[Path, Path]:
+    """写出多智能体共享记忆审计 JSON 和 Markdown。"""
+
+    target = Path(output_dir)
+    target.mkdir(parents=True, exist_ok=True)
+    json_path = target / "agent_workflow_audit.json"
+    markdown_path = target / "agent_workflow_audit.md"
+    json_path.write_text(json.dumps(audit, ensure_ascii=False, indent=2), encoding="utf-8")
+    summary = audit.get("summary", {})
+    if not isinstance(summary, dict):
+        summary = {}
+    lines = [
+        "# 多智能体共享记忆审计",
+        "",
+        f"- 样本数：{summary.get('case_count', 0)}",
+        f"- 验证通过数：{summary.get('passed_count', 0)}",
+        f"- Handoff 总数：{summary.get('handoff_count', 0)}",
+        f"- 冲突裁决总数：{summary.get('conflict_resolution_count', 0)}",
+        f"- 共享记忆污染案例数：{summary.get('contaminated_case_count', 0)}",
+        f"- 被 rejected 记忆污染次数：{summary.get('rejected_memory_used_count', 0)}",
+        "",
+        "| Query | 状态 | 共享记忆数 | Handoff | 冲突裁决 | Rejected 记忆数 | 污染 |",
+        "| --- | --- | ---: | ---: | ---: | ---: | --- |",
+    ]
+    cases = audit.get("cases", [])
+    if isinstance(cases, list):
+        for case in cases:
+            if not isinstance(case, dict):
+                continue
+            rejected_ids = case.get("rejected_memory_node_ids", [])
+            rejected_count = len(rejected_ids) if isinstance(rejected_ids, list) else 0
+            lines.append(
+                f"| {case.get('query_id', '')} | {case.get('status', '')} | "
+                f"{case.get('memory_count', 0)} | {case.get('handoff_count', 0)} | "
+                f"{case.get('conflict_resolution_count', 0)} | {rejected_count} | "
+                f"{'是' if case.get('contaminated_by_rejected_memory') else '否'} |"
+            )
+    markdown_path.write_text("\n".join(lines), encoding="utf-8")
     return json_path, markdown_path
 
 
@@ -277,11 +399,21 @@ def _serialize_memory(node: MemoryNode) -> dict[str, object]:
     return {
         "node_id": node.id,
         "agent_id": node.metadata.get("agent_id"),
+        "source_agent_id": node.metadata.get("source_agent_id"),
         "target_agent_id": node.metadata.get("target_agent_id"),
         "layer": node.metadata.get("memory_layer"),
+        "task_id": node.metadata.get("task_id"),
+        "memory_version": node.metadata.get("memory_version"),
+        "conflict_status": node.metadata.get("conflict_status"),
         "usage_count": node.usage_count,
         "text": node.text,
     }
+
+
+def _memory_list(value: object) -> list[dict[str, object]]:
+    if not isinstance(value, list):
+        return []
+    return [item for item in value if isinstance(item, dict)]
 
 
 def _step(agent_id: str, action: str, memory_node_ids: list[str]) -> dict[str, object]:
