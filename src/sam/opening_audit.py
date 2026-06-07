@@ -60,7 +60,7 @@ OPENING_MODULE_SPECS: list[ModuleSpec] = [
         module_id="associative_retrieval",
         title="语义激活与联想检索机制",
         opening_requirement="先用语义相似度锁定候选，再沿知识图谱关联路径扩展邻近记忆，形成与当前问题相关的记忆子图。",
-        target_progress=75,
+        target_progress=78,
         code_evidence=[
             EvidenceSpec("两阶段检索与消融模式", "src/sam/retriever.py", "code"),
             EvidenceSpec("路径重排", "src/sam/reranker.py", "code"),
@@ -70,6 +70,7 @@ OPENING_MODULE_SPECS: list[ModuleSpec] = [
             EvidenceSpec("主实验入口", "scripts/run_demo.py", "code"),
         ],
         experiment_evidence=[
+            EvidenceSpec("HotpotQA 300 条候选集隔离实验", "outputs/runs/lexical_isolated_hotpotqa300/metrics.json", "experiment"),
             EvidenceSpec("HotpotQA 300 条消融", "outputs/runs/fair_ablation_hotpotqa_300/ablation_metrics.json", "experiment"),
             EvidenceSpec("反馈消融 300 条", "outputs/runs/feedback_ablation_hotpotqa_300_isolated/ablation_metrics.json", "experiment"),
             EvidenceSpec("PathReranker 300 条 profile 对比", "outputs/runs/reranker_profile_hotpotqa300_noise_penalty/reranker_profile_comparison.json", "experiment"),
@@ -77,7 +78,7 @@ OPENING_MODULE_SPECS: list[ModuleSpec] = [
         ],
         remaining_work=[
             "正式 embedding 尚未重跑 HotpotQA 300 条和 NovelQA。",
-            "多路径与记忆状态在单轮 HotpotQA 上收益不明显，需要更适合动态记忆的实验。",
+            "多路径与记忆状态需要在连续任务中继续拉开贡献差异。",
             "仍需进一步降低图噪声和缺失支持证据问题。",
         ],
     ),
@@ -239,6 +240,26 @@ def _json_summary(path: Path) -> dict[str, Any]:
     except Exception:
         return {}
     if isinstance(data, dict):
+        if "method_metrics" in data and isinstance(data["method_metrics"], dict):
+            methods = data["method_metrics"]
+            sam = methods.get("sam_full") or methods.get("sam")
+            embedding = methods.get("embedding_topk")
+            summary: dict[str, Any] = {}
+            if isinstance(sam, dict):
+                summary.update(
+                    {
+                        "sam_evidence_recall": _round_or_none(sam.get("evidence_recall")),
+                        "sam_answer_hit_rate": _round_or_none(sam.get("answer_hit_rate")),
+                    }
+                )
+            if isinstance(embedding, dict):
+                summary.update(
+                    {
+                        "embedding_evidence_recall": _round_or_none(embedding.get("evidence_recall")),
+                        "embedding_answer_hit_rate": _round_or_none(embedding.get("answer_hit_rate")),
+                    }
+                )
+            return summary
         if "sam_full" in data and isinstance(data["sam_full"], dict):
             sam = data["sam_full"]
             return {

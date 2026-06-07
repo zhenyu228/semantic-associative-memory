@@ -45,7 +45,7 @@ from sam.embedding import (
 from sam.embedding_plan import build_embedding_run_plan, warm_embedding_cache
 from sam.edge_audit import audit_edge_quality, write_edge_quality_audit
 from sam.env import apply_provider_env_aliases, load_default_env_file, load_env_file
-from sam.evaluator import Evaluator
+from sam.evaluator import Evaluator, _feedback_enabled
 from sam.experiment_audit import audit_run_directory, write_experiment_audit
 from sam.generation import (
     CaseAnalogyHintBuilder,
@@ -676,6 +676,120 @@ class SamCoreTest(unittest.TestCase):
             if path.get("relation_type")
         ]
         self.assertTrue(any("edge_quality" in path for path in candidate_paths))
+
+    def test_sam_initial_activation_uses_lexical_signal_without_changing_embedding_baseline(self) -> None:
+        self.store.reset()
+        now = utc_now_iso()
+        support = MemoryNode(
+            id="lexical_support",
+            text="rare bridge target evidence appears in this paragraph",
+            summary="rare bridge target evidence",
+            keywords=["rare", "bridge", "target", "evidence"],
+            tags=[],
+            source="unit-test",
+            created_at=now,
+            last_accessed_at=None,
+            usage_count=0,
+            confidence=0.8,
+            embedding=[0.70, 0.714],
+            metadata={"title": "Rare Bridge Target", "entities": ["Rare Bridge"]},
+        )
+        distractor = MemoryNode(
+            id="semantic_distractor",
+            text="ordinary background text without the exact bridge clue",
+            summary="ordinary background text",
+            keywords=["ordinary", "background"],
+            tags=[],
+            source="unit-test",
+            created_at=now,
+            last_accessed_at=None,
+            usage_count=0,
+            confidence=0.8,
+            embedding=[0.72, 0.694],
+            metadata={"title": "Ordinary Background", "entities": ["Other"]},
+        )
+        self.store.upsert_nodes([support, distractor])
+
+        class QueryEmbeddingProvider(LocalHashEmbeddingProvider):
+            def embed(self, text: str) -> list[float]:
+                return [1.0, 0.0]
+
+        retriever = Retriever(self.store, QueryEmbeddingProvider(), GraphBuilder(self.store))
+        embedding_hit = retriever.retrieve(
+            "rare bridge target",
+            "embedding_topk",
+            top_k=1,
+            candidate_doc_ids=["lexical_support", "semantic_distractor"],
+        )[0]
+        sam_hit = retriever.retrieve(
+            "rare bridge target",
+            "sam_with_lexical_activation",
+            top_k=1,
+            seed_k=1,
+            hops=0,
+            candidate_doc_ids=["lexical_support", "semantic_distractor"],
+        )[0]
+
+        self.assertEqual(embedding_hit.node.id, "semantic_distractor")
+        self.assertEqual(sam_hit.node.id, "lexical_support")
+        self.assertIn("initial_lexical_activation_score", sam_hit.metadata["score_breakdown"])
+        self.assertNotIn("lexical_activation", sam_hit.metadata["score_breakdown"])
+
+    def test_feedback_policy_is_defined_for_sam_variants(self) -> None:
+        self.assertTrue(_feedback_enabled("sam_full"))
+        self.assertTrue(_feedback_enabled("sam_with_lexical_activation"))
+        self.assertFalse(_feedback_enabled("sam_no_feedback"))
+        self.assertFalse(_feedback_enabled("sam_static_graph"))
+
+    def test_consolidated_memory_candidates_are_only_added_for_memory_reuse_modes(self) -> None:
+        now = utc_now_iso()
+        support = MemoryNode(
+            id="prior_support",
+            text="prior support evidence",
+            summary="prior support",
+            keywords=["prior", "support"],
+            tags=[],
+            source="unit-test",
+            created_at=now,
+            last_accessed_at=None,
+            usage_count=0,
+            confidence=0.8,
+            embedding=self.embedding.embed("prior support"),
+            metadata={"title": "Prior Support"},
+        )
+        consolidated = MemoryNode(
+            id="prior_consolidated",
+            text="prior consolidated memory",
+            summary="prior consolidated",
+            keywords=["prior", "consolidated"],
+            tags=[],
+            source="unit-test",
+            created_at=now,
+            last_accessed_at=None,
+            usage_count=0,
+            confidence=0.8,
+            embedding=self.embedding.embed("prior consolidated"),
+            metadata={
+                "node_type": "consolidated_memory",
+                "support_node_ids": ["prior_support"],
+            },
+        )
+        self.store.upsert_nodes([support, consolidated])
+
+        sam_candidates = self.evaluator._candidate_ids_for_method(
+            self.store,
+            "sam_full",
+            ["base_candidate"],
+        )
+        analogy_candidates = self.evaluator._candidate_ids_for_method(
+            self.store,
+            "sam_with_analogy",
+            ["base_candidate"],
+        )
+
+        self.assertEqual(sam_candidates, ["base_candidate"])
+        self.assertIn("prior_consolidated", analogy_candidates)
+        self.assertIn("prior_support", analogy_candidates)
 
     def test_associative_retrieval_builds_edges_for_expanded_bridge_nodes(self) -> None:
         self.store.reset()
@@ -1757,14 +1871,21 @@ class SamCoreTest(unittest.TestCase):
             "sam_full",
             base_candidate_ids,
         )
+        analogy_candidates = self.evaluator._candidate_ids_for_method(
+            self.store,
+            "sam_with_analogy",
+            base_candidate_ids,
+        )
         vector_candidates = self.evaluator._candidate_ids_for_method(
             self.store,
             "embedding_topk",
             base_candidate_ids,
         )
 
-        self.assertTrue(consolidated_ids & set(sam_candidates))
-        self.assertTrue(consolidated_support_ids & set(sam_candidates))
+        self.assertFalse(consolidated_ids & set(sam_candidates))
+        self.assertFalse(consolidated_support_ids & set(sam_candidates))
+        self.assertTrue(consolidated_ids & set(analogy_candidates))
+        self.assertTrue(consolidated_support_ids & set(analogy_candidates))
         self.assertFalse(consolidated_ids & set(vector_candidates))
         self.assertFalse(consolidated_support_ids & set(vector_candidates))
 

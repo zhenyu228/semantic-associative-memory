@@ -28,6 +28,8 @@ RETRIEVAL_METHOD_NAMES = {
     "sam_vector_anchor": "SAM-vector-anchor",
     "sam_adaptive_anchor": "SAM-adaptive-anchor",
     "sam_with_analogy": "SAM-with-analogy",
+    "sam_no_lexical_activation": "SAM-no-lexical-activation",
+    "sam_with_lexical_activation": "SAM-with-lexical-activation",
 }
 
 
@@ -47,6 +49,9 @@ class SamRetrievalConfig:
     adaptive_anchor_threshold: float = 0.75
     use_analogy: bool = False
     analogy_top_k: int = 2
+    use_lexical_activation: bool = False
+    use_feedback: bool = True
+    use_consolidated_memory: bool = False
 
 
 SAM_RETRIEVAL_CONFIGS = {
@@ -58,13 +63,16 @@ SAM_RETRIEVAL_CONFIGS = {
     "sam_static_graph": SamRetrievalConfig(
         build_graph_on_demand=False,
         update_dynamic_state=False,
+        use_feedback=False,
     ),
     "sam_no_summary": SamRetrievalConfig(use_summary_nodes=False),
     "sam_with_summary": SamRetrievalConfig(use_summary_nodes=True),
-    "sam_no_feedback": SamRetrievalConfig(),
+    "sam_no_feedback": SamRetrievalConfig(use_feedback=False),
     "sam_vector_anchor": SamRetrievalConfig(min_vector_keep=2),
     "sam_adaptive_anchor": SamRetrievalConfig(adaptive_vector_anchor=True),
-    "sam_with_analogy": SamRetrievalConfig(use_analogy=True),
+    "sam_with_analogy": SamRetrievalConfig(use_analogy=True, use_consolidated_memory=True),
+    "sam_no_lexical_activation": SamRetrievalConfig(use_lexical_activation=False),
+    "sam_with_lexical_activation": SamRetrievalConfig(use_lexical_activation=True),
 }
 
 
@@ -131,6 +139,13 @@ class Retriever:
             return hits
 
         sam_config = SAM_RETRIEVAL_CONFIGS[mode]
+        if sam_config.use_lexical_activation:
+            vector_hits = self._sam_activation_hits(
+                query=query,
+                query_embedding=query_embedding,
+                candidates=seed_candidates,
+                top_k=max(top_k, seed_k),
+            )
         seed_nodes = [hit.node for hit in vector_hits[:seed_k]]
         if sam_config.use_graph and sam_config.build_graph_on_demand:
             self.graph_builder.build_edges_on_demand(seed_nodes, candidates)
@@ -213,6 +228,53 @@ class Retriever:
                     metadata={
                         "score_breakdown": {
                             "similarity": round(similarity, 4),
+                            "usage": round(usage_score, 4),
+                            "confidence": round(confidence_score, 4),
+                        }
+                    },
+                )
+            )
+        hits.sort(key=lambda hit: hit.score, reverse=True)
+        return hits[:top_k]
+
+    def _sam_activation_hits(
+        self,
+        *,
+        query: str,
+        query_embedding: list[float],
+        candidates: list[MemoryNode],
+        top_k: int,
+    ) -> list[RetrievalHit]:
+        """SAM 初始激活：在 embedding 相似度外补充关键词、标题和实体线索。"""
+
+        query_terms = set(extract_keywords(query, limit=24))
+        hits: list[RetrievalHit] = []
+        for node in candidates:
+            similarity = cosine_similarity(query_embedding, node.embedding)
+            lexical_score = _lexical_activation_score(query, query_terms, node)
+            usage_score = min(0.12, node.usage_count * 0.02)
+            confidence_score = node.confidence * 0.04
+            lexical_component = 0.24 * lexical_score
+            score = similarity + lexical_component + usage_score + confidence_score
+            hits.append(
+                RetrievalHit(
+                    node=node,
+                    score=score,
+                    similarity_score=similarity,
+                    graph_score=0.0,
+                    usage_score=usage_score,
+                    confidence_score=confidence_score,
+                    path=[node.id],
+                    reason=(
+                        f"SAM 初始激活：向量相似度={similarity:.3f}，"
+                        f"词项/实体激活={lexical_score:.3f}"
+                    ),
+                    metadata={
+                        "lexical_activation_score": lexical_score,
+                        "score_breakdown": {
+                            "similarity": round(similarity, 4),
+                            "lexical_activation": round(lexical_component, 4),
+                            "lexical_activation_score": round(lexical_score, 4),
                             "usage": round(usage_score, 4),
                             "confidence": round(confidence_score, 4),
                         }
@@ -417,8 +479,9 @@ class Retriever:
                 {
                     "path": [vector_hit.node.id],
                     "graph_score": 0.0,
-                    "reason": "向量候选节点",
+                    "reason": vector_hit.reason or "向量候选节点",
                     "depth": 0,
+                    "lexical_activation_score": vector_hit.metadata.get("lexical_activation_score", 0.0),
                 }
             )
 
@@ -429,8 +492,9 @@ class Retriever:
                 {
                     "path": [seed_hit.node.id],
                     "graph_score": 0.0,
-                    "reason": "向量种子节点",
+                    "reason": seed_hit.reason or "向量种子节点",
                     "depth": 0,
+                    "lexical_activation_score": seed_hit.metadata.get("lexical_activation_score", 0.0),
                 }
             )
 
@@ -527,6 +591,15 @@ class Retriever:
             )
             score_breakdown = dict(path_score.breakdown)
             total_score = path_score.total
+            lexical_activation_score = max(
+                (
+                    float(signal.get("lexical_activation_score", 0.0))
+                    for signal in signals
+                ),
+                default=0.0,
+            )
+            if lexical_activation_score > 0.0:
+                score_breakdown["initial_lexical_activation_score"] = round(lexical_activation_score, 4)
             hit_metadata: dict[str, object] = {
                 "score_breakdown": score_breakdown,
                 "reranker_profile": path_score.profile,
@@ -758,6 +831,9 @@ def _sam_config_payload(config: SamRetrievalConfig) -> dict[str, object]:
         "adaptive_anchor_threshold": config.adaptive_anchor_threshold,
         "use_analogy": config.use_analogy,
         "analogy_top_k": config.analogy_top_k,
+        "use_lexical_activation": config.use_lexical_activation,
+        "use_feedback": config.use_feedback,
+        "use_consolidated_memory": config.use_consolidated_memory,
     }
 
 
@@ -765,6 +841,39 @@ def _overlap_ratio(left: set[str], right: set[str]) -> float:
     if not left or not right:
         return 0.0
     return len(left & right) / max(1, len(left))
+
+
+def _lexical_activation_score(query: str, query_terms: set[str], node: MemoryNode) -> float:
+    if not query_terms:
+        return 0.0
+    title = str(node.metadata.get("title", ""))
+    entities = " ".join(str(entity) for entity in node.metadata.get("entities", []))
+    node_text = " ".join(
+        [
+            title,
+            node.summary,
+            " ".join(node.keywords[:16]),
+            entities,
+        ]
+    )
+    node_terms = set(extract_keywords(node_text, limit=48))
+    title_terms = set(extract_keywords(title, limit=16))
+    entity_terms = set(extract_keywords(entities, limit=16))
+    exact_title_score = 1.0 if _normalized_phrase(title) in _normalized_phrase(query) else 0.0
+    keyword_score = _overlap_ratio(query_terms, node_terms)
+    title_score = _overlap_ratio(query_terms, title_terms)
+    entity_score = _overlap_ratio(query_terms, entity_terms)
+    return min(
+        1.0,
+        0.62 * keyword_score
+        + 0.25 * exact_title_score
+        + 0.06 * title_score
+        + 0.07 * entity_score,
+    )
+
+
+def _normalized_phrase(text: str) -> str:
+    return " ".join(extract_keywords(text, limit=32))
 
 
 def _top_path_signals(signals: list[dict[str, object]], limit: int = 4) -> list[dict[str, object]]:

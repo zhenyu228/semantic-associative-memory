@@ -1,12 +1,12 @@
 # SAM 开题计划进度审计
 
 - 模块数量：5
-- 估算总体进度：62.6%
+- 估算总体进度：63.2%
 
 | 模块 | 状态 | 估算进度 | 代码证据 | 实验证据 |
 | --- | --- | ---: | ---: | ---: |
 | 知识提取与动态知识图谱构建 | 已完成阶段性目标 | 70% | 7/7 | 4/4 |
-| 语义激活与联想检索机制 | 已完成阶段性目标 | 75% | 6/6 | 4/4 |
+| 语义激活与联想检索机制 | 已完成阶段性目标 | 78% | 6/6 | 5/5 |
 | 类比推理触发与应用 | 已完成阶段性目标 | 58% | 5/5 | 4/4 |
 | 多智能体语义记忆协调机制 | 已完成阶段性目标 | 52% | 6/6 | 3/3 |
 | 评测体系与检索-生成闭环 | 已完成阶段性目标 | 58% | 8/8 | 6/6 |
@@ -26,9 +26,9 @@
   - 已存在：`src/sam/consolidation.py`，记忆巩固
   - 已存在：`src/sam/relation_judge.py`，GPT-5.4 关系判别接口
 - 实验证据：
-  - 已存在：`outputs/runs/memory_events_30_smoke/metrics.json`，记忆事件 smoke
-  - 已存在：`outputs/runs/memory_consolidation_hotpotqa30_v2/metrics.json`，记忆巩固实验
-  - 已存在：`outputs/runs/weak_relation_penalty_hotpotqa30/metrics.json`，弱关系惩罚实验
+  - 已存在：`outputs/runs/memory_events_30_smoke/metrics.json`，记忆事件 smoke，摘要：{"sam_evidence_recall": 0.5167, "sam_answer_hit_rate": 0.4, "embedding_evidence_recall": 0.4833, "embedding_answer_hit_rate": 0.4}
+  - 已存在：`outputs/runs/memory_consolidation_hotpotqa30_v2/metrics.json`，记忆巩固实验，摘要：{"sam_evidence_recall": 0.5167, "sam_answer_hit_rate": 0.4, "embedding_evidence_recall": 0.4833, "embedding_answer_hit_rate": 0.4}
+  - 已存在：`outputs/runs/weak_relation_penalty_hotpotqa30/metrics.json`，弱关系惩罚实验，摘要：{"sam_evidence_recall": 0.6167, "sam_answer_hit_rate": 0.6667, "embedding_evidence_recall": 0.5, "embedding_answer_hit_rate": 0.5667}
   - 已存在：`outputs/runs/weak_relation_penalty_hotpotqa30/edge_quality_audit.json`，图边质量审计 smoke
 - 剩余工作：
   - GPT-5.4 RelationJudge 尚未形成正式规模实验。
@@ -38,7 +38,7 @@
 ### 语义激活与联想检索机制
 
 - 开题要求：先用语义相似度锁定候选，再沿知识图谱关联路径扩展邻近记忆，形成与当前问题相关的记忆子图。
-- 当前状态：已完成阶段性目标，估算进度 75%
+- 当前状态：已完成阶段性目标，估算进度 78%
 - 代码证据：
   - 已存在：`src/sam/retriever.py`，两阶段检索与消融模式
   - 已存在：`src/sam/reranker.py`，路径重排
@@ -47,13 +47,14 @@
   - 已存在：`src/sam/evaluator.py`，评测器
   - 已存在：`scripts/run_demo.py`，主实验入口
 - 实验证据：
+  - 已存在：`outputs/runs/lexical_isolated_hotpotqa300/metrics.json`，HotpotQA 300 条候选集隔离实验，摘要：{"sam_evidence_recall": 0.6617, "sam_answer_hit_rate": 0.75, "embedding_evidence_recall": 0.57, "embedding_answer_hit_rate": 0.6467}
   - 已存在：`outputs/runs/fair_ablation_hotpotqa_300/ablation_metrics.json`，HotpotQA 300 条消融，摘要：{"sam_evidence_recall": 0.6033, "sam_answer_hit_rate": 0.5967}
   - 已存在：`outputs/runs/feedback_ablation_hotpotqa_300_isolated/ablation_metrics.json`，反馈消融 300 条，摘要：{"sam_evidence_recall": 0.6033, "sam_answer_hit_rate": 0.5967}
   - 已存在：`outputs/runs/reranker_profile_hotpotqa300_noise_penalty/reranker_profile_comparison.json`，PathReranker 300 条 profile 对比，摘要：{"best_profile": "semantic_heavy", "profile_count": 4}
-  - 已存在：`outputs/runs/edge_audit_penalty_hotpotqa30/metrics.json`，Edge-audit 惩罚 30 条 smoke
+  - 已存在：`outputs/runs/edge_audit_penalty_hotpotqa30/metrics.json`，Edge-audit 惩罚 30 条 smoke，摘要：{"sam_evidence_recall": 0.6, "sam_answer_hit_rate": 0.7333, "embedding_evidence_recall": 0.5167, "embedding_answer_hit_rate": 0.5667}
 - 剩余工作：
   - 正式 embedding 尚未重跑 HotpotQA 300 条和 NovelQA。
-  - 多路径与记忆状态在单轮 HotpotQA 上收益不明显，需要更适合动态记忆的实验。
+  - 多路径与记忆状态需要在连续任务中继续拉开贡献差异。
   - 仍需进一步降低图噪声和缺失支持证据问题。
 
 ### 类比推理触发与应用
@@ -68,8 +69,8 @@
   - 已存在：`scripts/run_analogy_reuse_experiment.py`，类比复用脚本
 - 实验证据：
   - 已存在：`outputs/runs/analogy_reuse_hotpotqa30/analogy_reuse_results.json`，类比复用 30 条
-  - 已存在：`outputs/runs/analogy_generation_smoke/metrics.json`，类比生成 smoke
-  - 已存在：`outputs/runs/analogy_retrieval_smoke/metrics.json`，类比检索排序 30 条 smoke
+  - 已存在：`outputs/runs/analogy_generation_smoke/metrics.json`，类比生成 smoke，摘要：{"sam_evidence_recall": 1.0, "sam_answer_hit_rate": 1.0, "embedding_evidence_recall": 0.6667, "embedding_answer_hit_rate": 0.6667}
+  - 已存在：`outputs/runs/analogy_retrieval_smoke/metrics.json`，类比检索排序 30 条 smoke，摘要：{"sam_evidence_recall": 0.55, "sam_answer_hit_rate": 0.6333, "embedding_evidence_recall": 0.4833, "embedding_answer_hit_rate": 0.5}
   - 已存在：`outputs/runs/analogy_structural_consolidation_hotpotqa30/analogy_reuse_results.json`，结构性巩固类比复用 30 条
 - 剩余工作：
   - 类比提示对最终答案质量的提升尚未用 GPT-5.4 正式验证。
@@ -112,7 +113,7 @@
   - 已存在：`evaluation/official_baselines/audit_official_baselines.py`，官方 baseline 就绪审计
 - 实验证据：
   - 已存在：`outputs/runs/provider_smoke_gpt54_sdk_hotpotqa1/pipeline_summary.json`，GPT-5.4 SDK HotpotQA smoke，摘要：{"answer_hit_rate": 0.0}
-  - 已存在：`outputs/runs/novelqa_demo_eval12_edge_filter/metrics.json`，NovelQA 小样本
+  - 已存在：`outputs/runs/novelqa_demo_eval12_edge_filter/metrics.json`，NovelQA 小样本，摘要：{"sam_evidence_recall": 0.1429, "sam_answer_hit_rate": 0.0833, "embedding_evidence_recall": 0.1429, "embedding_answer_hit_rate": 0.0}
   - 已存在：`outputs/runs/end_to_end_smoke/pipeline_summary.json`，端到端本地 smoke，摘要：{"answer_hit_rate": 0.0}
   - 已存在：`outputs/plans/hotpotqa_embedding_plan/embedding_run_plan.json`，HotpotQA embedding 请求量计划
   - 已存在：`outputs/plans/hotpotqa_local_warmup/embedding_cache_warmup.json`，HotpotQA embedding cache 本地预热 smoke

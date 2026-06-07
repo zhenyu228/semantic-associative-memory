@@ -12,7 +12,7 @@ from sam.consolidation import MemoryConsolidator
 from sam.graph import GraphBuilder
 from sam.models import DatasetDocument, EvaluationQuery, MemoryNode, RetrievalHit
 from sam.query_planner import QueryPlanner
-from sam.retriever import RETRIEVAL_METHOD_NAMES, Retriever
+from sam.retriever import RETRIEVAL_METHOD_NAMES, SAM_RETRIEVAL_CONFIGS, Retriever
 from sam.store import MemoryStore
 from sam.feedback import FeedbackUpdater
 
@@ -361,6 +361,9 @@ class Evaluator:
         candidate_ids = list(base_candidate_ids)
         if not method.startswith("sam"):
             return candidate_ids
+        config = SAM_RETRIEVAL_CONFIGS.get(method)
+        if config is None or not config.use_consolidated_memory:
+            return list(dict.fromkeys(candidate_ids))
         for node in store.get_nodes():
             if node.metadata.get("node_type") != "consolidated_memory":
                 continue
@@ -675,7 +678,10 @@ def _display_method(methods: list[str]) -> str | None:
 
 
 def _feedback_enabled(method: str) -> bool:
-    return method in {"sam", "sam_full", "sam_with_summary"}
+    config = SAM_RETRIEVAL_CONFIGS.get(method)
+    if config is not None:
+        return config.use_feedback
+    return False
 
 
 def _memory_events_to_markdown(events: list[dict[str, object]]) -> str:
