@@ -207,7 +207,32 @@ conda run -n sam python scripts/check_model_providers.py \
 
 验证结果中 chat probe 返回 `2`，说明 GPT-5.4 SDK 链路可用。当前已在 `outputs/runs/relation_judge_gpt54_querylimit5_smoke/` 完成低预算 RelationJudge smoke，证明 GPT-5.4 能参与关系级建边判别流程。
 
-## 7. 当前结论
+## 7. GPT-5.4 检索-生成闭环
+
+低额度端到端生成实验命令如下：
+
+```bash
+SAM_AZURE_CHAT_TIMEOUT=30 conda run -n sam python scripts/run_end_to_end_experiment.py \
+  --env-file .env.local \
+  --dataset-file data/processed/hotpotqa_midterm300_sam_sample.json \
+  --run-name e2e_gpt54_generation_q3_grounded_v2 \
+  --limit 3 \
+  --embedding-provider local \
+  --chat-provider azure_openai_sdk \
+  --answer-judge rule \
+  --retrieval-methods embedding_topk,sam_full \
+  --generation-method sam_full \
+  --top-k 4 \
+  --seed-k 1 \
+  --hops 2 \
+  --max-context-chars 5000
+```
+
+当前生成评测采用 grounding gate：生成答案必须匹配标准答案，且检索上下文也覆盖答案线索，才计为命中。这样可以防止 GPT-5.4 凭外部知识答对但检索证据缺失的样本被误算为系统成功。
+
+本轮 run 位于 `outputs/runs/e2e_gpt54_generation_q3_grounded_v2/`，3 条样本中 grounded 生成命中 1 条，命中率为 0.333。bad case 中包含一条 `ungrounded_generated_answer`，说明模型可以答对 `Chief of Protocol`，但检索上下文没有包含该证据，因此不计为闭环成功。
+
+## 8. 当前结论
 
 当前中期展示实验可以支持以下表述：
 

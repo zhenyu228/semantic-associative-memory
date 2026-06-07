@@ -75,7 +75,9 @@ class ContextAnswerGenerator:
                 "role": "system",
                 "content": (
                     "你是一个严格基于检索证据回答问题的研究助手。"
-                    "只能依据给定上下文作答；如果证据不足，回答“证据不足”。"
+                    "只能依据给定上下文作答；先逐条检查上下文是否包含问题所问的实体、地点、时间、职位或数量。"
+                    "如果上下文中存在答案线索，必须抽取最短、最直接的答案短语，不要因为证据分散就过早回答“证据不足”。"
+                    "只有所有上下文都缺少答案线索时，才回答“证据不足”。"
                     "答案要简洁，并给出使用了哪些上下文编号。"
                 ),
             },
@@ -85,26 +87,29 @@ class ContextAnswerGenerator:
                     f"问题：{question}{gold_line}\n\n"
                     f"类比提示：\n{hints or '无'}\n\n"
                     f"上下文：\n{context_text}\n\n"
-                    "请输出最终答案和一句依据。"
+                    "请输出：最终答案：<最短答案短语>。依据：<一句话，包含上下文编号>。"
                 ),
             },
         ]
         answer = self.chat_client.complete(messages, max_tokens=500)
         judgment = self.answer_judge.judge(question, gold_answer, answer)
         context_judgment = RuleBasedAnswerJudge().judge(question, gold_answer, context_text)
+        grounded_answer_hit = judgment.answer_hit and context_judgment.answer_hit
         return GeneratedAnswer(
             query_id=query_id,
             method=method,
             question=question,
             gold_answer=gold_answer,
             generated_answer=answer,
-            answer_hit=judgment.answer_hit,
+            answer_hit=grounded_answer_hit,
             context_titles=[_hit_title(hit) for hit in hits],
             prompt_tokens_estimate=max(1, len(json.dumps(messages, ensure_ascii=False)) // 4),
             metadata={
                 "analogy_hints": analogy_hints or [],
                 "answer_judgment": judgment.to_dict(),
                 "context_answer_judgment": context_judgment.to_dict(),
+                "ungrounded_answer_hit": judgment.answer_hit and not context_judgment.answer_hit,
+                "grounding_policy": "answer_hit requires generated answer match and retrieved context support",
             },
         )
 

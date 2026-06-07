@@ -272,10 +272,16 @@ def _generation_categories(answer: dict[str, object]) -> list[str]:
     context_titles = answer.get("context_titles", [])
     has_context = isinstance(context_titles, list) and len(context_titles) > 0
     context_answer_hit = context_judgment.get("answer_hit")
+    ungrounded_answer_hit = bool(
+        isinstance(answer.get("metadata"), dict)
+        and answer["metadata"].get("ungrounded_answer_hit")
+    )
 
     if not generated_answer:
         categories.append("empty_generated_answer")
-    if not answer_hit:
+    if ungrounded_answer_hit:
+        categories.append("ungrounded_generated_answer")
+    elif not answer_hit:
         categories.append("generated_answer_not_equivalent")
     if judgment and score < 0.5:
         categories.append("judge_low_confidence")
@@ -307,6 +313,8 @@ def _context_answer_judgment(answer: dict[str, object]) -> dict[str, object]:
 def _generation_diagnosis(categories: list[str]) -> str:
     if "empty_generated_answer" in categories:
         return "生成阶段没有产出有效答案。"
+    if "ungrounded_generated_answer" in categories:
+        return "生成答案匹配标准答案，但检索上下文没有覆盖该答案，存在外部知识或幻觉风险。"
     if "retrieval_context_missing_answer" in categories:
         return "检索上下文没有覆盖标准答案，生成阶段缺少必要证据。"
     if "context_available_but_generation_failed" in categories:
@@ -323,6 +331,8 @@ def _generation_diagnosis(categories: list[str]) -> str:
 def _generation_recommendation(categories: list[str]) -> str:
     if "empty_generated_answer" in categories:
         return "检查聊天模型调用和提示词，必要时降低上下文长度或增加重试。"
+    if "ungrounded_generated_answer" in categories:
+        return "将命中判定改为需要检索上下文支撑，并优先补足缺失证据，而不是采纳模型外部知识。"
     if "retrieval_context_missing_answer" in categories:
         return "优先改进检索召回、图扩展和路径重排，而不是只调整生成提示词。"
     if "context_available_but_generation_failed" in categories:

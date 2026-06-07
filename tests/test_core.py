@@ -3732,7 +3732,7 @@ class SamCoreTest(unittest.TestCase):
                 "sam_full": [
                     {
                         "title": "New shared relation",
-                        "text": "The current evidence needs another role.",
+                        "text": "The current bridge evidence identifies an author.",
                         "reason": "向量种子节点 -> shared_entity",
                         "candidate_paths": [{"relation_type": "shared_entity"}],
                     }
@@ -3829,7 +3829,7 @@ class SamCoreTest(unittest.TestCase):
             hits=[
                 {
                     "title": "Evidence",
-                    "text": "Evidence text.",
+                    "text": "Evidence text contains gold string.",
                     "path": ["n1"],
                 }
             ],
@@ -3838,6 +3838,62 @@ class SamCoreTest(unittest.TestCase):
         self.assertTrue(answer.answer_hit)
         self.assertEqual(answer.metadata["answer_judgment"]["status"], "llm_equivalent")
         self.assertEqual(answer.metadata["answer_judgment"]["metadata"]["judge"], "fixed")
+
+    def test_context_answer_generator_requires_retrieved_context_grounding(self) -> None:
+        class GoldFromMemoryChatClient(ChatClient):
+            def complete(self, messages: list[dict[str, object]], max_tokens: int = 500) -> str:
+                return "最终答案：Chief of Protocol。依据：模型记忆。"
+
+        generator = ContextAnswerGenerator(GoldFromMemoryChatClient())
+        answer = generator.generate_from_hits(
+            query_id="grounding-case",
+            method="sam_full",
+            question="What government position was held?",
+            gold_answer="Chief of Protocol",
+            hits=[
+                {
+                    "title": "Kiss and Tell",
+                    "text": "Kiss and Tell stars Shirley Temple as Corliss Archer.",
+                    "path": ["n1"],
+                }
+            ],
+        )
+
+        self.assertFalse(answer.answer_hit)
+        self.assertTrue(answer.metadata["answer_judgment"]["answer_hit"])
+        self.assertFalse(answer.metadata["context_answer_judgment"]["answer_hit"])
+        self.assertTrue(answer.metadata["ungrounded_answer_hit"])
+
+    def test_context_answer_generator_prompt_requires_direct_answer_extraction(self) -> None:
+        captured: dict[str, object] = {}
+
+        class CapturingChatClient(ChatClient):
+            def complete(self, messages: list[dict[str, object]], max_tokens: int = 500) -> str:
+                captured["messages"] = messages
+                return "最终答案：Greenwich Village, New York City。依据：[1]"
+
+        generator = ContextAnswerGenerator(CapturingChatClient())
+        answer = generator.generate_from_hits(
+            query_id="prompt-case",
+            method="sam_full",
+            question="Where is the director based?",
+            gold_answer="Greenwich Village, New York City",
+            hits=[
+                {
+                    "title": "Adriana Trigiani",
+                    "text": "Adriana Trigiani is based in Greenwich Village, New York City.",
+                    "path": ["n1"],
+                }
+            ],
+        )
+
+        messages = captured["messages"]
+        assert isinstance(messages, list)
+        rendered = json.dumps(messages, ensure_ascii=False)
+        self.assertIn("最短、最直接的答案短语", rendered)
+        self.assertIn("不要因为证据分散就过早回答", rendered)
+        self.assertIn("最终答案：<最短答案短语>", rendered)
+        self.assertTrue(answer.answer_hit)
 
     def test_heuristic_chat_client_does_not_return_system_prompt(self) -> None:
         answer = HeuristicChatClient().complete(
@@ -4102,6 +4158,39 @@ class SamCoreTest(unittest.TestCase):
         self.assertEqual(len(bad_cases), 1)
         self.assertIn("retrieval_context_missing_answer", bad_cases[0].categories)
         self.assertNotIn("context_available_but_generation_failed", bad_cases[0].categories)
+
+    def test_generation_badcase_analyzer_flags_ungrounded_generated_answer(self) -> None:
+        answers = [
+            {
+                "query_id": "gen-q3",
+                "method": "sam_full",
+                "question": "What role did she hold?",
+                "gold_answer": "Chief of Protocol",
+                "generated_answer": "Chief of Protocol",
+                "answer_hit": False,
+                "context_titles": ["Kiss and Tell (1945 film)"],
+                "metadata": {
+                    "ungrounded_answer_hit": True,
+                    "answer_judgment": {
+                        "answer_hit": True,
+                        "status": "exact_or_substring_match",
+                        "score": 1.0,
+                    },
+                    "context_answer_judgment": {
+                        "answer_hit": False,
+                        "status": "not_matched",
+                        "score": 0.0,
+                    },
+                },
+            }
+        ]
+
+        bad_cases = GenerationBadCaseAnalyzer().analyze(answers)
+
+        self.assertEqual(len(bad_cases), 1)
+        self.assertIn("ungrounded_generated_answer", bad_cases[0].categories)
+        self.assertNotIn("generated_answer_not_equivalent", bad_cases[0].categories)
+        self.assertIn("外部知识", bad_cases[0].diagnosis)
         self.assertIn("context_answer_judgment", bad_cases[0].metadata)
 
     def test_retrieval_generation_pipeline_writes_end_to_end_outputs(self) -> None:

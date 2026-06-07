@@ -137,7 +137,7 @@ OPENING_MODULE_SPECS: list[ModuleSpec] = [
         module_id="evaluation_and_generation",
         title="评测体系与检索-生成闭环",
         opening_requirement="设计正式实验和评测体系，覆盖跨文档语义整合、推理链重建、多智能体协作和生成结果反馈。",
-        target_progress=58,
+        target_progress=60,
         code_evidence=[
             EvidenceSpec("端到端实验入口", "scripts/run_end_to_end_experiment.py", "code"),
             EvidenceSpec("答案判别", "src/sam/answer_judge.py", "code"),
@@ -149,7 +149,7 @@ OPENING_MODULE_SPECS: list[ModuleSpec] = [
             EvidenceSpec("官方 baseline 就绪审计", "evaluation/official_baselines/audit_official_baselines.py", "code"),
         ],
         experiment_evidence=[
-            EvidenceSpec("GPT-5.4 SDK HotpotQA smoke", "outputs/runs/provider_smoke_gpt54_sdk_hotpotqa1/pipeline_summary.json", "experiment"),
+            EvidenceSpec("GPT-5.4 grounded 生成闭环", "outputs/runs/e2e_gpt54_generation_q3_grounded_v2/pipeline_summary.json", "experiment"),
             EvidenceSpec("NovelQA 小样本", "outputs/runs/novelqa_demo_eval12_edge_filter/metrics.json", "experiment"),
             EvidenceSpec("端到端本地 smoke", "outputs/runs/end_to_end_smoke/pipeline_summary.json", "experiment"),
             EvidenceSpec("HotpotQA embedding 请求量计划", "outputs/plans/hotpotqa_embedding_plan/embedding_run_plan.json", "experiment"),
@@ -158,7 +158,7 @@ OPENING_MODULE_SPECS: list[ModuleSpec] = [
         ],
         remaining_work=[
             "正式 embedding endpoint/key 已在本地安全配置中提供，但当前真实 probe 返回 TimeoutError，HotpotQA 300 条和 NovelQA 正式在线 embedding 主实验尚未完成。",
-            "GPT-5.4 生成和答案判别需要扩大到多样本正式结果。",
+            "GPT-5.4 grounded 生成闭环已跑通低额度实验，但需要扩大到更多样本并接入语义答案判别。",
             "官方 baseline 中 GraphRAG 已达到本地 ready 状态，RAPTOR 和 HippoRAG 仍需修复官方依赖后再跑正式分数。",
         ],
     ),
