@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 from sam.agent_workflow import MultiAgentResearchWorkflow
+from sam.badcase import GenerationBadCaseAnalyzer, write_generation_bad_case_reports
 from sam.generation import CaseAnalogyHintBuilder, ContextAnswerGenerator, GeneratedAnswer
 
 
@@ -96,6 +97,7 @@ def compare_agent_generation_variants(
         workflow_result = workflow.run_case(case)
         shared_answer = workflow_result.get("final_answer", {})
         shared_memory_hints = _shared_memory_hints(workflow_result)
+        shared_memory_contexts = _shared_memory_contexts(workflow_result)
         analogy_hints = [
             *shared_memory_hints,
             *hint_builder.hints_for(case, top_k=analogy_top_k),
@@ -104,6 +106,7 @@ def compare_agent_generation_variants(
             case,
             method=method,
             analogy_hints=analogy_hints,
+            supplemental_contexts=shared_memory_contexts,
         )
         baseline_answers.append(baseline)
         shared_answers.append(shared_answer if isinstance(shared_answer, dict) else {})
@@ -167,6 +170,8 @@ def write_agent_generation_comparison_reports(
     markdown_path = target / "agent_generation_comparison.md"
     json_path.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
     markdown_path.write_text(_agent_generation_markdown(result), encoding="utf-8")
+    bad_cases = GenerationBadCaseAnalyzer().analyze(_flatten_variant_answers(result))
+    write_generation_bad_case_reports(bad_cases, target / "generation_bad_cases")
     return json_path, markdown_path
 
 
@@ -195,8 +200,8 @@ def _agent_generation_markdown(result: dict[str, object]) -> str:
         f"- 方法：{result.get('method', '')}",
         f"- 查询数量：{result.get('query_count', 0)}",
         "",
-        "| 变体 | 答案命中数 | 答案命中率 | 平均 prompt token 估计 |",
-        "| --- | ---: | ---: | ---: |",
+        "| 变体 | 答案命中数 | 答案命中率 | 上下文含答案数 | 有证据但生成失败数 | 平均 prompt token 估计 |",
+        "| --- | ---: | ---: | ---: | ---: | ---: |",
     ]
     for name in ["baseline", "shared_memory", "shared_memory_with_analogy"]:
         metric = variants.get(name, {})
@@ -206,6 +211,8 @@ def _agent_generation_markdown(result: dict[str, object]) -> str:
             f"| {name} | "
             f"{metric.get('answer_hit_count', 0)} | "
             f"{float(metric.get('answer_hit_rate', 0.0)):.3f} | "
+            f"{metric.get('context_answer_hit_count', 0)} | "
+            f"{metric.get('generation_failure_with_context_count', 0)} | "
             f"{float(metric.get('average_prompt_tokens_estimate', 0.0)):.1f} |"
         )
     lines.extend(
@@ -251,6 +258,22 @@ def _shared_memory_hints(workflow_result: dict[str, object]) -> list[str]:
     return hints
 
 
+def _shared_memory_contexts(workflow_result: dict[str, object]) -> list[dict[str, object]]:
+    contexts: list[dict[str, object]] = []
+    for memory in workflow_result.get("writer_memory", []):
+        if not isinstance(memory, dict) or not memory.get("text"):
+            continue
+        contexts.append(
+            {
+                "node_id": memory.get("node_id", ""),
+                "title": f"共享记忆:{memory.get('agent_id', '')}:{memory.get('layer', '')}",
+                "text": str(memory.get("text", "")),
+                "reason": "multi_agent_shared_memory",
+            }
+        )
+    return contexts
+
+
 def _agent_generation_case_delta(
     *,
     case: dict[str, object],
@@ -274,15 +297,49 @@ def _agent_generation_case_delta(
 def _answer_metrics(answers: list[dict[str, object]]) -> dict[str, object]:
     count = len(answers)
     answer_hit_count = sum(1 for answer in answers if answer.get("answer_hit"))
+    context_answer_hit_count = sum(
+        1
+        for answer in answers
+        if _nested_bool(answer, "metadata", "context_answer_judgment", "answer_hit")
+    )
+    ungrounded_answer_hit_count = sum(
+        1
+        for answer in answers
+        if _nested_bool(answer, "metadata", "ungrounded_answer_hit")
+    )
+    generation_failure_with_context_count = sum(
+        1
+        for answer in answers
+        if (
+            not answer.get("answer_hit")
+            and _nested_bool(answer, "metadata", "context_answer_judgment", "answer_hit")
+            and not _nested_bool(answer, "metadata", "ungrounded_answer_hit")
+        )
+    )
     token_values = [
         int(answer.get("prompt_tokens_estimate", 0))
         for answer in answers
         if isinstance(answer.get("prompt_tokens_estimate", 0), int | float)
     ]
+    supplemental_counts = [
+        int(answer.get("metadata", {}).get("supplemental_context_count", 0))
+        for answer in answers
+        if isinstance(answer.get("metadata"), dict)
+    ]
     return {
         "answer_count": count,
         "answer_hit_count": answer_hit_count,
         "answer_hit_rate": _rate(answer_hit_count, count),
+        "context_answer_hit_count": context_answer_hit_count,
+        "context_answer_hit_rate": _rate(context_answer_hit_count, count),
+        "generation_failure_with_context_count": generation_failure_with_context_count,
+        "generation_failure_with_context_rate": _rate(generation_failure_with_context_count, count),
+        "ungrounded_answer_hit_count": ungrounded_answer_hit_count,
+        "average_supplemental_context_count": (
+            sum(supplemental_counts) / len(supplemental_counts)
+            if supplemental_counts
+            else 0.0
+        ),
         "average_prompt_tokens_estimate": (
             sum(token_values) / len(token_values) if token_values else 0.0
         ),
@@ -395,3 +452,32 @@ def _has_agent_handoff(
 
 def _rate(count: int, total: int) -> float:
     return count / total if total else 0.0
+
+
+def _nested_bool(payload: dict[str, object], *keys: str) -> bool:
+    current: object = payload
+    for key in keys:
+        if not isinstance(current, dict):
+            return False
+        current = current.get(key)
+    return bool(current)
+
+
+def _flatten_variant_answers(result: dict[str, object]) -> list[dict[str, object]]:
+    answers = result.get("answers", {})
+    if not isinstance(answers, dict):
+        return []
+    flattened: list[dict[str, object]] = []
+    for variant_name, variant_answers in answers.items():
+        if not isinstance(variant_answers, list):
+            continue
+        for answer in variant_answers:
+            if not isinstance(answer, dict):
+                continue
+            item = dict(answer)
+            metadata = dict(item.get("metadata", {})) if isinstance(item.get("metadata"), dict) else {}
+            metadata["agent_generation_variant"] = variant_name
+            item["metadata"] = metadata
+            item["method"] = f"{item.get('method', '')}:{variant_name}"
+            flattened.append(item)
+    return flattened

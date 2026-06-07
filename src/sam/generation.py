@@ -63,9 +63,15 @@ class ContextAnswerGenerator:
         gold_answer: str,
         hits: list[RetrievalHit] | list[dict[str, object]],
         analogy_hints: list[str] | None = None,
+        supplemental_contexts: list[dict[str, object]] | None = None,
         include_gold_in_prompt: bool = False,
     ) -> GeneratedAnswer:
         contexts = [_hit_to_context(hit, index + 1) for index, hit in enumerate(hits)]
+        supplemental_contexts = supplemental_contexts or []
+        contexts.extend(
+            _supplemental_context_to_text(context, len(contexts) + index + 1)
+            for index, context in enumerate(supplemental_contexts)
+        )
         context_text = "\n\n".join(contexts)
         context_text = context_text[: self.max_context_chars]
         hints = "\n".join(f"- {hint}" for hint in (analogy_hints or []))
@@ -102,10 +108,18 @@ class ContextAnswerGenerator:
             gold_answer=gold_answer,
             generated_answer=answer,
             answer_hit=grounded_answer_hit,
-            context_titles=[_hit_title(hit) for hit in hits],
+            context_titles=[
+                *[_hit_title(hit) for hit in hits],
+                *[_supplemental_context_title(context) for context in supplemental_contexts],
+            ],
             prompt_tokens_estimate=max(1, len(json.dumps(messages, ensure_ascii=False)) // 4),
             metadata={
                 "analogy_hints": analogy_hints or [],
+                "supplemental_context_count": len(supplemental_contexts),
+                "supplemental_context_titles": [
+                    _supplemental_context_title(context)
+                    for context in supplemental_contexts
+                ],
                 "answer_judgment": judgment.to_dict(),
                 "context_answer_judgment": context_judgment.to_dict(),
                 "ungrounded_answer_hit": judgment.answer_hit and not context_judgment.answer_hit,
@@ -119,6 +133,7 @@ class ContextAnswerGenerator:
         *,
         method: str,
         analogy_hints: list[str] | None = None,
+        supplemental_contexts: list[dict[str, object]] | None = None,
     ) -> GeneratedAnswer:
         methods = case.get("methods", {})
         if not isinstance(methods, dict) or method not in methods:
@@ -133,6 +148,7 @@ class ContextAnswerGenerator:
             gold_answer=str(case.get("answer", "")),
             hits=hits,
             analogy_hints=analogy_hints,
+            supplemental_contexts=supplemental_contexts,
         )
 
 
@@ -399,6 +415,17 @@ def _hit_title(hit: RetrievalHit | dict[str, object]) -> str:
     if isinstance(hit, RetrievalHit):
         return str(hit.node.metadata.get("title") or hit.node.id)
     return str(hit.get("title") or hit.get("node_id") or "")
+
+
+def _supplemental_context_to_text(context: dict[str, object], index: int) -> str:
+    title = _supplemental_context_title(context)
+    text = str(context.get("text") or "")
+    reason = str(context.get("reason") or "shared_memory")
+    return f"[{index}] {title}\n{text}\n检索依据：{reason}"
+
+
+def _supplemental_context_title(context: dict[str, object]) -> str:
+    return str(context.get("title") or context.get("node_id") or "shared_memory")
 
 
 def _case_keywords(case: dict[str, object]) -> set[str]:

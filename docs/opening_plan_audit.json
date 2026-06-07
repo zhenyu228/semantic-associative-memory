@@ -1,6 +1,6 @@
 {
   "title": "SAM 开题计划进度审计",
-  "overall_progress": 64.4,
+  "overall_progress": 65.2,
   "module_count": 5,
   "modules": [
     {
@@ -325,8 +325,8 @@
       "title": "多智能体语义记忆协调机制",
       "opening_requirement": "构建全局洞察层、会话层、交互细节层，支持多智能体共享中间结果和经验以重建推理链。",
       "status": "已完成阶段性目标",
-      "target_progress": 52,
-      "estimated_progress": 52,
+      "target_progress": 56,
+      "estimated_progress": 56,
       "code_evidence": [
         {
           "label": "共享记忆协调器",
@@ -373,8 +373,20 @@
           "exists": true
         },
         {
+          "label": "多智能体共享记忆复用 300 条",
+          "path": "outputs/runs/agent_memory_reuse_shared_context_hotpotqa300/agent_memory_reuse_results.json",
+          "kind": "experiment",
+          "exists": true
+        },
+        {
           "label": "多智能体生成对照 smoke",
           "path": "outputs/runs/agent_generation_hotpotqa30_smoke/agent_generation_comparison.json",
+          "kind": "experiment",
+          "exists": true
+        },
+        {
+          "label": "共享记忆 Grounded Context 生成诊断",
+          "path": "outputs/runs/agent_generation_shared_context_hotpotqa30/agent_generation_comparison.json",
           "kind": "experiment",
           "exists": true
         },
@@ -387,8 +399,8 @@
       ],
       "remaining_work": [
         "当前多智能体实验仍偏受控流程，不是完整 Deep Research 任务。",
-        "workflow 已能在答案验证失败时自动触发冲突裁决，但仍需设计更真实的多角色分歧任务集。",
-        "需要用 GPT-5.4 比较共享记忆与类比提示对最终答案质量的影响。"
+        "共享记忆已经作为 grounded context 接入生成阶段，但本地启发式生成器不能抽取复杂答案，需要用 GPT-5.4 运行正式对照。",
+        "workflow 已能在答案验证失败时自动触发冲突裁决，但仍需设计更真实的多角色分歧任务集。"
       ]
     },
     {

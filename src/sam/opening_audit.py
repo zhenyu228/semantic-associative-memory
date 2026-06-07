@@ -113,7 +113,7 @@ OPENING_MODULE_SPECS: list[ModuleSpec] = [
         module_id="multi_agent_shared_memory",
         title="多智能体语义记忆协调机制",
         opening_requirement="构建全局洞察层、会话层、交互细节层，支持多智能体共享中间结果和经验以重建推理链。",
-        target_progress=52,
+        target_progress=56,
         code_evidence=[
             EvidenceSpec("共享记忆协调器", "src/sam/agents.py", "code"),
             EvidenceSpec("共享记忆冲突裁决与版本指标", "src/sam/agents.py", "code"),
@@ -124,13 +124,15 @@ OPENING_MODULE_SPECS: list[ModuleSpec] = [
         ],
         experiment_evidence=[
             EvidenceSpec("多智能体共享记忆复用", "outputs/runs/agent_memory_reuse_hotpotqa30/agent_memory_reuse_results.json", "experiment"),
+            EvidenceSpec("多智能体共享记忆复用 300 条", "outputs/runs/agent_memory_reuse_shared_context_hotpotqa300/agent_memory_reuse_results.json", "experiment"),
             EvidenceSpec("多智能体生成对照 smoke", "outputs/runs/agent_generation_hotpotqa30_smoke/agent_generation_comparison.json", "experiment"),
+            EvidenceSpec("共享记忆 Grounded Context 生成诊断", "outputs/runs/agent_generation_shared_context_hotpotqa30/agent_generation_comparison.json", "experiment"),
             EvidenceSpec("多智能体 workflow 自动冲突裁决 smoke", "outputs/runs/agent_workflow_conflict_smoke/agent_workflow.json", "experiment"),
         ],
         remaining_work=[
             "当前多智能体实验仍偏受控流程，不是完整 Deep Research 任务。",
+            "共享记忆已经作为 grounded context 接入生成阶段，但本地启发式生成器不能抽取复杂答案，需要用 GPT-5.4 运行正式对照。",
             "workflow 已能在答案验证失败时自动触发冲突裁决，但仍需设计更真实的多角色分歧任务集。",
-            "需要用 GPT-5.4 比较共享记忆与类比提示对最终答案质量的影响。",
         ],
     ),
     ModuleSpec(

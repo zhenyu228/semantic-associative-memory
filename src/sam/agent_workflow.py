@@ -70,6 +70,7 @@ class MultiAgentResearchWorkflow:
             case,
             method=self.method,
             analogy_hints=[_memory_hint(node) for node in writer_memory],
+            supplemental_contexts=[_memory_context(node) for node in writer_memory],
         )
         writer_record = self.coordinator.write_handoff(
             source_agent_id="writer",
@@ -219,14 +220,42 @@ def _retriever_handoff_text(
         if isinstance(support_hits, dict)
         else 0
     )
+    evidence_snippets = []
+    for index, hit in enumerate(hits[:3], start=1):
+        if not isinstance(hit, dict):
+            continue
+        title = str(hit.get("title") or hit.get("node_id") or f"candidate_{index}")
+        text = _compact_text(str(hit.get("text") or ""), limit=260)
+        reason = _compact_text(str(hit.get("reason") or ""), limit=120)
+        evidence_snippets.append(
+            f"[{index}] {title}：{text}。依据：{reason}"
+        )
+    evidence_text = " ".join(evidence_snippets)
     return (
         f"retriever handoff：{method} 返回 {len(hits)} 条候选，"
         f"命中支持证据 {support_count} 条。候选标题：{'; '.join(titles[:5])}。"
+        f"关键证据片段：{evidence_text}"
     )
 
 
 def _memory_hint(node: MemoryNode) -> str:
     return f"{node.metadata.get('agent_id', '')} 共享记忆：{node.text}"
+
+
+def _memory_context(node: MemoryNode) -> dict[str, object]:
+    return {
+        "node_id": node.id,
+        "title": f"共享记忆:{node.metadata.get('agent_id', '')}:{node.metadata.get('memory_layer', '')}",
+        "text": node.text,
+        "reason": "multi_agent_shared_memory",
+    }
+
+
+def _compact_text(text: str, *, limit: int) -> str:
+    compact = " ".join(text.split())
+    if len(compact) <= limit:
+        return compact
+    return compact[: max(0, limit - 3)] + "..."
 
 
 def _verify_answer(

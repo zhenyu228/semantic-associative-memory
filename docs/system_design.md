@@ -480,7 +480,7 @@ final_score = semantic_score + graph_score + path_quality + memory_state + feedb
 
 - `AnalogyEngine`：把同一任务或同一查询上下文下的记忆组织为历史案例，综合查询语义相似度、关键词重叠、案例内部关系类型和关系路径模式，返回可类比的历史案例，并生成可注入 LLM 的提示文本。`relation_pattern` 参数用于表达当前问题激活出的关系链，例如 `shared_entity -> keyword_overlap`；系统会在历史案例内部枚举短路径并计算路径模式匹配分。新增 `relation_pattern_for_case()` 后，实验可以从历史案例图中自动抽取代表性关系路径，避免只靠人工指定路径模式。
 - `SharedMemoryCoordinator`：提供多智能体共享记忆接口，将记忆分为 `global_insight`、`session`、`interaction` 三层，分别对应开题报告中的全局洞察层、会话层和交互细节层。不同智能体可以向共享记忆写入内容，也可以按层级和会话查询相关记忆。当前还支持 `write_handoff()`，用于把规划智能体、检索智能体、写作智能体等角色的中间结论定向传递给下一个智能体，查询时可以按目标智能体过滤，避免不同角色的过程记忆混杂。
-- `MultiAgentResearchWorkflow`：将 planner、retriever、writer、verifier 四个角色串成一个可运行协作流程。planner 写入全局规划记忆，retriever 将检索证据 handoff 给 writer，writer 读取共享记忆并生成答案，verifier 再读取 writer 的 handoff 进行验证。脚本 `scripts/run_agent_workflow.py` 会输出 `agent_workflow.json` 和 `agent_workflow.md`，用于检查每个角色是否实际读写了共享记忆。
+- `MultiAgentResearchWorkflow`：将 planner、retriever、writer、verifier 四个角色串成一个可运行协作流程。planner 写入全局规划记忆，retriever 将检索证据 handoff 给 writer，writer 读取共享记忆并生成答案，verifier 再读取 writer 的 handoff 进行验证。当前 retriever handoff 已包含候选证据片段和检索依据，writer 读取到的共享记忆会作为 `supplemental_contexts` 进入 `ContextAnswerGenerator`，并参与 grounding gate，而不只是普通提示文本。脚本 `scripts/run_agent_workflow.py` 会输出 `agent_workflow.json` 和 `agent_workflow.md`，用于检查每个角色是否实际读写了共享记忆。
 - `run_agent_memory_reuse_experiment.py`：读取连续记忆复用实验中的 probe cases，进一步统计共享记忆是否真正承接 SAM 相对 baseline 的证据增益。该实验会检查 retriever 的证据 handoff 是否被 writer 读取、writer 的结果 handoff 是否被 verifier 读取，以及有效证据增益是否通过多智能体链路传递。
 - `run_agent_generation_experiment.py`：对比“无共享记忆”“共享记忆”“共享记忆+类比提示”三种答案生成设置。该脚本用于把共享记忆机制推进到最终答案层面，后续可直接切换 GPT-5.4 生成器运行正式实验。
 - `AzureOpenAIEmbeddingProvider` / `AzureOpenAISDKEmbeddingProvider`：支持通过环境变量接入 Azure OpenAI 兼容 embedding 服务。前者使用项目内置 HTTP client，后者使用 OpenAI SDK 的 `AsyncAzureOpenAI` 并通过异步信号量控制并发，使后续实验可以从本地哈希 embedding 切换到正式语义表示模型。
@@ -495,6 +495,8 @@ final_score = semantic_score + graph_score + path_quality + memory_state + feedb
 多智能体共享记忆复用实验已完成，路径为 `outputs/runs/agent_memory_reuse_hotpotqa30/`。在 30 条 HotpotQA 连续复用 probe 中，Embedding Top-k 支持证据命中数为 0，SAM 支持证据命中数为 31；其中 22 条样本形成了 retriever -> writer -> verifier 的有效共享记忆链路，链路成功率为 0.733。该结果说明多智能体模块已经从“流程可运行”推进到“共享记忆复用可量化”。当前实验重点验证跨角色证据传递，答案生成质量后续需要使用 GPT-5.4 做正式对照。
 
 多智能体生成对照 smoke run 已完成，路径为 `outputs/runs/agent_generation_hotpotqa30_smoke/`。该 run 在本地启发式生成器下完成 30 条样本，`baseline`、`shared_memory`、`shared_memory_with_analogy` 三种设置均生成了答案和报告；其中 `shared_memory_with_analogy` 的平均 prompt token 估计从 baseline 的 698.9 增加到 923.2，说明共享记忆和类比提示已经进入生成上下文。本地启发式生成器的答案命中率为 0.000，不作为模型效果结论。正式实验应使用 GPT-5.4 重跑同一脚本，重点观察共享记忆和类比提示是否提升答案命中率、证据引用完整性和失败样本恢复率。
+
+本轮进一步完成共享记忆 grounded context 改造，路径为 `outputs/runs/agent_generation_shared_context_hotpotqa30/`。30 条诊断结果显示，baseline 的上下文含答案样本数为 7，`shared_memory` 和 `shared_memory_with_analogy` 均为 8，平均补充上下文数量为 2。该结果说明共享记忆已经能把额外证据带入生成阶段，但本地启发式生成器仍不能稳定抽取复杂答案，因此最终答案命中率仍为 0。300 条共享记忆复用实验位于 `outputs/runs/agent_memory_reuse_shared_context_hotpotqa300/`，SAM-full 相对 Embedding Top-k 的支持证据增益总数为 48，46 条样本形成正向复用链路，writer/verifier handoff 使用率均为 1.000。
 
 ### P7：检索-生成闭环与 Bad Case 驱动改进
 

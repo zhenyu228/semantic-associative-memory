@@ -1,14 +1,14 @@
 # SAM 开题计划进度审计
 
 - 模块数量：5
-- 估算总体进度：64.4%
+- 估算总体进度：65.2%
 
 | 模块 | 状态 | 估算进度 | 代码证据 | 实验证据 |
 | --- | --- | ---: | ---: | ---: |
 | 知识提取与动态知识图谱构建 | 已完成阶段性目标 | 74% | 7/7 | 6/6 |
 | 语义激活与联想检索机制 | 已完成阶段性目标 | 78% | 6/6 | 5/5 |
 | 类比推理触发与应用 | 已完成阶段性目标 | 58% | 5/5 | 4/4 |
-| 多智能体语义记忆协调机制 | 已完成阶段性目标 | 52% | 6/6 | 3/3 |
+| 多智能体语义记忆协调机制 | 已完成阶段性目标 | 56% | 6/6 | 5/5 |
 | 评测体系与检索-生成闭环 | 已完成阶段性目标 | 60% | 8/8 | 6/6 |
 
 ## 模块明细
@@ -83,7 +83,7 @@
 ### 多智能体语义记忆协调机制
 
 - 开题要求：构建全局洞察层、会话层、交互细节层，支持多智能体共享中间结果和经验以重建推理链。
-- 当前状态：已完成阶段性目标，估算进度 52%
+- 当前状态：已完成阶段性目标，估算进度 56%
 - 代码证据：
   - 已存在：`src/sam/agents.py`，共享记忆协调器
   - 已存在：`src/sam/agents.py`，共享记忆冲突裁决与版本指标
@@ -93,12 +93,14 @@
   - 已存在：`scripts/run_agent_memory_reuse_experiment.py`，共享记忆复用脚本
 - 实验证据：
   - 已存在：`outputs/runs/agent_memory_reuse_hotpotqa30/agent_memory_reuse_results.json`，多智能体共享记忆复用
+  - 已存在：`outputs/runs/agent_memory_reuse_shared_context_hotpotqa300/agent_memory_reuse_results.json`，多智能体共享记忆复用 300 条
   - 已存在：`outputs/runs/agent_generation_hotpotqa30_smoke/agent_generation_comparison.json`，多智能体生成对照 smoke
+  - 已存在：`outputs/runs/agent_generation_shared_context_hotpotqa30/agent_generation_comparison.json`，共享记忆 Grounded Context 生成诊断
   - 已存在：`outputs/runs/agent_workflow_conflict_smoke/agent_workflow.json`，多智能体 workflow 自动冲突裁决 smoke
 - 剩余工作：
   - 当前多智能体实验仍偏受控流程，不是完整 Deep Research 任务。
+  - 共享记忆已经作为 grounded context 接入生成阶段，但本地启发式生成器不能抽取复杂答案，需要用 GPT-5.4 运行正式对照。
   - workflow 已能在答案验证失败时自动触发冲突裁决，但仍需设计更真实的多角色分歧任务集。
-  - 需要用 GPT-5.4 比较共享记忆与类比提示对最终答案质量的影响。
 
 ### 评测体系与检索-生成闭环
 

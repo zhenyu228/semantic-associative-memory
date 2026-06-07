@@ -3872,6 +3872,11 @@ class SamCoreTest(unittest.TestCase):
         self.assertEqual(comparison["variants"]["baseline"]["answer_hit_count"], 0)
         self.assertEqual(comparison["variants"]["shared_memory"]["answer_hit_count"], 1)
         self.assertEqual(comparison["variants"]["shared_memory_with_analogy"]["answer_hit_count"], 1)
+        self.assertGreaterEqual(comparison["variants"]["shared_memory"]["context_answer_hit_count"], 1)
+        self.assertGreaterEqual(
+            comparison["variants"]["shared_memory"]["average_supplemental_context_count"],
+            1.0,
+        )
         self.assertEqual(comparison["delta"]["shared_memory_vs_baseline_answer_hits"], 1)
         self.assertEqual(comparison["case_deltas"][0]["shared_memory_status"], "improved")
         self.assertTrue(comparison["answers"]["shared_memory_with_analogy"][0]["metadata"]["analogy_hints"])
@@ -3880,6 +3885,8 @@ class SamCoreTest(unittest.TestCase):
         json_path, markdown_path = write_agent_generation_comparison_reports(comparison, output_dir)
         self.assertTrue(json_path.exists())
         self.assertTrue(markdown_path.exists())
+        self.assertTrue((output_dir / "generation_bad_cases" / "generation_bad_cases.json").exists())
+        self.assertIn("上下文含答案数", markdown_path.read_text(encoding="utf-8"))
 
     def test_generation_and_badcase_reports_are_written(self) -> None:
         result = self.evaluator.evaluate(
@@ -3975,6 +3982,39 @@ class SamCoreTest(unittest.TestCase):
         self.assertTrue(answer.metadata["answer_judgment"]["answer_hit"])
         self.assertFalse(answer.metadata["context_answer_judgment"]["answer_hit"])
         self.assertTrue(answer.metadata["ungrounded_answer_hit"])
+
+    def test_context_answer_generator_grounds_on_shared_memory_context(self) -> None:
+        class SharedMemoryChatClient(ChatClient):
+            def complete(self, messages: list[dict[str, object]], max_tokens: int = 500) -> str:
+                return "最终答案：Chief of Protocol。依据：共享记忆上下文。"
+
+        generator = ContextAnswerGenerator(SharedMemoryChatClient())
+        answer = generator.generate_from_hits(
+            query_id="shared-grounding-case",
+            method="sam_full",
+            question="What government position was held?",
+            gold_answer="Chief of Protocol",
+            hits=[
+                {
+                    "title": "Kiss and Tell",
+                    "text": "Kiss and Tell stars Shirley Temple as Corliss Archer.",
+                    "path": ["n1"],
+                }
+            ],
+            supplemental_contexts=[
+                {
+                    "node_id": "agent-memory-1",
+                    "title": "共享记忆:retriever:session",
+                    "text": "Retriever handoff states that Shirley Temple later served as Chief of Protocol.",
+                    "reason": "multi_agent_shared_memory",
+                }
+            ],
+        )
+
+        self.assertTrue(answer.answer_hit)
+        self.assertTrue(answer.metadata["context_answer_judgment"]["answer_hit"])
+        self.assertEqual(answer.metadata["supplemental_context_count"], 1)
+        self.assertIn("共享记忆:retriever:session", answer.context_titles)
 
     def test_context_answer_generator_prompt_requires_direct_answer_extraction(self) -> None:
         captured: dict[str, object] = {}

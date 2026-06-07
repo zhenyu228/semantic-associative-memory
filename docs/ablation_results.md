@@ -757,3 +757,13 @@ bad case 分布从 `success=27, source_case_without_consolidation=3` 变为 `suc
 | Ungrounded 命中数 | 1 |
 
 该结果说明 GPT-5.4 生成链路已经跑通，但当前闭环瓶颈仍主要在检索证据覆盖和生成忠实性评测上。对于 `Chief of Protocol` 案例，生成模型能凭外部知识答对，但 SAM 检索上下文没有支撑该答案，因此不能算系统成功；对于 `Big Stone Gap` 案例，检索上下文存在部分关键词线索，但缺少明确的 `Greenwich Village, New York City` 证据，模型正确拒答。后续改进应优先补足答案证据召回，再扩大 GPT-5.4 生成样本数，而不是只依赖更强生成模型。
+
+## 37. 多智能体共享记忆 Grounded Context 改造
+
+为解决多智能体模块停留在流程级 handoff 的问题，系统将 writer 读取到的共享记忆从普通提示升级为生成阶段的补充上下文。此前 `ContextAnswerGenerator` 的 grounding gate 只检查检索 hits 中是否包含答案依据，因此共享记忆即使包含 retriever 交接的证据，也不会被计入“有依据的生成上下文”。本轮改造后，`ContextAnswerGenerator.generate_from_hits` 新增 `supplemental_contexts`，`MultiAgentResearchWorkflow` 会把 writer 读取到的共享记忆转成可审计上下文，并与检索 hits 一起进入 grounding 判断。
+
+同时 retriever handoff 不再只写候选标题和支持证据数量，而是包含 top 候选的短文本片段和检索依据。这样 writer 读取到的共享记忆不仅表示“哪个角色传了什么”，也包含后续生成和验证可以检查的证据信息。`run_agent_generation_experiment.py` 的三种设置也相应调整：`baseline` 不使用共享记忆，`shared_memory` 使用共享记忆上下文，`shared_memory_with_analogy` 同时使用共享记忆上下文和历史案例类比提示。
+
+本轮 30 条 HotpotQA 生成诊断位于 `outputs/runs/agent_generation_shared_context_hotpotqa30/`。结果显示，baseline 的上下文含答案样本数为 7，shared_memory 和 shared_memory_with_analogy 均为 8；平均补充上下文数量从 0 增加到 2。说明共享记忆确实把额外证据带入了 grounded context。但三种设置的答案命中率仍为 0，bad case 主要集中在 `context_available_but_generation_failed` 和 `retrieval_context_missing_answer`。这表明当前瓶颈不是共享记忆没有进入生成阶段，而是本地启发式生成器不能从复杂英文上下文中稳定抽取答案。该结果为后续 GPT-5.4 正式生成对照提供了明确实验边界。
+
+进一步在 300 条 HotpotQA 上运行共享记忆复用实验，结果位于 `outputs/runs/agent_memory_reuse_shared_context_hotpotqa300/`：Embedding Top-k 支持证据命中数为 343，SAM-full 支持证据命中数为 362，支持证据增益总数为 48；其中 46 条样本存在正向证据增益，writer 使用 retriever handoff 的比例为 1.000，verifier 使用 writer handoff 的比例为 1.000，多智能体复用链路成功率为 0.153。该结果说明多智能体模块已经能在 300 条规模上稳定记录和传递 SAM 相对 baseline 的证据增益，但最终答案质量仍依赖更强的生成模型和更可靠的答案抽取。
