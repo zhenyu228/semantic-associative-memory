@@ -72,7 +72,13 @@ from sam.reranker_experiment import (
     run_reranker_profile_comparison,
     write_reranker_profile_reports,
 )
-from sam.relation_judge import CachedRelationJudge, ChatRelationJudge, RelationJudgment, create_relation_judge
+from sam.relation_judge import (
+    BudgetedRelationJudge,
+    CachedRelationJudge,
+    ChatRelationJudge,
+    RelationJudgment,
+    create_relation_judge,
+)
 from sam.retriever import Retriever
 from sam.reuse_experiment import build_masked_queries, summarize_memory_reuse
 from sam.store import MemoryStore
@@ -482,6 +488,76 @@ class SamCoreTest(unittest.TestCase):
         self.assertEqual(first.to_dict(), second.to_dict())
         self.assertEqual(first.to_dict(), third.to_dict())
         self.assertTrue(cache_path.exists())
+
+    def test_budgeted_relation_judge_skips_after_max_calls(self) -> None:
+        class CountingRelationJudge:
+            def __init__(self) -> None:
+                self.calls = 0
+
+            def judge(
+                self,
+                seed: MemoryNode,
+                other: MemoryNode,
+                score_breakdown: dict[str, object],
+            ) -> RelationJudgment:
+                self.calls += 1
+                return RelationJudgment(
+                    should_link=False,
+                    relation_type="unrelated",
+                    confidence=0.9,
+                    reason="测试判别器拒绝候选边",
+                )
+
+        base_judge = CountingRelationJudge()
+        judge = BudgetedRelationJudge(base_judge, max_calls=1, on_exhausted="skip")
+        seed = self.nodes[0]
+        other = self.nodes[1]
+
+        first = judge.judge(seed, other, {"relation_type_hint": "keyword_overlap"})
+        second = judge.judge(seed, other, {"relation_type_hint": "keyword_overlap"})
+
+        self.assertEqual(base_judge.calls, 1)
+        self.assertEqual(judge.calls_made, 1)
+        self.assertEqual(judge.skipped_count, 1)
+        self.assertEqual(first.should_link, False)
+        self.assertEqual(second.should_link, True)
+        self.assertEqual(second.relation_type, "budget_exhausted")
+
+    def test_create_relation_judge_wraps_cached_gpt54_with_budget_inside_cache(self) -> None:
+        cache_path = Path(self.temp_dir.name) / "relation_cache.json"
+
+        class FakeChatClient(ChatClient):
+            def __init__(self) -> None:
+                self.calls = 0
+
+            def complete(self, messages: list[dict[str, object]], max_tokens: int = 500) -> str:
+                self.calls += 1
+                return '{"should_link": true, "relation_type": "same_topic", "confidence": 0.9, "reason": "测试"}'
+
+        fake_client = FakeChatClient()
+
+        with patch.dict(
+            "os.environ",
+            {
+                "SAM_RELATION_JUDGE_CACHE_PATH": str(cache_path),
+                "SAM_RELATION_JUDGE_MAX_CALLS": "1",
+                "SAM_RELATION_JUDGE_BUDGET_EXHAUSTED": "skip",
+            },
+            clear=True,
+        ), patch("sam.relation_judge.create_chat_client", return_value=fake_client):
+            judge = create_relation_judge("cached_gpt54")
+
+        self.assertIsInstance(judge, CachedRelationJudge)
+        self.assertIsInstance(judge.base_judge, BudgetedRelationJudge)
+
+        seed = self.nodes[0]
+        other = self.nodes[1]
+        payload = {"relation_type_hint": "keyword_overlap", "similarity": 0.5}
+        judge.judge(seed, other, payload)
+        judge.judge(seed, other, payload)
+
+        self.assertEqual(fake_client.calls, 1)
+        self.assertEqual(judge.base_judge.calls_made, 1)
 
     def test_create_relation_judge_supports_cached_gpt54(self) -> None:
         cache_path = Path(self.temp_dir.name) / "relation_cache.json"

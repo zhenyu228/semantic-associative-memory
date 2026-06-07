@@ -43,6 +43,7 @@ def parse_args() -> argparse.Namespace:
         choices=["risky", "all", "off"],
         help="关系判别调用策略：risky 只判别高风险边；all 判别所有候选边；off 跳过判别",
     )
+    parser.add_argument("--relation-judge-max-calls", type=int, default=None, help="关系判别器最多调用次数，避免低额度实验失控")
     parser.add_argument(
         "--retrieval-methods",
         default="embedding_topk,sam_full",
@@ -73,6 +74,8 @@ def main() -> None:
     if args.embedding_concurrency is not None:
         os.environ["SAM_AZURE_EMBEDDING_CONCURRENCY"] = str(args.embedding_concurrency)
         os.environ["SAM_OPENAI_EMBEDDING_CONCURRENCY"] = str(args.embedding_concurrency)
+    if args.relation_judge_max_calls is not None:
+        os.environ["SAM_RELATION_JUDGE_MAX_CALLS"] = str(args.relation_judge_max_calls)
     run_name = args.run_name or f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_end_to_end"
     run_dir = ROOT / args.output_root / run_name
     run_dir.mkdir(parents=True, exist_ok=True)

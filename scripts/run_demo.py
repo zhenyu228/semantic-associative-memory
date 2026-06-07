@@ -60,6 +60,7 @@ def parse_args() -> argparse.Namespace:
         choices=["risky", "all", "off"],
         help="关系判别调用策略：risky 只判别高风险边；all 判别所有候选边；off 跳过判别",
     )
+    parser.add_argument("--relation-judge-max-calls", type=int, default=None, help="关系判别器最多调用次数，避免低额度实验失控")
     parser.add_argument("--use-retrieval-query", action="store_true", help="使用数据集 metadata 中的 retrieval_query 扩展检索文本")
     parser.add_argument(
         "--query-planner",
@@ -159,6 +160,8 @@ def main() -> None:
         os.environ["SAM_AZURE_EMBEDDING_CONCURRENCY"] = str(args.embedding_concurrency)
         os.environ["SAM_OPENAI_EMBEDDING_CONCURRENCY"] = str(args.embedding_concurrency)
     os.environ["SAM_RERANKER_PROFILE"] = args.reranker_profile
+    if args.relation_judge_max_calls is not None:
+        os.environ["SAM_RELATION_JUDGE_MAX_CALLS"] = str(args.relation_judge_max_calls)
     embedding_provider = create_embedding_provider(args.embedding_provider)
     graph_builder = GraphBuilder(
         store,

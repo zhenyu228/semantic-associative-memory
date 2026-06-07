@@ -152,15 +152,59 @@ class CachedRelationJudge:
         )
 
 
+class BudgetedRelationJudge:
+    """为在线关系判别增加调用预算，避免低额度实验失控。"""
+
+    def __init__(
+        self,
+        base_judge: RelationJudge,
+        *,
+        max_calls: int | None = None,
+        on_exhausted: str = "skip",
+    ) -> None:
+        if max_calls is not None and max_calls < 0:
+            raise ValueError("max_calls 不能为负数")
+        if on_exhausted not in {"skip", "reject"}:
+            raise ValueError("on_exhausted 只能是 skip 或 reject")
+        self.base_judge = base_judge
+        self.max_calls = max_calls
+        self.on_exhausted = on_exhausted
+        self.calls_made = 0
+        self.skipped_count = 0
+
+    def judge(
+        self,
+        seed: MemoryNode,
+        other: MemoryNode,
+        score_breakdown: dict[str, object],
+    ) -> RelationJudgment:
+        if self.max_calls is not None and self.calls_made >= self.max_calls:
+            self.skipped_count += 1
+            should_link = self.on_exhausted == "skip"
+            return RelationJudgment(
+                should_link=should_link,
+                relation_type="budget_exhausted",
+                confidence=0.0,
+                reason=(
+                    f"关系判别预算已耗尽：max_calls={self.max_calls}，"
+                    f"策略={self.on_exhausted}"
+                ),
+            )
+        self.calls_made += 1
+        return self.base_judge.judge(seed, other, score_breakdown)
+
+
 def create_relation_judge(name: str | None = None) -> RelationJudge | None:
     provider = name or "disabled"
     if provider in {"disabled", "none", ""}:
         return None
     if provider in {"gpt", "gpt54", "azure_openai", "chat", "gpt54_sdk", "azure_openai_sdk"}:
-        return ChatRelationJudge(
-            min_confidence=_relation_min_confidence(),
-            fail_open=_relation_fail_open(),
-            chat_provider=_relation_chat_provider(provider),
+        return _with_relation_budget(
+            ChatRelationJudge(
+                min_confidence=_relation_min_confidence(),
+                fail_open=_relation_fail_open(),
+                chat_provider=_relation_chat_provider(provider),
+            )
         )
     if provider in {
         "cached_gpt",
@@ -171,14 +215,38 @@ def create_relation_judge(name: str | None = None) -> RelationJudge | None:
         "cached_azure_openai_sdk",
     }:
         return CachedRelationJudge(
-            ChatRelationJudge(
-                min_confidence=_relation_min_confidence(),
-                fail_open=_relation_fail_open(),
-                chat_provider=_relation_chat_provider(provider),
+            _with_relation_budget(
+                ChatRelationJudge(
+                    min_confidence=_relation_min_confidence(),
+                    fail_open=_relation_fail_open(),
+                    chat_provider=_relation_chat_provider(provider),
+                )
             ),
             cache_path=_relation_cache_path(),
         )
     raise ValueError(f"未知关系判别器：{provider}")
+
+
+def _with_relation_budget(judge: RelationJudge) -> RelationJudge:
+    max_calls = _relation_max_calls()
+    if max_calls is None:
+        return judge
+    return BudgetedRelationJudge(
+        judge,
+        max_calls=max_calls,
+        on_exhausted=_relation_budget_exhausted_policy(),
+    )
+
+
+def _relation_max_calls() -> int | None:
+    raw = os.environ.get("SAM_RELATION_JUDGE_MAX_CALLS", "").strip()
+    if not raw:
+        return None
+    return int(raw)
+
+
+def _relation_budget_exhausted_policy() -> str:
+    return os.environ.get("SAM_RELATION_JUDGE_BUDGET_EXHAUSTED", "skip").strip().lower()
 
 
 def _relation_chat_provider(provider: str) -> str | None:
