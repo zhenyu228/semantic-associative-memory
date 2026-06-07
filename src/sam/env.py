@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import re
 from pathlib import Path
 
 
@@ -20,10 +21,12 @@ PROVIDER_ENV_ALIASES: dict[str, tuple[str, ...]] = {
         "EMBEDDING_BASE_URL",
         "EMBEDDING_ENDPOINT",
         "AZURE_EMBEDDING_ENDPOINT",
+        "RAPTOR_AZURE_ENDPOINT",
     ),
     "SAM_AZURE_EMBEDDING_API_VERSION": (
         "EMBEDDING_API_VERSION",
         "AZURE_EMBEDDING_API_VERSION",
+        "RAPTOR_API_VERSION",
     ),
     "SAM_AZURE_EMBEDDING_MODEL": (
         "EMBEDDING_MODEL",
@@ -55,7 +58,7 @@ def load_env_file(path: str | Path, *, override: bool = False) -> dict[str, bool
         key = key.strip()
         if not key:
             continue
-        clean_value = _strip_quotes(value.strip())
+        clean_value = _expand_env_references(_strip_quotes(value.strip()))
         if key in os.environ and not override:
             loaded[key] = False
             continue
@@ -94,6 +97,15 @@ def _strip_quotes(value: str) -> str:
     if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
         return value[1:-1]
     return value
+
+
+def _expand_env_references(value: str) -> str:
+    def replace(match: re.Match[str]) -> str:
+        key = match.group("brace_key") or match.group("plain_key")
+        return os.environ.get(key, match.group(0))
+
+    pattern = r"\$\{(?P<brace_key>[A-Za-z_][A-Za-z0-9_]*)\}|\$(?P<plain_key>[A-Za-z_][A-Za-z0-9_]*)"
+    return re.sub(pattern, replace, value)
 
 
 def _is_missing_env_value(value: str | None) -> bool:

@@ -272,7 +272,9 @@ export SAM_AZURE_EMBEDDING_BATCH_SIZE="16"
 export SAM_AZURE_EMBEDDING_API_KEY="replace-with-embedding-api-key"
 ```
 
-如果已经在 `evaluation/official_baselines/.env.local` 里配置了官方 baseline 使用的 `GPT54_API_KEY`、`GPT54_BASE_URL`、`GPT54_API_VERSION`、`GPT54_MODEL`，SAM 会在运行时自动把它们映射为 `SAM_AZURE_CHAT_*` 聊天模型配置，不需要再复制一份 GPT-5.4 key。聊天模型推荐使用 `azure_openai_sdk`，它通过 OpenAI SDK 的 `AzureOpenAI` 调用方式接入公司网关。Embedding 仍需要单独配置 `SAM_AZURE_EMBEDDING_*`，也可以使用通用别名 `EMBEDDING_API_KEY`、`EMBEDDING_BASE_URL`、`EMBEDDING_MODEL`、`EMBEDDING_DIMENSIONS`。
+如果已经在 `evaluation/official_baselines/.env.local` 里配置了官方 baseline 使用的 `GPT54_API_KEY`、`GPT54_BASE_URL`、`GPT54_API_VERSION`、`GPT54_MODEL`，SAM 会在运行时自动把它们映射为 `SAM_AZURE_CHAT_*` 聊天模型配置，不需要再复制一份 GPT-5.4 key。聊天模型推荐使用 `azure_openai_sdk`，它通过 OpenAI SDK 的 `AzureOpenAI` 调用方式接入公司网关。
+
+Embedding 配置可以使用 `SAM_AZURE_EMBEDDING_*`，也可以使用通用别名 `EMBEDDING_API_KEY`、`EMBEDDING_BASE_URL`、`EMBEDDING_MODEL`、`EMBEDDING_DIMENSIONS`。如果 baseline env 中已经写了 `RAPTOR_AZURE_ENDPOINT="$GPT54_BASE_URL"` 和 `RAPTOR_API_VERSION="$GPT54_API_VERSION"`，SAM 会展开这类变量引用，并复用 endpoint 与 api version；但 embedding key 必须使用具备 embedding 模型权限的 key，例如配置 `SAM_AZURE_EMBEDDING_API_KEY` 或 `EMBEDDING_API_KEY`。
 
 ```bash
 conda run -n sam python scripts/run_demo.py \

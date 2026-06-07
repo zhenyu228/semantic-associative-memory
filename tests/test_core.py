@@ -1990,6 +1990,32 @@ class SamCoreTest(unittest.TestCase):
         self.assertNotIn("https://example.test", rendered)
         self.assertIn("SAM_AZURE_EMBEDDING_DIMENSIONS", status["configured_optional"])
 
+    def test_embedding_config_can_reuse_official_baseline_aliases(self) -> None:
+        with patch.dict(
+            "os.environ",
+            {
+                "OPENAI_API_KEY": "embedding-secret",
+                "RAPTOR_AZURE_ENDPOINT": "https://example.test/gpt/openapi/online/v2/crawl",
+                "RAPTOR_API_VERSION": "2023-07-01-preview",
+            },
+            clear=True,
+        ), patch("importlib.util.find_spec", return_value=object()):
+            status = inspect_embedding_provider_config("azure_openai_sdk")
+
+        self.assertTrue(status["ready"])
+        self.assertEqual(
+            status["alias_sources"]["SAM_AZURE_EMBEDDING_API_KEY"],
+            "OPENAI_API_KEY",
+        )
+        self.assertEqual(
+            status["alias_sources"]["SAM_AZURE_EMBEDDING_ENDPOINT"],
+            "RAPTOR_AZURE_ENDPOINT",
+        )
+        self.assertEqual(
+            status["alias_sources"]["SAM_AZURE_EMBEDDING_API_VERSION"],
+            "RAPTOR_API_VERSION",
+        )
+
     def test_embedding_config_diagnostic_reports_missing_openai_package_for_sdk(self) -> None:
         with patch.dict(
             "os.environ",
@@ -2112,6 +2138,29 @@ class SamCoreTest(unittest.TestCase):
                 "EMPTY_VALUE": True,
             },
         )
+
+    def test_load_env_file_expands_simple_env_references(self) -> None:
+        env_path = Path(self.temp_dir.name) / ".env.local"
+        env_path.write_text(
+            "\n".join(
+                [
+                    "export GPT54_BASE_URL=\"https://example.test/gpt/openapi/online/v2/crawl\"",
+                    "export GPT54_API_VERSION=\"2023-07-01-preview\"",
+                    "export RAPTOR_AZURE_ENDPOINT=\"$GPT54_BASE_URL\"",
+                    "export RAPTOR_API_VERSION=\"${GPT54_API_VERSION}\"",
+                ]
+            ),
+            encoding="utf-8",
+        )
+
+        with patch.dict("os.environ", {}, clear=True):
+            load_env_file(env_path)
+
+            self.assertEqual(
+                os.environ["RAPTOR_AZURE_ENDPOINT"],
+                "https://example.test/gpt/openapi/online/v2/crawl",
+            )
+            self.assertEqual(os.environ["RAPTOR_API_VERSION"], "2023-07-01-preview")
 
     def test_create_env_template_writes_placeholders_without_overwrite(self) -> None:
         env_path = Path(self.temp_dir.name) / ".env.local"
