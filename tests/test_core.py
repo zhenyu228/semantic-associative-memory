@@ -2997,6 +2997,51 @@ class SamCoreTest(unittest.TestCase):
         self.assertEqual(matches[0].metadata["case_answer"], self.queries[0].answer)
         self.assertTrue(matches[0].metadata["support_node_ids"])
 
+    def test_memory_consolidator_preserves_structural_evidence_without_support_hit(self) -> None:
+        query = self.queries[0]
+        support_node_ids = {
+            node.id
+            for node in self.store.get_nodes()
+            if node.metadata.get("original_doc_id") in query.supporting_doc_ids
+        }
+        non_support_hits = [
+            RetrievalHit(
+                node=node,
+                score=0.7,
+                similarity_score=0.6,
+                graph_score=0.4,
+                usage_score=0.0,
+                confidence_score=node.confidence,
+                path=[node.id],
+                reason="单元测试结构证据",
+                metadata={"candidate_path_count": 3},
+            )
+            for node in self.store.get_nodes()
+            if node.id not in support_node_ids
+            and node.metadata.get("node_type") != "query_summary"
+        ][:2]
+        self.assertTrue(non_support_hits)
+
+        record = MemoryConsolidator(self.store, self.embedding).consolidate_query(
+            query=query,
+            mode="sam_full",
+            hits=non_support_hits,
+            support_node_ids=support_node_ids,
+            answer_status="insufficient_evidence",
+        )
+
+        self.assertIsNotNone(record)
+        assert record is not None
+        consolidated = self.store.get_node(record.node_id)
+        self.assertIsNotNone(consolidated)
+        assert consolidated is not None
+        self.assertEqual(consolidated.metadata["consolidation_source"], "structural_activation")
+        self.assertEqual(consolidated.metadata["support_node_ids"], [])
+        self.assertEqual(
+            consolidated.metadata["evidence_node_ids"],
+            [hit.node.id for hit in non_support_hits],
+        )
+
     def test_analogy_reuse_probe_hits_consolidated_source_case(self) -> None:
         self.evaluator.evaluate(
             self.queries[:1],

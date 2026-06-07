@@ -301,26 +301,44 @@ def _consolidated_case_metadata(nodes: list[MemoryNode]) -> dict[str, object]:
             "case_answer": None,
             "support_node_ids": [],
             "support_titles": [],
+            "evidence_node_ids": [],
+            "evidence_original_doc_ids": [],
+            "evidence_titles": [],
         }
     consolidated_nodes.sort(key=lambda node: node.confidence, reverse=True)
     primary = consolidated_nodes[0]
+    support_node_ids = [
+        str(node_id)
+        for node_id in primary.metadata.get("support_node_ids", [])
+    ]
+    evidence_node_ids = [
+        str(node_id)
+        for node_id in primary.metadata.get("evidence_node_ids", [])
+    ]
     return {
         "is_consolidated_case": True,
         "case_answer": primary.metadata.get("answer"),
-        "support_node_ids": [
-            str(node_id)
-            for node_id in primary.metadata.get("support_node_ids", [])
-        ],
+        "support_node_ids": support_node_ids,
         "support_original_doc_ids": [
             str(node.metadata.get("original_doc_id"))
             for node in nodes
-            if node.id in set(str(node_id) for node_id in primary.metadata.get("support_node_ids", []))
+            if node.id in set(support_node_ids)
             and node.metadata.get("original_doc_id")
         ],
         "support_titles": [
             str(title)
             for title in primary.metadata.get("support_titles", [])
         ],
+        "evidence_node_ids": evidence_node_ids,
+        "evidence_original_doc_ids": [
+            str(original_doc_id)
+            for original_doc_id in primary.metadata.get("evidence_original_doc_ids", [])
+        ],
+        "evidence_titles": [
+            str(title)
+            for title in primary.metadata.get("evidence_titles", [])
+        ],
+        "consolidation_source": primary.metadata.get("consolidation_source"),
         "consolidated_node_id": primary.id,
         "consolidated_confidence": primary.confidence,
     }

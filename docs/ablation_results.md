@@ -662,3 +662,22 @@ conda run -n sam python scripts/run_demo.py \
 | 平均 Top-1 类比分数 | 1.000 |
 
 bad case 分布为：`success=27`，`source_case_without_consolidation=3`。这说明结构路径匹配本身可以稳定找回来源案例，但仍有 3 条样本虽然找到了正确来源案例，却没有命中可复用的巩固证据链。当前瓶颈因此从“类比触发是否能找回相似案例”转移到“历史案例是否完成了足够覆盖支持证据的记忆巩固”。下一步应优先改进 `MemoryConsolidator` 的支持证据覆盖和巩固条件，而不是继续只提高类比相似度分数。
+
+## 35. 结构性记忆巩固改进
+
+针对上一轮结构路径类比复用实验中的 3 个 `source_case_without_consolidation` bad case，本轮对 `MemoryConsolidator` 做了结构性巩固改造。旧逻辑只有在检索结果命中 gold supporting document 时才创建长期案例记忆；如果检索没有命中支持证据，即使该案例内部存在可复用的关系路径，后续类比模块也只能找回普通查询上下文，无法识别这是一个已经经历过检索激活的历史案例。
+
+新逻辑将巩固结果拆成两类：第一类仍是 `feedback_support_hit`，只在命中支持证据时写入 `support_node_ids`；第二类是 `structural_activation`，在没有支持证据命中但存在实际激活节点时，写入 `evidence_node_ids`、`evidence_original_doc_ids` 和 `evidence_titles`。这一区分很重要：`support_node_ids` 继续只表示真实支持证据命中，`evidence_node_ids` 只表示系统当次检索实际激活过的结构证据，因此不会把结构性案例覆盖误写成证据召回提升。
+
+改造后重跑 HotpotQA 30 条结构类比复用实验，结果位于 `outputs/runs/analogy_structural_consolidation_hotpotqa30/`：
+
+| 指标 | 改造前 | 改造后 |
+| --- | ---: | ---: |
+| 查询数量 | 30 | 30 |
+| 来源案例命中率 | 1.000 | 1.000 |
+| 巩固案例命中率 | 0.900 | 1.000 |
+| 支持证据重叠命中率 | 0.900 | 0.900 |
+| 结构路径匹配率 | 1.000 | 1.000 |
+| 巩固记忆数量 | 27 | 30 |
+
+bad case 分布从 `success=27, source_case_without_consolidation=3` 变为 `success=27, no_support_overlap=3`。这说明改造后的系统已经能为所有来源案例建立可复用的长期案例记忆，但其中 3 条仍然缺少真实支持证据重叠。该结果把下一步问题边界进一步收窄：类比触发和案例巩固覆盖已基本打通，剩余瓶颈是初始检索、建边质量和图扩展排序没有把真正的 supporting paragraph 拉进激活子图。

@@ -85,7 +85,7 @@ OPENING_MODULE_SPECS: list[ModuleSpec] = [
         module_id="analogy_reasoning",
         title="类比推理触发与应用",
         opening_requirement="在新问题激活子图与历史问题-解答链条结构相似时触发类比，检索类似案例并向 LLM 提供提示。",
-        target_progress=55,
+        target_progress=58,
         code_evidence=[
             EvidenceSpec("类比检索引擎", "src/sam/analogy.py", "code"),
             EvidenceSpec("类比复用实验逻辑", "src/sam/analogy_experiment.py", "code"),
@@ -97,13 +97,13 @@ OPENING_MODULE_SPECS: list[ModuleSpec] = [
             EvidenceSpec("类比复用 30 条", "outputs/runs/analogy_reuse_hotpotqa30/analogy_reuse_results.json", "experiment"),
             EvidenceSpec("类比生成 smoke", "outputs/runs/analogy_generation_smoke/metrics.json", "experiment"),
             EvidenceSpec("类比检索排序 30 条 smoke", "outputs/runs/analogy_retrieval_smoke/metrics.json", "experiment"),
-            EvidenceSpec("结构路径类比复用 30 条", "outputs/runs/analogy_structural_reuse_hotpotqa30_v2/analogy_reuse_results.json", "experiment"),
+            EvidenceSpec("结构性巩固类比复用 30 条", "outputs/runs/analogy_structural_consolidation_hotpotqa30/analogy_reuse_results.json", "experiment"),
         ],
         remaining_work=[
             "类比提示对最终答案质量的提升尚未用 GPT-5.4 正式验证。",
             "类比支持证据注入检索排序仍需正式规模实验验证。",
             "结构路径匹配已经进入实验，但仍需要在未知来源案例和真实多轮任务中验证泛化能力。",
-            "部分来源案例可被找回但未形成可复用巩固证据，需要改进记忆巩固覆盖率。",
+            "结构性巩固已覆盖来源案例，但仍有样本缺少真实支持证据重叠，需要继续改进检索和建边质量。",
         ],
     ),
     ModuleSpec(

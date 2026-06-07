@@ -128,6 +128,10 @@ def _serialize_match(match) -> dict[str, object]:
         for node in match.matched_nodes
         if node.metadata.get("original_doc_id")
     ]
+    evidence_node_ids = [
+        str(node_id)
+        for node_id in match.metadata.get("evidence_node_ids", [])
+    ]
     return {
         "case_id": match.case_id,
         "score": match.score,
@@ -136,6 +140,10 @@ def _serialize_match(match) -> dict[str, object]:
         "support_node_ids": support_node_ids,
         "support_original_doc_ids": support_original_doc_ids,
         "support_titles": match.metadata.get("support_titles", []),
+        "evidence_node_ids": evidence_node_ids,
+        "evidence_original_doc_ids": match.metadata.get("evidence_original_doc_ids", []),
+        "evidence_titles": match.metadata.get("evidence_titles", []),
+        "consolidation_source": match.metadata.get("consolidation_source"),
         "matched_relation_path": match.metadata.get("matched_relation_path", []),
         "path_pattern_score": match.metadata.get("path_pattern_score", 0.0),
         "relation_path_count": match.metadata.get("relation_path_count", 0),
