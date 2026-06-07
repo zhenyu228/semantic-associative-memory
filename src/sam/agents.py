@@ -142,8 +142,13 @@ class SharedMemoryCoordinator:
         top_k: int = 5,
         layers: set[str] | None = None,
         session_id: str | None = None,
+        task_id: str | None = None,
         include_other_sessions: bool = True,
         agent_id: str | None = None,
+        source_agent_id: str | None = None,
+        conflict_statuses: set[str] | None = None,
+        include_rejected: bool = False,
+        latest_version_only: bool = False,
     ) -> list[MemoryNode]:
         query_embedding = self.embedding_provider.embed(query)
         allowed_layers = layers or MEMORY_LAYERS
@@ -156,10 +161,22 @@ class SharedMemoryCoordinator:
             node_session_id = node.metadata.get("session_id")
             if session_id and not include_other_sessions and node_session_id != session_id:
                 continue
+            if task_id and node.metadata.get("task_id") != task_id:
+                continue
             target_agent_id = node.metadata.get("target_agent_id")
             if agent_id and target_agent_id and target_agent_id != agent_id:
                 continue
+            if source_agent_id and node.metadata.get("source_agent_id") != source_agent_id:
+                continue
+            conflict_status = node.metadata.get("conflict_status")
+            if conflict_statuses is not None and conflict_status not in conflict_statuses:
+                continue
+            if not include_rejected and conflict_status == "rejected":
+                continue
             candidates.append(node)
+
+        if latest_version_only:
+            candidates = self._latest_versions(candidates)
 
         candidates.sort(
             key=lambda node: (
@@ -172,6 +189,23 @@ class SharedMemoryCoordinator:
         hits = candidates[:top_k]
         self.store.increment_usage([node.id for node in hits])
         return hits
+
+    def _latest_versions(self, nodes: list[MemoryNode]) -> list[MemoryNode]:
+        latest: dict[tuple[object, ...], MemoryNode] = {}
+        for node in nodes:
+            key = (
+                node.metadata.get("session_id"),
+                node.metadata.get("task_id"),
+                node.metadata.get("agent_id"),
+                node.metadata.get("source_agent_id"),
+                node.metadata.get("target_agent_id"),
+                node.metadata.get("memory_layer"),
+                node.metadata.get("handoff") is True,
+            )
+            current = latest.get(key)
+            if current is None or _memory_version(node) > _memory_version(current):
+                latest[key] = node
+        return list(latest.values())
 
     def resolve_conflict(
         self,
@@ -330,3 +364,7 @@ class SharedMemoryCoordinator:
                 )
             )
         self.store.upsert_nodes(updated_nodes)
+
+
+def _memory_version(node: MemoryNode) -> int:
+    return int(node.metadata.get("memory_version", 0))

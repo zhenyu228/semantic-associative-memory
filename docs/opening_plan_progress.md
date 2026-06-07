@@ -31,7 +31,7 @@
 | 语义激活与联想检索 | 已完成主体框架 | 75% | `Retriever`、多跳扩展、消融模式、路径重排 |
 | 评测体系与实验产物 | 已完成阶段性版本 | 70% | HotpotQA 300 条主实验、NovelQA 小样本实验、bad case 分析 |
 | 类比推理触发 | 已完成初版 | 45% | `AnalogyEngine`、连续复用与类比复用实验 |
-| 多智能体记忆共享 | 已完成初版 | 45% | `SharedMemoryCoordinator`、四角色 workflow、共享记忆复用实验 |
+| 多智能体记忆共享 | 已完成增强原型 | 58% | `SharedMemoryCoordinator`、四角色 workflow、共享记忆复用实验、冲突裁决与版本过滤 |
 | 检索-生成-判别闭环 | 已有实验入口和 GPT-5.4 smoke | 45% | `run_end_to_end_experiment.py`、AnswerJudge、生成 bad case 分析、GPT-5.4 SDK smoke |
 | 正式 embedding 与大模型实验 | GPT-5.4 SDK 已跑通，embedding 待配置 | 40% | Azure embedding provider、GPT-5.4 SDK provider、provider smoke、正式实验入口缓存参数 |
 | 官方 baseline 严格复现 | 目录和适配脚本已有，尚未完成 | 25% | `evaluation/official_baselines/` |
@@ -139,6 +139,7 @@
 - `SharedMemoryCoordinator` 支持 `global_insight`、`session`、`interaction` 三层共享记忆。
 - 支持不同智能体写入和查询共享记忆。
 - 支持 handoff 机制，使 retriever 的证据可以传递给 writer，writer 的结果可以传递给 verifier。
+- 支持冲突裁决和版本过滤：当不同角色对同一任务给出不一致结论时，verifier 可以写入裁决记忆，并把候选版本标记为 selected 或 rejected；后续 writer/verifier 查询共享记忆时默认不读取 rejected 版本。
 - `MultiAgentResearchWorkflow` 已串联 planner、retriever、writer、verifier 四个角色。
 - `run_agent_memory_reuse_experiment.py` 已用于检查 SAM 记忆复用增益是否能通过共享记忆传递到后续智能体角色。
 - `run_agent_generation_experiment.py` 已支持 baseline、shared memory、shared memory with analogy 三种生成设置。
@@ -156,12 +157,13 @@
 
 - 30 条 HotpotQA 多智能体共享记忆复用实验中，Embedding Top-k 支持证据命中数为 0，SAM 支持证据命中数为 31。
 - 存在支持证据增益的样本数为 22，多智能体复用链路成功率为 0.733。
+- 多智能体 workflow 版本过滤 smoke 中，每条样本形成 2 次 handoff、1 次冲突裁决和最大版本号 5，说明共享记忆已经具备受控交接、裁决和版本追踪。
 - 多智能体生成 smoke run 已验证共享记忆和类比提示能进入生成上下文，但本地启发式生成器的答案质量不作为正式结论。
 
 当前不足：
 
 - 目前多智能体实验更偏受控流程验证，不是完整 Deep Research 真实任务。
-- 多智能体协作效率、跨角色冲突解决、版本管理策略尚未充分实现。
+- 多智能体协作效率仍需在更真实的多角色分歧任务中验证。
 - 需要接入 GPT-5.4 生成器，正式比较无共享记忆、共享记忆、共享记忆加类比提示三种设置下的答案质量。
 
 ## 4. 实验进度

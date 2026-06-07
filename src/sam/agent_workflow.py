@@ -63,8 +63,10 @@ class MultiAgentResearchWorkflow:
             question,
             layers={"global_insight", "session"},
             session_id=session_id,
+            task_id=task_id,
             include_other_sessions=False,
             agent_id="writer",
+            latest_version_only=True,
         )
         answer = self.generator.generate_for_case(
             case,
@@ -87,8 +89,10 @@ class MultiAgentResearchWorkflow:
             f"验证答案 {answer.generated_answer}",
             layers={"session"},
             session_id=session_id,
+            task_id=task_id,
             include_other_sessions=False,
             agent_id="verifier",
+            latest_version_only=True,
         )
         verifier = _verify_answer(answer, verifier_memory)
         verifier_record = self.coordinator.write_memory(

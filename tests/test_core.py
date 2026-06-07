@@ -3809,6 +3809,78 @@ class SamCoreTest(unittest.TestCase):
         self.assertEqual(metrics["max_memory_version"], 3)
         self.assertEqual(metrics["participating_agent_count"], 3)
 
+    def test_shared_memory_query_filters_rejected_and_latest_versions(self) -> None:
+        coordinator = SharedMemoryCoordinator(self.store, self.embedding)
+        old_writer = coordinator.write_handoff(
+            source_agent_id="retriever",
+            target_agent_id="writer",
+            text="旧版本证据交接：候选答案是 Alpha。",
+            session_id="s-version",
+            task_id="task-version",
+            confidence=0.7,
+        )
+        new_writer = coordinator.write_handoff(
+            source_agent_id="retriever",
+            target_agent_id="writer",
+            text="新版本证据交接：候选答案是 Beta，证据更完整。",
+            session_id="s-version",
+            task_id="task-version",
+            confidence=0.86,
+        )
+        verifier = coordinator.write_handoff(
+            source_agent_id="writer",
+            target_agent_id="verifier",
+            text="writer 输出 Beta。",
+            session_id="s-version",
+            task_id="task-version",
+            confidence=0.82,
+        )
+        coordinator.resolve_conflict(
+            resolver_agent_id="verifier",
+            session_id="s-version",
+            task_id="task-version",
+            topic="candidate_answer",
+            candidate_node_ids=[old_writer.node_id, new_writer.node_id],
+        )
+
+        writer_hits = coordinator.query_memory(
+            "候选答案是什么？",
+            layers={"session"},
+            session_id="s-version",
+            task_id="task-version",
+            include_other_sessions=False,
+            agent_id="writer",
+            source_agent_id="retriever",
+            latest_version_only=True,
+        )
+
+        self.assertEqual([hit.id for hit in writer_hits], [new_writer.node_id])
+        self.assertEqual(writer_hits[0].metadata["conflict_status"], "selected")
+
+        rejected_hits = coordinator.query_memory(
+            "Alpha",
+            layers={"session"},
+            session_id="s-version",
+            task_id="task-version",
+            include_other_sessions=False,
+            agent_id="writer",
+            conflict_statuses={"rejected"},
+            include_rejected=True,
+        )
+
+        self.assertEqual([hit.id for hit in rejected_hits], [old_writer.node_id])
+
+        verifier_hits = coordinator.query_memory(
+            "writer 输出",
+            layers={"session"},
+            session_id="s-version",
+            task_id="task-version",
+            include_other_sessions=False,
+            agent_id="verifier",
+        )
+
+        self.assertEqual([hit.id for hit in verifier_hits], [verifier.node_id])
+
     def test_multi_agent_workflow_uses_shared_handoffs(self) -> None:
         class EvidenceAwareChatClient(ChatClient):
             def complete(self, messages: list[dict[str, object]], max_tokens: int = 500) -> str:
