@@ -262,3 +262,25 @@ SAM_AZURE_CHAT_TIMEOUT=30 conda run -n sam python scripts/run_end_to_end_experim
 - 已完成按需建图、动态状态更新和联想检索原型。
 - 已在 HotpotQA 小样本上观察到 SAM 相比纯向量检索新增命中支持证据。
 - 已完成 NovelQA demonstration 的长文本数据接入和可视化闭环。
+
+## 8. GPT-5.4 多智能体生成对照
+
+低额度 q1 验证命令如下：
+
+```bash
+SAM_AZURE_CHAT_TIMEOUT=30 \
+SAM_AZURE_CHAT_MAX_RETRIES=2 \
+SAM_AZURE_CHAT_RETRY_BASE_SECONDS=5 \
+conda run -n sam python scripts/run_agent_generation_experiment.py \
+  --env-file .env.local \
+  --cases-file outputs/runs/fair_ablation_hotpotqa_300/cases.json \
+  --all-cases-file outputs/runs/fair_ablation_hotpotqa_300/cases.json \
+  --method sam_full \
+  --chat-provider azure_openai_sdk \
+  --embedding-provider local \
+  --limit 1 \
+  --analogy-top-k 1 \
+  --output-dir outputs/runs/agent_generation_gpt54_q1
+```
+
+当前运行结果位于 `outputs/runs/agent_generation_gpt54_q1/`。GPT-5.4 三个生成变体均遇到 qpm 429 限流，系统已将失败写入 `agent_generation_comparison.json` 和 `generation_bad_cases/generation_bad_cases.json`，bad case 类型为 `generation_error`。该结果说明实验入口和错误审计链路已经打通，但不作为方法效果结论。后续在限流恢复后，将同一命令的 `--limit` 逐步提高到 3、10，并比较 `baseline`、`shared_memory`、`shared_memory_with_analogy` 的 grounded answer hit rate。

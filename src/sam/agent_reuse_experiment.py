@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 from sam.agent_workflow import MultiAgentResearchWorkflow
@@ -93,8 +94,13 @@ def compare_agent_generation_variants(
     shared_analogy_answers: list[GeneratedAnswer] = []
     case_deltas: list[dict[str, object]] = []
     for case in selected_cases:
-        baseline = generator.generate_for_case(case, method=method)
-        workflow_result = workflow.run_case(case)
+        baseline = _safe_generate_for_case(
+            generator,
+            case,
+            method=method,
+            variant="baseline",
+        )
+        workflow_result = _safe_run_workflow(workflow, case, method=method)
         shared_answer = workflow_result.get("final_answer", {})
         shared_memory_hints = _shared_memory_hints(workflow_result)
         shared_memory_contexts = _shared_memory_contexts(workflow_result)
@@ -102,9 +108,11 @@ def compare_agent_generation_variants(
             *shared_memory_hints,
             *hint_builder.hints_for(case, top_k=analogy_top_k),
         ]
-        with_analogy = generator.generate_for_case(
+        with_analogy = _safe_generate_for_case(
+            generator,
             case,
             method=method,
+            variant="shared_memory_with_analogy",
             analogy_hints=analogy_hints,
             supplemental_contexts=shared_memory_contexts,
         )
@@ -272,6 +280,121 @@ def _shared_memory_contexts(workflow_result: dict[str, object]) -> list[dict[str
             }
         )
     return contexts
+
+
+def _safe_run_workflow(
+    workflow: MultiAgentResearchWorkflow,
+    case: dict[str, object],
+    *,
+    method: str,
+) -> dict[str, object]:
+    try:
+        return workflow.run_case(case)
+    except Exception as exc:
+        answer = _generation_error_answer(
+            case,
+            method=method,
+            variant="shared_memory",
+            exc=exc,
+        )
+        return {
+            "query_id": case.get("query_id", ""),
+            "question": case.get("question", ""),
+            "method": method,
+            "agent_steps": [],
+            "shared_memory_node_ids": [],
+            "writer_memory": [],
+            "verifier_memory": [],
+            "final_answer": answer.to_dict(),
+            "verifier": {"status": "failed", "answer_hit": False, "generation_error": True},
+            "conflict_resolution_node_ids": [],
+            "collaboration_metrics": {},
+            "workflow_error": answer.metadata.get("generation_error"),
+        }
+
+
+def _safe_generate_for_case(
+    generator: ContextAnswerGenerator,
+    case: dict[str, object],
+    *,
+    method: str,
+    variant: str,
+    analogy_hints: list[str] | None = None,
+    supplemental_contexts: list[dict[str, object]] | None = None,
+) -> GeneratedAnswer:
+    try:
+        return generator.generate_for_case(
+            case,
+            method=method,
+            analogy_hints=analogy_hints,
+            supplemental_contexts=supplemental_contexts,
+        )
+    except Exception as exc:
+        return _generation_error_answer(
+            case,
+            method=method,
+            variant=variant,
+            exc=exc,
+            analogy_hints=analogy_hints,
+            supplemental_contexts=supplemental_contexts,
+        )
+
+
+def _generation_error_answer(
+    case: dict[str, object],
+    *,
+    method: str,
+    variant: str,
+    exc: Exception,
+    analogy_hints: list[str] | None = None,
+    supplemental_contexts: list[dict[str, object]] | None = None,
+) -> GeneratedAnswer:
+    safe_error = _safe_error(exc)
+    return GeneratedAnswer(
+        query_id=str(case.get("query_id", "")),
+        method=method,
+        question=str(case.get("question", "")),
+        gold_answer=str(case.get("answer", "")),
+        generated_answer=f"生成失败：{safe_error['type']}",
+        answer_hit=False,
+        context_titles=[],
+        prompt_tokens_estimate=0,
+        metadata={
+            "agent_generation_variant": variant,
+            "generation_error": safe_error,
+            "analogy_hints": analogy_hints or [],
+            "supplemental_context_count": len(supplemental_contexts or []),
+            "supplemental_context_titles": [
+                str(context.get("title") or context.get("node_id") or "shared_memory")
+                for context in (supplemental_contexts or [])
+            ],
+            "answer_judgment": {
+                "answer_hit": False,
+                "status": "generation_error",
+                "score": 0.0,
+                "reason": safe_error["message"],
+                "metadata": {"judge": "not_run"},
+            },
+            "context_answer_judgment": {
+                "answer_hit": False,
+                "status": "generation_error",
+                "score": 0.0,
+                "reason": "生成阶段失败，未执行上下文答案判别。",
+                "metadata": {"judge": "not_run"},
+            },
+            "ungrounded_answer_hit": False,
+        },
+    )
+
+
+def _safe_error(exc: Exception) -> dict[str, str]:
+    message = str(exc)
+    message = re.sub(r"https?://[^\s)]+", "<redacted-url>", message)
+    message = re.sub(r"api[_-]?key[=:]\s*[^,\s]+", "api_key=<redacted>", message, flags=re.IGNORECASE)
+    return {
+        "type": type(exc).__name__,
+        "message": message[:300],
+    }
 
 
 def _agent_generation_case_delta(

@@ -17,6 +17,7 @@ from sam.agent_reuse_experiment import (  # noqa: E402
 from sam.agent_workflow import MultiAgentResearchWorkflow  # noqa: E402
 from sam.agents import SharedMemoryCoordinator  # noqa: E402
 from sam.embedding import create_embedding_provider  # noqa: E402
+from sam.env import load_env_file  # noqa: E402
 from sam.generation import ContextAnswerGenerator  # noqa: E402
 from sam.llm import create_chat_client  # noqa: E402
 from sam.store import MemoryStore  # noqa: E402
@@ -41,6 +42,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--chat-provider", default=None, help="heuristic 或 azure_openai")
     parser.add_argument("--embedding-provider", default=None, help="local、openai、azure_openai 或 azure_openai_sdk")
+    parser.add_argument("--env-file", default=None, help="可选：加载本地 .env.local；文件已被 gitignore 忽略")
     parser.add_argument("--limit", type=int, default=None, help="最多运行多少条 case")
     parser.add_argument(
         "--output-dir",
@@ -57,6 +59,8 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
+    if args.env_file:
+        load_env_file(_resolve_path(args.env_file))
     cases_path = _resolve_path(args.cases_file)
     output_dir = (
         _resolve_path(args.output_dir)

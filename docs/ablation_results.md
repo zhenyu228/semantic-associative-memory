@@ -767,3 +767,11 @@ bad case 分布从 `success=27, source_case_without_consolidation=3` 变为 `suc
 本轮 30 条 HotpotQA 生成诊断位于 `outputs/runs/agent_generation_shared_context_hotpotqa30/`。结果显示，baseline 的上下文含答案样本数为 7，shared_memory 和 shared_memory_with_analogy 均为 8；平均补充上下文数量从 0 增加到 2。说明共享记忆确实把额外证据带入了 grounded context。但三种设置的答案命中率仍为 0，bad case 主要集中在 `context_available_but_generation_failed` 和 `retrieval_context_missing_answer`。这表明当前瓶颈不是共享记忆没有进入生成阶段，而是本地启发式生成器不能从复杂英文上下文中稳定抽取答案。该结果为后续 GPT-5.4 正式生成对照提供了明确实验边界。
 
 进一步在 300 条 HotpotQA 上运行共享记忆复用实验，结果位于 `outputs/runs/agent_memory_reuse_shared_context_hotpotqa300/`：Embedding Top-k 支持证据命中数为 343，SAM-full 支持证据命中数为 362，支持证据增益总数为 48；其中 46 条样本存在正向证据增益，writer 使用 retriever handoff 的比例为 1.000，verifier 使用 writer handoff 的比例为 1.000，多智能体复用链路成功率为 0.153。该结果说明多智能体模块已经能在 300 条规模上稳定记录和传递 SAM 相对 baseline 的证据增益，但最终答案质量仍依赖更强的生成模型和更可靠的答案抽取。
+
+## 38. GPT-5.4 多智能体生成对照 q1 限流诊断
+
+为验证共享记忆和类比提示在真实生成模型下的效果，系统对 `scripts/run_agent_generation_experiment.py` 和 `scripts/run_agent_memory_reuse_experiment.py` 增加 `--env-file` 参数，使脚本能够直接加载本地 `.env.local` 中的 GPT-5.4 provider 配置，而不需要把 key 写入命令或仓库文件。
+
+随后使用 GPT-5.4 对 1 条 HotpotQA 样本运行多智能体生成对照，路径为 `outputs/runs/agent_generation_gpt54_q1/`。本次运行包括 `baseline`、`shared_memory` 和 `shared_memory_with_analogy` 三个变体。实际结果显示三组均触发 `RateLimitError`，错误信息为 qpm 429 限流，因此答案命中率均为 0。该结果不能用于比较三种方法的生成效果，但验证了两个工程能力：第一，GPT-5.4 多智能体生成实验入口已经能加载本地 provider 配置并执行；第二，生成阶段的 API 限流、超时或调用失败不会再导致整个实验崩溃，而会被写入 `agent_generation_comparison.json` 和 `generation_bad_cases/`，分类为 `generation_error`。
+
+本次 bad case 诊断显示，失败原因不是共享记忆或类比提示逻辑错误，而是模型服务限流导致样本没有进入有效答案生成。后续应在 qpm 恢复后继续沿用同一命令扩展到 3 条、10 条，再比较 shared memory 与 shared memory + analogy 是否能把“上下文含答案”转化为“最终答案命中”。

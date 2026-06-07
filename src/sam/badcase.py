@@ -272,11 +272,17 @@ def _generation_categories(answer: dict[str, object]) -> list[str]:
     context_titles = answer.get("context_titles", [])
     has_context = isinstance(context_titles, list) and len(context_titles) > 0
     context_answer_hit = context_judgment.get("answer_hit")
+    generation_error = bool(
+        isinstance(answer.get("metadata"), dict)
+        and answer["metadata"].get("generation_error")
+    ) or status == "generation_error"
     ungrounded_answer_hit = bool(
         isinstance(answer.get("metadata"), dict)
         and answer["metadata"].get("ungrounded_answer_hit")
     )
 
+    if generation_error:
+        return ["generation_error"]
     if not generated_answer:
         categories.append("empty_generated_answer")
     if ungrounded_answer_hit:
@@ -311,6 +317,8 @@ def _context_answer_judgment(answer: dict[str, object]) -> dict[str, object]:
 
 
 def _generation_diagnosis(categories: list[str]) -> str:
+    if "generation_error" in categories:
+        return "生成模型调用失败，当前样本没有进入有效答案生成。"
     if "empty_generated_answer" in categories:
         return "生成阶段没有产出有效答案。"
     if "ungrounded_generated_answer" in categories:
@@ -329,6 +337,8 @@ def _generation_diagnosis(categories: list[str]) -> str:
 
 
 def _generation_recommendation(categories: list[str]) -> str:
+    if "generation_error" in categories:
+        return "检查模型限流、超时和 provider 配置；保留该样本等待服务可用后重跑。"
     if "empty_generated_answer" in categories:
         return "检查聊天模型调用和提示词，必要时降低上下文长度或增加重试。"
     if "ungrounded_generated_answer" in categories:

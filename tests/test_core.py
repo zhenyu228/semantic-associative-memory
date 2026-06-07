@@ -3888,6 +3888,56 @@ class SamCoreTest(unittest.TestCase):
         self.assertTrue((output_dir / "generation_bad_cases" / "generation_bad_cases.json").exists())
         self.assertIn("上下文含答案数", markdown_path.read_text(encoding="utf-8"))
 
+    def test_agent_generation_variants_capture_generation_errors(self) -> None:
+        class RateLimitedChatClient(ChatClient):
+            def complete(self, messages: list[dict[str, object]], max_tokens: int = 500) -> str:
+                raise RuntimeError("HTTP 429 from https://example.test/chat/completions")
+
+        case = {
+            "query_id": "rate_limit_case",
+            "question": "Who held the role?",
+            "answer": "Chief of Protocol",
+            "support_hits_by_method": {"sam_full": 1},
+            "methods": {
+                "sam_full": [
+                    {
+                        "title": "Evidence",
+                        "text": "Shirley Temple served as Chief of Protocol.",
+                        "reason": "向量种子节点",
+                    }
+                ]
+            },
+        }
+        generator = ContextAnswerGenerator(RateLimitedChatClient())
+        workflow = MultiAgentResearchWorkflow(
+            coordinator=SharedMemoryCoordinator(self.store, self.embedding),
+            generator=generator,
+            method="sam_full",
+        )
+
+        comparison = compare_agent_generation_variants(
+            [case],
+            workflow=workflow,
+            generator=generator,
+            method="sam_full",
+        )
+
+        self.assertEqual(comparison["query_count"], 1)
+        baseline_answer = comparison["answers"]["baseline"][0]
+        self.assertEqual(baseline_answer["metadata"]["generation_error"]["type"], "RuntimeError")
+        self.assertEqual(comparison["variants"]["baseline"]["answer_hit_count"], 0)
+        rendered = json.dumps(comparison, ensure_ascii=False)
+        self.assertNotIn("https://example.test", rendered)
+
+        output_dir = Path(self.temp_dir.name) / "agent_generation_error"
+        json_path, markdown_path = write_agent_generation_comparison_reports(comparison, output_dir)
+        self.assertTrue(json_path.exists())
+        self.assertTrue(markdown_path.exists())
+        bad_case_path = output_dir / "generation_bad_cases" / "generation_bad_cases.json"
+        self.assertTrue(bad_case_path.exists())
+        bad_cases = json.loads(bad_case_path.read_text(encoding="utf-8"))
+        self.assertEqual(bad_cases[0]["categories"], ["generation_error"])
+
     def test_generation_and_badcase_reports_are_written(self) -> None:
         result = self.evaluator.evaluate(
             self.queries,
