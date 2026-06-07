@@ -72,7 +72,7 @@ from sam.reranker_experiment import (
     run_reranker_profile_comparison,
     write_reranker_profile_reports,
 )
-from sam.relation_judge import CachedRelationJudge, RelationJudgment, create_relation_judge
+from sam.relation_judge import CachedRelationJudge, ChatRelationJudge, RelationJudgment, create_relation_judge
 from sam.retriever import Retriever
 from sam.reuse_experiment import build_masked_queries, summarize_memory_reuse
 from sam.store import MemoryStore
@@ -302,11 +302,35 @@ class SamCoreTest(unittest.TestCase):
         self.assertTrue(cache_path.exists())
 
     def test_create_relation_judge_supports_cached_gpt54(self) -> None:
-        with patch("sam.relation_judge.ChatRelationJudge") as chat_judge:
-            chat_judge.return_value = object()
+        cache_path = Path(self.temp_dir.name) / "relation_cache.json"
+        captured: dict[str, object] = {}
+
+        class FakeChatClient(ChatClient):
+            def complete(self, messages: list[dict[str, object]], max_tokens: int = 500) -> str:
+                return '{"should_link": true, "relation_type": "same_topic", "confidence": 0.9, "reason": "测试"}'
+
+        def fake_create_chat_client(name: str | None = None) -> ChatClient:
+            captured["provider"] = name
+            return FakeChatClient()
+
+        with patch.dict(
+            "os.environ",
+            {
+                "SAM_RELATION_JUDGE_CHAT_PROVIDER": "azure_openai_sdk",
+                "SAM_RELATION_JUDGE_CACHE_PATH": str(cache_path),
+                "SAM_RELATION_JUDGE_MIN_CONFIDENCE": "0.7",
+                "SAM_RELATION_JUDGE_FAIL_OPEN": "0",
+            },
+            clear=True,
+        ), patch("sam.relation_judge.create_chat_client", side_effect=fake_create_chat_client):
             judge = create_relation_judge("cached_gpt54")
 
+        self.assertEqual(captured["provider"], "azure_openai_sdk")
         self.assertIsInstance(judge, CachedRelationJudge)
+        self.assertEqual(judge.cache_path, cache_path)
+        self.assertIsInstance(judge.base_judge, ChatRelationJudge)
+        self.assertEqual(judge.base_judge.min_confidence, 0.7)
+        self.assertEqual(judge.base_judge.fail_open, False)
 
     def test_edge_creation_log_is_written(self) -> None:
         seed = self.store.get_nodes([self.nodes[0].id])
@@ -1944,6 +1968,7 @@ class SamCoreTest(unittest.TestCase):
                 "SAM_AZURE_EMBEDDING_DIMENSIONS": "1024",
                 "SAM_AZURE_EMBEDDING_BATCH_SIZE": "4",
                 "SAM_AZURE_EMBEDDING_CONCURRENCY": "2",
+                "SAM_AZURE_EMBEDDING_TIMEOUT": "180",
             },
             clear=False,
         ), patch.dict("sys.modules", {"openai": fake_openai}):
@@ -1953,6 +1978,7 @@ class SamCoreTest(unittest.TestCase):
         self.assertEqual(captured["client"]["azure_endpoint"], "https://example.test/gpt/openapi/online/v2/crawl")
         self.assertEqual(captured["client"]["api_version"], "2023-07-01-preview")
         self.assertEqual(captured["client"]["api_key"], "test-key")
+        self.assertEqual(captured["client"]["timeout"], 180.0)
         self.assertEqual(captured["payload"]["model"], "text-embedding-3-large")
         self.assertEqual(captured["payload"]["dimensions"], 1024)
         self.assertEqual(captured["payload"]["input"], ["alpha", "beta"])

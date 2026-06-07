@@ -215,12 +215,14 @@ class AzureOpenAISDKEmbeddingProvider(EmbeddingProvider):
         self.max_concurrency = int(os.environ.get("SAM_AZURE_EMBEDDING_CONCURRENCY", "4"))
         self.batch_size = int(os.environ.get("SAM_AZURE_EMBEDDING_BATCH_SIZE", "16"))
         self.max_retries = int(os.environ.get("SAM_AZURE_EMBEDDING_MAX_RETRIES", "5"))
+        self.request_timeout = float(os.environ.get("SAM_AZURE_EMBEDDING_TIMEOUT", "120"))
         dimensions = os.environ.get("SAM_AZURE_EMBEDDING_DIMENSIONS")
         self.dimensions = int(dimensions) if dimensions else None
         self.client = openai.AsyncAzureOpenAI(
             azure_endpoint=self.azure_endpoint,
             api_version=self.api_version,
             api_key=self.api_key,
+            timeout=self.request_timeout,
         )
 
     @property

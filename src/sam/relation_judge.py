@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import re
 import hashlib
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
@@ -50,10 +51,18 @@ class ChatRelationJudge:
         *,
         min_confidence: float = 0.55,
         fail_open: bool = True,
+        chat_provider: str | None = None,
     ) -> None:
-        self.chat_client = chat_client or create_chat_client("azure_openai")
+        provider = (
+            chat_provider
+            or os.environ.get("SAM_RELATION_JUDGE_CHAT_PROVIDER")
+            or os.environ.get("SAM_CHAT_PROVIDER")
+            or "azure_openai_sdk"
+        )
+        self.chat_client = chat_client or create_chat_client(provider)
         self.min_confidence = min_confidence
         self.fail_open = fail_open
+        self.chat_provider = provider
 
     def judge(
         self,
@@ -147,14 +156,51 @@ def create_relation_judge(name: str | None = None) -> RelationJudge | None:
     provider = name or "disabled"
     if provider in {"disabled", "none", ""}:
         return None
-    if provider in {"gpt", "gpt54", "azure_openai", "chat"}:
-        return ChatRelationJudge()
-    if provider in {"cached_gpt", "cached_gpt54", "cached_azure_openai", "cached_chat"}:
+    if provider in {"gpt", "gpt54", "azure_openai", "chat", "gpt54_sdk", "azure_openai_sdk"}:
+        return ChatRelationJudge(
+            min_confidence=_relation_min_confidence(),
+            fail_open=_relation_fail_open(),
+            chat_provider=_relation_chat_provider(provider),
+        )
+    if provider in {
+        "cached_gpt",
+        "cached_gpt54",
+        "cached_azure_openai",
+        "cached_chat",
+        "cached_gpt54_sdk",
+        "cached_azure_openai_sdk",
+    }:
         return CachedRelationJudge(
-            ChatRelationJudge(),
-            cache_path=Path("outputs/cache/relation_judge_cache.json"),
+            ChatRelationJudge(
+                min_confidence=_relation_min_confidence(),
+                fail_open=_relation_fail_open(),
+                chat_provider=_relation_chat_provider(provider),
+            ),
+            cache_path=_relation_cache_path(),
         )
     raise ValueError(f"未知关系判别器：{provider}")
+
+
+def _relation_chat_provider(provider: str) -> str | None:
+    configured = os.environ.get("SAM_RELATION_JUDGE_CHAT_PROVIDER")
+    if configured:
+        return configured
+    if provider in {"azure_openai", "cached_azure_openai"}:
+        return "azure_openai"
+    return "azure_openai_sdk"
+
+
+def _relation_min_confidence() -> float:
+    return float(os.environ.get("SAM_RELATION_JUDGE_MIN_CONFIDENCE", "0.55"))
+
+
+def _relation_fail_open() -> bool:
+    raw = os.environ.get("SAM_RELATION_JUDGE_FAIL_OPEN", "1").strip().lower()
+    return raw not in {"0", "false", "no", "off"}
+
+
+def _relation_cache_path() -> Path:
+    return Path(os.environ.get("SAM_RELATION_JUDGE_CACHE_PATH", "outputs/cache/relation_judge_cache.json"))
 
 
 def _relation_prompt(
