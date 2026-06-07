@@ -269,6 +269,7 @@ export SAM_AZURE_EMBEDDING_MODEL="text-embedding-3-large"
 export SAM_AZURE_EMBEDDING_DIMENSIONS="1024"
 export SAM_AZURE_EMBEDDING_CONCURRENCY="10"
 export SAM_AZURE_EMBEDDING_BATCH_SIZE="16"
+export SAM_AZURE_EMBEDDING_INPUT_MODE="single"
 export SAM_AZURE_EMBEDDING_API_KEY="replace-with-embedding-api-key"
 ```
 
@@ -288,7 +289,7 @@ conda run -n sam python scripts/run_demo.py \
 
 `--embedding-cache` 会把向量缓存到 `data/embedding_cache.sqlite`，该文件已被 gitignore 排除。也可以用 `--embedding-cache-path outputs/runs/<run_name>/embedding_cache.sqlite` 把缓存放进某次实验目录。
 
-在线 embedding provider 会按 `SAM_AZURE_EMBEDDING_BATCH_SIZE` 分批请求，并按 `SAM_AZURE_EMBEDDING_CONCURRENCY` 并发处理不同 batch。默认 payload 会同时发送 `model` 和 `dimensions`，适配公司网关；如果你的 Azure 标准部署不接受 body 中的 `model` 字段，可以设置：
+在线 embedding provider 会按 `SAM_AZURE_EMBEDDING_CONCURRENCY` 控制并发。`azure_openai_sdk` 默认使用 `SAM_AZURE_EMBEDDING_INPUT_MODE=single`，即每条文本单独调用 `embeddings.create(input=文本)`，对齐公司内部示例代码；如果网关支持批量输入，可以设置 `SAM_AZURE_EMBEDDING_INPUT_MODE=batch`，此时会按 `SAM_AZURE_EMBEDDING_BATCH_SIZE` 分批发送列表。默认 payload 会同时发送 `model` 和 `dimensions`，适配公司网关；如果你的 Azure 标准部署不接受 body 中的 `model` 字段，可以设置：
 
 ```bash
 export SAM_AZURE_EMBEDDING_SEND_MODEL="0"

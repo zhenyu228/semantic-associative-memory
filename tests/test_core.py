@@ -1938,6 +1938,7 @@ class SamCoreTest(unittest.TestCase):
 
     def test_azure_embedding_sdk_provider_uses_async_client_with_dimensions(self) -> None:
         captured: dict[str, object] = {}
+        payloads: list[dict[str, object]] = []
 
         class FakeEmbeddingResponse:
             def __init__(self, texts: list[str]) -> None:
@@ -1948,8 +1949,10 @@ class SamCoreTest(unittest.TestCase):
 
         class FakeEmbeddings:
             async def create(self, **kwargs):
-                captured["payload"] = kwargs
-                return FakeEmbeddingResponse(list(kwargs["input"]))
+                payloads.append(kwargs)
+                input_value = kwargs["input"]
+                texts = [input_value] if isinstance(input_value, str) else list(input_value)
+                return FakeEmbeddingResponse(texts)
 
         class FakeAsyncAzureOpenAI:
             def __init__(self, **kwargs) -> None:
@@ -1979,9 +1982,46 @@ class SamCoreTest(unittest.TestCase):
         self.assertEqual(captured["client"]["api_version"], "2023-07-01-preview")
         self.assertEqual(captured["client"]["api_key"], "test-key")
         self.assertEqual(captured["client"]["timeout"], 180.0)
-        self.assertEqual(captured["payload"]["model"], "text-embedding-3-large")
-        self.assertEqual(captured["payload"]["dimensions"], 1024)
-        self.assertEqual(captured["payload"]["input"], ["alpha", "beta"])
+        self.assertEqual([payload["input"] for payload in payloads], ["alpha", "beta"])
+        self.assertTrue(all(payload["model"] == "text-embedding-3-large" for payload in payloads))
+        self.assertTrue(all(payload["dimensions"] == 1024 for payload in payloads))
+        self.assertEqual(embeddings, [[0.0, 5.0], [0.0, 4.0]])
+
+    def test_azure_embedding_sdk_provider_can_use_batch_input_mode(self) -> None:
+        payloads: list[dict[str, object]] = []
+
+        class FakeEmbeddingResponse:
+            def __init__(self, texts: list[str]) -> None:
+                self.data = [
+                    type("EmbeddingItem", (), {"embedding": [float(index), float(len(text))]})()
+                    for index, text in enumerate(texts)
+                ]
+
+        class FakeEmbeddings:
+            async def create(self, **kwargs):
+                payloads.append(kwargs)
+                return FakeEmbeddingResponse(list(kwargs["input"]))
+
+        class FakeAsyncAzureOpenAI:
+            def __init__(self, **kwargs) -> None:
+                self.embeddings = FakeEmbeddings()
+
+        fake_openai = type("FakeOpenAI", (), {"AsyncAzureOpenAI": FakeAsyncAzureOpenAI})()
+
+        with patch.dict(
+            "os.environ",
+            {
+                "SAM_AZURE_EMBEDDING_API_KEY": "test-key",
+                "SAM_AZURE_EMBEDDING_ENDPOINT": "https://example.test/gpt/openapi/online/v2/crawl",
+                "SAM_AZURE_EMBEDDING_INPUT_MODE": "batch",
+                "SAM_AZURE_EMBEDDING_BATCH_SIZE": "4",
+            },
+            clear=True,
+        ), patch.dict("sys.modules", {"openai": fake_openai}):
+            provider = AzureOpenAISDKEmbeddingProvider()
+            embeddings = provider.embed_many(["alpha", "beta"])
+
+        self.assertEqual([payload["input"] for payload in payloads], [["alpha", "beta"]])
         self.assertEqual(embeddings, [[0.0, 5.0], [1.0, 4.0]])
 
     def test_create_embedding_provider_supports_azure_openai_sdk(self) -> None:

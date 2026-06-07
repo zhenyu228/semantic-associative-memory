@@ -216,6 +216,9 @@ class AzureOpenAISDKEmbeddingProvider(EmbeddingProvider):
         self.batch_size = int(os.environ.get("SAM_AZURE_EMBEDDING_BATCH_SIZE", "16"))
         self.max_retries = int(os.environ.get("SAM_AZURE_EMBEDDING_MAX_RETRIES", "5"))
         self.request_timeout = float(os.environ.get("SAM_AZURE_EMBEDDING_TIMEOUT", "120"))
+        self.input_mode = os.environ.get("SAM_AZURE_EMBEDDING_INPUT_MODE", "single").strip().lower()
+        if self.input_mode not in {"single", "batch"}:
+            raise ValueError("SAM_AZURE_EMBEDDING_INPUT_MODE 只能是 single 或 batch")
         dimensions = os.environ.get("SAM_AZURE_EMBEDDING_DIMENSIONS")
         self.dimensions = int(dimensions) if dimensions else None
         self.client = openai.AsyncAzureOpenAI(
@@ -227,7 +230,7 @@ class AzureOpenAISDKEmbeddingProvider(EmbeddingProvider):
 
     @property
     def cache_namespace(self) -> str:
-        return f"azure_sdk:{self.azure_endpoint}:{self.api_version}:{self.model}:{self.dimensions or 'default'}"
+        return f"azure_sdk:{self.azure_endpoint}:{self.api_version}:{self.model}:{self.dimensions or 'default'}:{self.input_mode}"
 
     def embed(self, text: str) -> list[float]:
         return self.embed_many([text])[0]
@@ -238,6 +241,8 @@ class AzureOpenAISDKEmbeddingProvider(EmbeddingProvider):
     async def _embed_many_async(self, texts: list[str]) -> list[list[float]]:
         if not texts:
             return []
+        if self.input_mode == "single":
+            return await self._embed_many_single_async(texts)
         safe_batch_size = max(1, self.batch_size)
         batches = [
             texts[index : index + safe_batch_size]
@@ -255,6 +260,32 @@ class AzureOpenAISDKEmbeddingProvider(EmbeddingProvider):
             for batch in batch_results
             for embedding in batch
         ]
+
+    async def _embed_many_single_async(self, texts: list[str]) -> list[list[float]]:
+        semaphore = asyncio.Semaphore(max(1, self.max_concurrency))
+
+        async def embed_one(text: str) -> list[float]:
+            async with semaphore:
+                return await self._embed_one_async(text)
+
+        return await asyncio.gather(*(embed_one(text) for text in texts))
+
+    async def _embed_one_async(self, text: str) -> list[float]:
+        payload: dict[str, object] = {
+            "input": text,
+            "model": self.model,
+        }
+        if self.dimensions is not None:
+            payload["dimensions"] = self.dimensions
+        for attempt in range(self.max_retries):
+            try:
+                response = await self.client.embeddings.create(**payload)
+                return [float(value) for value in response.data[0].embedding]
+            except Exception:
+                if attempt == self.max_retries - 1:
+                    raise
+                await asyncio.sleep(min(8.0, 1.0 + attempt))
+        raise RuntimeError("embedding SDK 请求失败")
 
     async def _embed_batch_async(self, texts: list[str]) -> list[list[float]]:
         payload: dict[str, object] = {
