@@ -554,3 +554,21 @@ HotpotQA 30 条样本的规划结果位于 `outputs/plans/hotpotqa_embedding_pla
 在 `outputs/runs/weak_relation_penalty_hotpotqa30/` 上运行审计后，SAM-full 的 30 条 HotpotQA run 中共有 89 个图路径命中，其中 22 个落在支持证据上，67 个落在非支持证据上，涉及 19 个图噪声 bad case。按关系类型看，`keyword_overlap` 出现 108 次，其中噪声 94 次，噪声率 0.870；`embedding_similarity` 出现 62 次，其中噪声 50 次，噪声率 0.806；`context_cooccurrence` 出现 6 次，噪声率 0.667。该结果说明下一阶段不能只继续增加图扩展，而应把弱关键词边和弱语义相似边的二跳权重继续下调，或者引入 GPT-5.4 RelationJudge 对这些边进行关系有效性判别。
 
 随后 `PathReranker` 支持读取 `SAM_EDGE_QUALITY_AUDIT_PATH` 指向的 `edge_quality_audit.json`，将高噪声关系类型转化为 `relation_noise_penalty`，写入每个命中结果的 `score_breakdown`。在 `outputs/runs/edge_audit_penalty_hotpotqa30/` 的 30 条 smoke 中，SAM-full 证据召回率为 0.600，答案命中率为 0.733；相比原弱关系惩罚 run 的 0.617 和 0.667，证据召回略有下降，但答案命中率提升 0.066。进一步审计显示，图噪声路径数量没有下降，说明这一步主要改善排序而非建边质量。下一阶段仍需要在建边阶段引入 GPT-5.4 RelationJudge 或更严格实体链接，减少噪声边进入候选图。
+
+## 28. 候选路径边质量字段透传
+
+上一轮 edge audit 只能按关系类型统计噪声，例如 `keyword_overlap`、`embedding_similarity` 和 `shared_entity`，但无法继续区分同一种关系内部的质量差异。为支持更细粒度 bad case 分析，系统将 `GraphBuilder` 产生的边质量字段透传到 `Retriever` 的 `candidate_paths` 中，包括 `edge_quality`、`similarity`、`shared_entities` 和 `keyword_overlap`。这样每个检索命中不仅能说明“沿什么关系到达”，还能说明“这条边是否有实体支撑、语义相似度是多少、关键词重叠是什么”。
+
+同时新增可选开关 `SAM_PENALIZE_UNSUPPORTED_KEYWORD_PATHS`。当该开关启用时，`PathReranker` 会对二跳 `keyword_overlap` 路径中缺少共享实体且边语义相似度较低的候选进行额外降权。该策略的目标是验证一个具体 bad case 假设：部分图噪声来自二跳弱关键词边，而不是所有关键词边都应被同等信任。
+
+HotpotQA 30 条默认回归 run 位于 `outputs/runs/keyword_quality_signal_hotpotqa30/`。默认不启用上述额外惩罚，仅增加边质量字段透传。结果如下：
+
+| 方法 | 证据召回率 | 答案命中率 |
+| --- | ---: | ---: |
+| Embedding Top-k | 0.517 | 0.567 |
+| SAM-full | 0.617 | 0.667 |
+| SAM-no-graph | 0.517 | 0.567 |
+
+审计结果显示，该 run 中 SAM-full 的图路径命中数为 89，噪声图路径命中数为 67，图噪声 bad case 数为 20。候选路径中已经可以看到边级字段，例如 `shared_entity` 路径会同时记录共享实体、边相似度和关键词重叠。该结果保留了 SAM-full 相比 Embedding Top-k 的收益：证据召回率提升 0.100，答案命中率提升 0.100。
+
+随后对额外关键词二跳惩罚进行一次 smoke 验证，run 位于 `outputs/runs/unsupported_keyword_penalty_hotpotqa30/`。该策略下 SAM-full 证据召回率下降到 0.583，答案命中率下降到 0.633；图噪声 bad case 数没有下降，反而达到 21。该结果说明，单纯按“缺少共享实体且语义相似度低”惩罚二跳关键词路径过于粗糙，会错误压低一部分真实桥接证据。因此该策略保留为可控消融开关，默认关闭；后续应优先使用 GPT-5.4 RelationJudge 或实体类型约束在建边阶段过滤噪声，而不是只在排序阶段做静态惩罚。

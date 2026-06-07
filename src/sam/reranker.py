@@ -96,18 +96,21 @@ class PathReranker:
         self,
         profile: str = DEFAULT_RERANKER_PROFILE,
         relation_noise_rates: dict[str, float] | None = None,
+        penalize_unsupported_keyword_paths: bool = False,
     ) -> None:
         if profile not in RERANKER_PROFILES:
             raise ValueError(f"未知 reranker profile: {profile}")
         self.profile = profile
         self.weights = RERANKER_PROFILES[profile]
         self.relation_noise_rates = relation_noise_rates or {}
+        self.penalize_unsupported_keyword_paths = penalize_unsupported_keyword_paths
 
     @classmethod
     def from_env(cls) -> "PathReranker":
         return cls(
             os.environ.get("SAM_RERANKER_PROFILE", DEFAULT_RERANKER_PROFILE),
             relation_noise_rates=_load_relation_noise_rates_from_env(),
+            penalize_unsupported_keyword_paths=_env_flag("SAM_PENALIZE_UNSUPPORTED_KEYWORD_PATHS"),
         )
 
     def score(
@@ -123,7 +126,15 @@ class PathReranker:
         weights = self.weights
         path_support_score = _path_support_score(signals) if use_multipath else 0.0
         path_noise_penalty = _path_noise_penalty(signals, weights) if use_multipath else 0.0
-        weak_relation_penalty = _weak_relation_penalty(signals, weights) if use_multipath else 0.0
+        weak_relation_penalty = (
+            _weak_relation_penalty(
+                signals,
+                weights,
+                penalize_unsupported_keyword_paths=self.penalize_unsupported_keyword_paths,
+            )
+            if use_multipath
+            else 0.0
+        )
         relation_noise_penalty = (
             _relation_noise_penalty(signals, self.relation_noise_rates)
             if use_multipath
@@ -232,7 +243,12 @@ def _path_noise_penalty(signals: list[dict[str, object]], weights: RerankerWeigh
     return min(weights.path_noise_cap, math.log1p(overflow) * 0.035)
 
 
-def _weak_relation_penalty(signals: list[dict[str, object]], weights: RerankerWeights) -> float:
+def _weak_relation_penalty(
+    signals: list[dict[str, object]],
+    weights: RerankerWeights,
+    *,
+    penalize_unsupported_keyword_paths: bool = False,
+) -> float:
     weak_relation_types = {"embedding_similarity", "context_cooccurrence"}
     penalty = 0.0
     for signal in signals:
@@ -246,7 +262,23 @@ def _weak_relation_penalty(signals: list[dict[str, object]], weights: RerankerWe
             penalty += 0.045
         elif relation_type == "keyword_overlap":
             penalty += 0.02
+            if penalize_unsupported_keyword_paths and _is_unsupported_keyword_path(signal):
+                penalty += 0.045
     return min(weights.weak_relation_cap, penalty)
+
+
+def _is_unsupported_keyword_path(signal: dict[str, object]) -> bool:
+    shared_entities = signal.get("shared_entities", [])
+    if isinstance(shared_entities, list) and shared_entities:
+        return False
+    try:
+        similarity = float(signal.get("similarity", 0.0) or 0.0)
+    except (TypeError, ValueError):
+        similarity = 0.0
+    edge_quality = str(signal.get("edge_quality", "normal"))
+    if edge_quality != "normal":
+        return True
+    return similarity < 0.12
 
 
 def _relation_noise_penalty(
@@ -290,6 +322,11 @@ def _load_relation_noise_rates_from_env() -> dict[str, float]:
             continue
         rates[str(relation_type)] = float(stats.get("noise_rate", 0.0) or 0.0)
     return rates
+
+
+def _env_flag(name: str) -> bool:
+    raw = os.environ.get(name, "").strip().lower()
+    return raw in {"1", "true", "yes", "on"}
 
 
 def _recency_score(last_accessed_at: str | None, weight: float) -> float:

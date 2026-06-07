@@ -365,6 +365,13 @@ class SamCoreTest(unittest.TestCase):
         self.assertTrue(all(hit.node.metadata.get("node_type") != "query_summary" for hit in associative_hits))
         self.assertTrue(any("score_breakdown" in hit.metadata for hit in associative_hits))
         self.assertTrue(any(hit.metadata.get("candidate_path_count", 0) >= 1 for hit in associative_hits))
+        candidate_paths = [
+            path
+            for hit in associative_hits
+            for path in hit.metadata.get("candidate_paths", [])
+            if path.get("relation_type")
+        ]
+        self.assertTrue(any("edge_quality" in path for path in candidate_paths))
 
     def test_associative_retrieval_builds_edges_for_expanded_bridge_nodes(self) -> None:
         self.store.reset()
@@ -768,6 +775,95 @@ class SamCoreTest(unittest.TestCase):
         self.assertIn("weak_relation_penalty", weak_score.breakdown)
         self.assertNotIn("weak_relation_penalty", strong_score.breakdown)
         self.assertLess(weak_score.total, strong_score.total)
+
+    def test_path_reranker_penalizes_unsupported_keyword_second_hop_paths(self) -> None:
+        node = self.nodes[0]
+        supported_keyword_signals = [
+            {
+                "path": ["seed", "bridge", node.id],
+                "graph_score": 0.75,
+                "depth": 2,
+                "edge_activation_count": 0,
+                "relation_type": "keyword_overlap",
+                "shared_entities": ["Bridge Entity"],
+                "similarity": 0.36,
+                "edge_quality": "normal",
+            }
+        ]
+        unsupported_keyword_signals = [
+            {
+                "path": ["seed", "bridge", node.id],
+                "graph_score": 0.75,
+                "depth": 2,
+                "edge_activation_count": 0,
+                "relation_type": "keyword_overlap",
+                "shared_entities": [],
+                "similarity": 0.04,
+                "edge_quality": "normal",
+            }
+        ]
+
+        reranker = PathReranker(
+            profile="semantic_heavy",
+            penalize_unsupported_keyword_paths=True,
+        )
+        supported_score = reranker.score(
+            similarity=0.3,
+            graph_score=0.75,
+            signals=supported_keyword_signals,
+            node=node,
+            use_multipath=True,
+            use_memory_state=False,
+        )
+        unsupported_score = reranker.score(
+            similarity=0.3,
+            graph_score=0.75,
+            signals=unsupported_keyword_signals,
+            node=node,
+            use_multipath=True,
+            use_memory_state=False,
+        )
+
+        self.assertIn("weak_relation_penalty", unsupported_score.breakdown)
+        self.assertGreater(unsupported_score.weak_relation_penalty, supported_score.weak_relation_penalty)
+        self.assertLess(unsupported_score.total, supported_score.total)
+
+    def test_path_reranker_disables_unsupported_keyword_penalty_by_default(self) -> None:
+        node = self.nodes[0]
+        signals = [
+            {
+                "path": ["seed", "bridge", node.id],
+                "graph_score": 0.75,
+                "depth": 2,
+                "edge_activation_count": 0,
+                "relation_type": "keyword_overlap",
+                "shared_entities": [],
+                "similarity": 0.04,
+                "edge_quality": "normal",
+            }
+        ]
+
+        default_score = PathReranker(profile="semantic_heavy").score(
+            similarity=0.3,
+            graph_score=0.75,
+            signals=signals,
+            node=node,
+            use_multipath=True,
+            use_memory_state=False,
+        )
+        enabled_score = PathReranker(
+            profile="semantic_heavy",
+            penalize_unsupported_keyword_paths=True,
+        ).score(
+            similarity=0.3,
+            graph_score=0.75,
+            signals=signals,
+            node=node,
+            use_multipath=True,
+            use_memory_state=False,
+        )
+
+        self.assertLess(default_score.weak_relation_penalty, enabled_score.weak_relation_penalty)
 
     def test_path_reranker_uses_edge_audit_noise_rates(self) -> None:
         node = self.nodes[0]

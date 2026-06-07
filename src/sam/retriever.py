@@ -463,6 +463,7 @@ class Retriever:
                             "relation_type": edge.relation_type,
                             "reason": next_reason,
                             "depth": depth + 1,
+                            **_edge_quality_signal(edge.metadata),
                         }
                     )
                 previous = best_paths.get(next_id)
@@ -774,10 +775,26 @@ def _top_path_signals(signals: list[dict[str, object]], limit: int = 4) -> list[
             "graph_score": round(float(signal.get("graph_score", 0.0)), 4),
             "relation_type": signal.get("relation_type"),
             "edge_activation_count": signal.get("edge_activation_count", 0),
+            "edge_quality": signal.get("edge_quality"),
+            "similarity": signal.get("similarity"),
+            "shared_entities": signal.get("shared_entities", []),
+            "keyword_overlap": signal.get("keyword_overlap", []),
             "reason": signal.get("reason", ""),
         }
         for signal in ordered[:limit]
     ]
+
+
+def _edge_quality_signal(metadata: dict[str, object]) -> dict[str, object]:
+    score = metadata.get("score_breakdown", metadata)
+    if not isinstance(score, dict):
+        return {}
+    return {
+        "edge_quality": score.get("edge_quality"),
+        "similarity": score.get("similarity"),
+        "shared_entities": score.get("shared_entities", []),
+        "keyword_overlap": score.get("keyword_overlap", []),
+    }
 
 
 def _resolve_anchor_policy(
