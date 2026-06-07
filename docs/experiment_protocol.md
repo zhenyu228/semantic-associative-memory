@@ -30,7 +30,7 @@ conda run -n sam python scripts/check_embedding_provider.py \
   --json
 ```
 
-当前结果：环境变量配置完整，但在本机直连 SDK embedding 请求时返回 `TimeoutError`。因此 HotpotQA 300 条与 NovelQA 的在线 embedding 正式实验暂未启动，避免长时间挂起和无效额度消耗。GPT-5.4 chat provider 曾完成低额度连通性验证；当前 probe 可能遇到 qpm 429 限流，因此 SDK provider 已加入 `SAM_AZURE_CHAT_MAX_RETRIES` 和 `SAM_AZURE_CHAT_RETRY_BASE_SECONDS`，后续扩大端到端生成实验时需要低并发、分批运行。
+当前结果：环境变量配置完整，但在本机直连 SDK embedding 请求时返回 `TimeoutError`。2026-06-07 使用 `SAM_AZURE_EMBEDDING_TIMEOUT=10`、`SAM_AZURE_EMBEDDING_MAX_RETRIES=1` 重新验证，跳过 TCP preflight 后真实 embedding 请求仍超时；同一 `.env.local` 下 GPT-5.4 chat provider probe 成功返回 `2`。因此 HotpotQA 300 条与 NovelQA 的在线 embedding 正式实验暂未启动，避免长时间挂起和无效额度消耗。GPT-5.4 chat provider 已确认可用；后续扩大端到端生成实验时仍需要低并发、分批运行，以规避 qpm 429 限流。
 
 为避免在线 embedding endpoint 阻塞实验，系统新增本地 `sentence_transformers` provider。安装可选依赖后，可以使用本地 Qwen3-Embedding-0.6B、BGE 或 E5 路径运行：
 
@@ -48,6 +48,16 @@ conda run -n sam python scripts/check_embedding_provider.py \
 ```
 
 正式重跑 HotpotQA 300 条和 NovelQA 时，将实验命令中的 `--embedding-provider` 改为 `sentence_transformers`，并开启 `--embedding-cache`。
+
+本地 Qwen3-Embedding 准备状态可以用以下脚本检查，该脚本只检查依赖和模型目录，不会发送在线请求：
+
+```bash
+conda run -n sam python scripts/plan_local_embedding.py \
+  --model-path /Users/bytedance/models/Qwen3-Embedding-0.6B \
+  --json
+```
+
+2026-06-07 检查结果显示，当前 `sam` 环境缺少 `sentence-transformers`，且 `/Users/bytedance/models/Qwen3-Embedding-0.6B` 目录不存在。因此本地 Qwen3-Embedding 也尚不能作为正式实验 provider。
 
 ## 2. HotpotQA 展示实验
 

@@ -334,6 +334,14 @@ conda run -n sam python scripts/check_embedding_provider.py \
 conda run -n sam python -m pip install -e ".[local-embedding]"
 ```
 
+在正式安装或运行前，可以先检查本地模型依赖和目录是否就绪。该命令只读取本地环境和文件系统，不调用在线模型：
+
+```bash
+conda run -n sam python scripts/plan_local_embedding.py \
+  --model-path /Users/bytedance/models/Qwen3-Embedding-0.6B \
+  --json
+```
+
 本地模型可以使用 HuggingFace 模型名，也可以使用已经下载好的本地目录。例如使用本地 Qwen3-Embedding-0.6B：
 
 ```bash

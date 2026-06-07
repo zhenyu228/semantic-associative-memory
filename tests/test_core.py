@@ -7,6 +7,7 @@ import asyncio
 import os
 import sys
 import json
+import sqlite3
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -91,6 +92,7 @@ from scripts.run_demo import _nodes_for_graph_export
 from scripts.check_embedding_provider import build_embedding_status
 from scripts.check_model_providers import build_provider_status
 from scripts.create_env_template import write_env_template
+from scripts.plan_local_embedding import build_local_embedding_plan, write_local_embedding_plan
 from scripts.run_provider_smoke_experiment import run_provider_smoke_experiment
 
 
@@ -2954,6 +2956,36 @@ class SamCoreTest(unittest.TestCase):
         self.assertIn("sentence-transformers", status["missing_packages"])
         self.assertIn("sentence-transformers", status["install_hint"])
 
+    def test_local_embedding_plan_checks_package_and_model_path(self) -> None:
+        model_dir = Path(self.temp_dir.name) / "qwen3"
+        model_dir.mkdir()
+        (model_dir / "config.json").write_text("{}", encoding="utf-8")
+        with patch("importlib.util.find_spec", return_value=object()):
+            plan = build_local_embedding_plan(str(model_dir))
+
+        self.assertTrue(plan["ready"])
+        model = plan["model"]
+        assert isinstance(model, dict)
+        self.assertTrue(model["ready"])
+        self.assertIn("config.json", model["found_marker_files"])
+        self.assertIn("--query-limit 30", plan["run_command"])
+
+        output_dir = Path(self.temp_dir.name) / "local_embedding_plan"
+        json_path, markdown_path = write_local_embedding_plan(plan, output_dir)
+        self.assertTrue(json_path.exists())
+        self.assertTrue(markdown_path.exists())
+
+    def test_local_embedding_plan_reports_missing_model_path(self) -> None:
+        missing_dir = Path(self.temp_dir.name) / "missing-qwen3"
+        with patch("importlib.util.find_spec", return_value=object()):
+            plan = build_local_embedding_plan(str(missing_dir))
+
+        self.assertFalse(plan["ready"])
+        model = plan["model"]
+        assert isinstance(model, dict)
+        self.assertFalse(model["exists"])
+        self.assertIn("本地模型目录", plan["notes"][0])
+
     def test_embedding_config_diagnostic_supports_azure_openai_sdk(self) -> None:
         with patch.dict(
             "os.environ",
@@ -3290,6 +3322,49 @@ class SamCoreTest(unittest.TestCase):
         self.assertEqual(plan["cache_miss_count"], 2)
         self.assertEqual(plan["estimated_batch_count"], 1)
         self.assertEqual(plan["will_call_provider"], True)
+
+    def test_embedding_run_plan_supports_sentence_transformer_namespace(self) -> None:
+        dataset_path = Path(self.temp_dir.name) / "sample.json"
+        cache_path = Path(self.temp_dir.name) / "sentence_transformers_cache.sqlite"
+        documents, queries = load_builtin_benchmark_sample()
+        save_sam_dataset(
+            dataset_path,
+            documents=documents[:2],
+            queries=queries[:1],
+            dataset_info={"name": "unit"},
+            processing={"source_script": "test"},
+        )
+        with sqlite3.connect(cache_path) as connection:
+            connection.execute(
+                """
+                CREATE TABLE embedding_cache (
+                    cache_key TEXT PRIMARY KEY,
+                    text_sha1 TEXT NOT NULL,
+                    embedding_json TEXT NOT NULL,
+                    created_at TEXT NOT NULL
+                )
+                """
+            )
+
+        with patch.dict(
+            "os.environ",
+            {
+                "SAM_SENTENCE_TRANSFORMER_MODEL": "/models/qwen3",
+                "SAM_SENTENCE_TRANSFORMER_DEVICE": "cpu",
+                "SAM_SENTENCE_TRANSFORMER_BATCH_SIZE": "2",
+                "SAM_SENTENCE_TRANSFORMER_NORMALIZE": "1",
+            },
+            clear=True,
+        ):
+            plan = build_embedding_run_plan(
+                dataset_path=dataset_path,
+                provider_name="sentence_transformers",
+                cache_path=cache_path,
+            )
+
+        self.assertEqual(plan["batch_size"], 2)
+        self.assertEqual(plan["cache_namespace_mode"], "exact")
+        self.assertEqual(plan["estimated_batch_count"], 2)
 
     def test_warm_embedding_cache_writes_missing_dataset_vectors(self) -> None:
         dataset_path = Path(self.temp_dir.name) / "sample.json"

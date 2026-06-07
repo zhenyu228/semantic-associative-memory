@@ -189,6 +189,8 @@ def _provider_batch_size(provider_name: str) -> int:
         return int(os.environ.get("SAM_OPENAI_EMBEDDING_BATCH_SIZE", "16"))
     if provider_name in {"azure_openai", "azure", "azure_openai_sdk", "azure_sdk"}:
         return int(os.environ.get("SAM_AZURE_EMBEDDING_BATCH_SIZE", "16"))
+    if provider_name in {"sentence_transformers", "sentence_transformer", "hf_local", "local_model"}:
+        return int(os.environ.get("SAM_SENTENCE_TRANSFORMER_BATCH_SIZE", "16"))
     return 16
 
 
@@ -209,6 +211,11 @@ def _cache_namespace_from_env(provider_name: str) -> str | None:
         model = os.environ.get("SAM_AZURE_EMBEDDING_MODEL", "text-embedding-3-large")
         dimensions = os.environ.get("SAM_AZURE_EMBEDDING_DIMENSIONS") or "default"
         return f"azure_sdk:{endpoint.rstrip('/')}:{api_version}:{model}:{dimensions}"
+    if provider_name in {"sentence_transformers", "sentence_transformer", "hf_local", "local_model"}:
+        model = os.environ.get("SAM_SENTENCE_TRANSFORMER_MODEL", "Qwen/Qwen3-Embedding-0.6B")
+        device = os.environ.get("SAM_SENTENCE_TRANSFORMER_DEVICE") or "auto"
+        normalize = int(os.environ.get("SAM_SENTENCE_TRANSFORMER_NORMALIZE", "1") != "0")
+        return f"sentence_transformers:{model}:{device}:normalize={normalize}"
     return None
 
 
