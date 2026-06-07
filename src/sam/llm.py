@@ -4,6 +4,7 @@ import json
 import importlib.util
 import os
 import re
+import time
 import urllib.request
 from abc import ABC, abstractmethod
 
@@ -129,6 +130,8 @@ class AzureOpenAISDKChatClient(ChatClient):
         self.api_version = os.environ.get("SAM_AZURE_CHAT_API_VERSION", "2024-02-01")
         self.model = os.environ.get("SAM_AZURE_CHAT_MODEL", "gpt-5.4-2026-03-05")
         self.request_timeout = float(os.environ.get("SAM_AZURE_CHAT_TIMEOUT", "60"))
+        self.max_retries = int(os.environ.get("SAM_AZURE_CHAT_MAX_RETRIES", "3"))
+        self.retry_base_seconds = float(os.environ.get("SAM_AZURE_CHAT_RETRY_BASE_SECONDS", "2"))
         self.client = openai.AzureOpenAI(
             api_key=self.api_key,
             api_version=self.api_version,
@@ -137,12 +140,19 @@ class AzureOpenAISDKChatClient(ChatClient):
         )
 
     def complete(self, messages: list[dict[str, object]], max_tokens: int = 500) -> str:
-        response = self.client.chat.completions.create(
-            model=self.model,
-            messages=messages,
-            max_tokens=max_tokens,
-            stream=False,
-        )
+        for attempt in range(max(1, self.max_retries)):
+            try:
+                response = self.client.chat.completions.create(
+                    model=self.model,
+                    messages=messages,
+                    max_tokens=max_tokens,
+                    stream=False,
+                )
+                break
+            except Exception as exc:
+                if not _is_rate_limit_error(exc) or attempt == max(1, self.max_retries) - 1:
+                    raise
+                time.sleep(_retry_delay_seconds(exc, attempt, self.retry_base_seconds))
         content = response.choices[0].message.content
         if isinstance(content, list):
             return "".join(str(item.get("text", item)) for item in content).strip()
@@ -202,6 +212,8 @@ def inspect_chat_provider_config(name: str | None = None) -> dict[str, object]:
             "SAM_AZURE_CHAT_URL",
             "SAM_AZURE_CHAT_ENDPOINT",
             "SAM_AZURE_CHAT_TIMEOUT",
+            "SAM_AZURE_CHAT_MAX_RETRIES",
+            "SAM_AZURE_CHAT_RETRY_BASE_SECONDS",
         ]
     else:
         return {
@@ -252,3 +264,24 @@ def _install_hint(missing_packages: list[str]) -> str:
     if "openai" in missing_packages:
         return "python -m pip install 'openai>=1.0.0'"
     return ""
+
+
+def _is_rate_limit_error(exc: Exception) -> bool:
+    status_code = getattr(exc, "status_code", None)
+    if status_code == 429:
+        return True
+    text = f"{type(exc).__name__}: {exc}".lower()
+    return "ratelimit" in text or "rate limit" in text or "qpm limit" in text or "429" in text
+
+
+def _retry_delay_seconds(exc: Exception, attempt: int, base_seconds: float) -> float:
+    retry_after = getattr(exc, "response", None)
+    headers = getattr(retry_after, "headers", {}) if retry_after is not None else {}
+    if headers:
+        value = headers.get("retry-after") or headers.get("Retry-After")
+        if value:
+            try:
+                return max(0.0, min(60.0, float(value)))
+            except ValueError:
+                pass
+    return max(0.0, min(60.0, base_seconds * (2 ** attempt)))

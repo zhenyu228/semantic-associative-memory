@@ -30,7 +30,7 @@ conda run -n sam python scripts/check_embedding_provider.py \
   --json
 ```
 
-当前结果：环境变量配置完整，但在本机直连 SDK embedding 请求时返回 `TimeoutError`。因此 HotpotQA 300 条与 NovelQA 的在线 embedding 正式实验暂未启动，避免长时间挂起和无效额度消耗。GPT-5.4 chat provider 已能接入，但当前低额度 probe 遇到 qpm 429 限流，需要降低并发或等待限流窗口恢复后再扩大端到端生成实验。
+当前结果：环境变量配置完整，但在本机直连 SDK embedding 请求时返回 `TimeoutError`。因此 HotpotQA 300 条与 NovelQA 的在线 embedding 正式实验暂未启动，避免长时间挂起和无效额度消耗。GPT-5.4 chat provider 曾完成低额度连通性验证；当前 probe 可能遇到 qpm 429 限流，因此 SDK provider 已加入 `SAM_AZURE_CHAT_MAX_RETRIES` 和 `SAM_AZURE_CHAT_RETRY_BASE_SECONDS`，后续扩大端到端生成实验时需要低并发、分批运行。
 
 ## 2. HotpotQA 展示实验
 
@@ -221,7 +221,12 @@ conda run -n sam python scripts/check_model_providers.py \
   --json
 ```
 
-验证结果中 chat probe 返回 `2`，说明 GPT-5.4 SDK 链路可用。当前已在 `outputs/runs/relation_judge_gpt54_querylimit5_smoke/` 完成低预算 RelationJudge smoke，证明 GPT-5.4 能参与关系级建边判别流程。
+历史验证结果中 chat probe 返回 `2`，说明 GPT-5.4 SDK 链路可用。当前已在 `outputs/runs/relation_judge_gpt54_querylimit5_smoke/` 完成低预算 RelationJudge smoke，证明 GPT-5.4 能参与关系级建边判别流程。如果遇到 qpm 429 限流，可以设置：
+
+```bash
+export SAM_AZURE_CHAT_MAX_RETRIES=3
+export SAM_AZURE_CHAT_RETRY_BASE_SECONDS=2
+```
 
 ## 7. GPT-5.4 检索-生成闭环
 

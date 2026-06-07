@@ -2295,6 +2295,56 @@ class SamCoreTest(unittest.TestCase):
         self.assertFalse(captured["payload"]["stream"])
         self.assertEqual(captured["payload"]["messages"][0]["content"][0]["text"], "What is 1+1?")
 
+    def test_azure_chat_sdk_client_retries_rate_limit_errors(self) -> None:
+        calls: list[dict[str, object]] = []
+
+        class FakeRateLimitError(RuntimeError):
+            status_code = 429
+
+        class FakeMessage:
+            content = "OK after retry"
+
+        class FakeChoice:
+            message = FakeMessage()
+
+        class FakeChatResponse:
+            choices = [FakeChoice()]
+
+        class FakeCompletions:
+            def create(self, **kwargs):
+                calls.append(kwargs)
+                if len(calls) == 1:
+                    raise FakeRateLimitError("qpm limit")
+                return FakeChatResponse()
+
+        class FakeChat:
+            def __init__(self) -> None:
+                self.completions = FakeCompletions()
+
+        class FakeAzureOpenAI:
+            def __init__(self, **kwargs) -> None:
+                self.chat = FakeChat()
+
+        fake_openai = type("FakeOpenAI", (), {"AzureOpenAI": FakeAzureOpenAI})()
+
+        with patch.dict(
+            "os.environ",
+            {
+                "SAM_AZURE_CHAT_API_KEY": "test-key",
+                "SAM_AZURE_CHAT_ENDPOINT": "https://example.test/api/modelhub/online/v2/crawl",
+                "SAM_AZURE_CHAT_MAX_RETRIES": "2",
+                "SAM_AZURE_CHAT_RETRY_BASE_SECONDS": "0",
+            },
+            clear=True,
+        ), patch.dict("sys.modules", {"openai": fake_openai}):
+            answer = AzureOpenAISDKChatClient().complete(
+                [{"role": "user", "content": "What is 1+1?"}],
+                max_tokens=32,
+            )
+
+        self.assertEqual(answer, "OK after retry")
+        self.assertEqual(len(calls), 2)
+
     def test_create_chat_client_supports_azure_openai_sdk(self) -> None:
         fake_openai = type("FakeOpenAI", (), {"AzureOpenAI": staticmethod(lambda **kwargs: object())})()
         with patch.dict(
@@ -2315,6 +2365,8 @@ class SamCoreTest(unittest.TestCase):
             {
                 "SAM_AZURE_CHAT_API_KEY": "test-key",
                 "SAM_AZURE_CHAT_ENDPOINT": "https://example.test/api/modelhub/online/v2/crawl",
+                "SAM_AZURE_CHAT_MAX_RETRIES": "4",
+                "SAM_AZURE_CHAT_RETRY_BASE_SECONDS": "1",
             },
             clear=True,
         ), patch("importlib.util.find_spec", return_value=None):
@@ -2323,6 +2375,7 @@ class SamCoreTest(unittest.TestCase):
         self.assertFalse(status["ready"])
         self.assertIn("openai", status["missing_packages"])
         self.assertIn("python -m pip install", status["install_hint"])
+        self.assertIn("SAM_AZURE_CHAT_MAX_RETRIES", status["configured_optional"])
 
     def test_combined_provider_diagnostic_supports_local_probes(self) -> None:
         status = build_provider_status(

@@ -418,6 +418,8 @@ export SAM_AZURE_CHAT_ENDPOINT="https://你的公司网关地址"
 export SAM_AZURE_CHAT_API_VERSION="2024-02-01"
 export SAM_AZURE_CHAT_MODEL="gpt-5.4-2026-03-05"
 export SAM_AZURE_CHAT_API_KEY="..."
+export SAM_AZURE_CHAT_MAX_RETRIES="3"
+export SAM_AZURE_CHAT_RETRY_BASE_SECONDS="2"
 
 conda run -n sam python scripts/run_demo.py \
   --reset \
@@ -445,6 +447,8 @@ conda run -n sam python scripts/check_chat_provider.py \
 ```
 
 诊断脚本不会打印 API key 或 endpoint 明文，只会打印 provider 状态和回答预览。如果公司网关不是标准 Azure deployment 拼接路径，可以直接配置完整 chat completions 请求地址：
+
+`azure_openai_sdk` 遇到 429、RateLimit 或 qpm limit 时会按 `SAM_AZURE_CHAT_MAX_RETRIES` 重试，等待时间按 `SAM_AZURE_CHAT_RETRY_BASE_SECONDS` 指数退避。如果在低额度环境中跑端到端生成，建议把并发保持为 1，并适当降低样本数。
 
 ```bash
 export SAM_AZURE_CHAT_URL="https://你的完整/chat/completions/请求地址"
@@ -490,6 +494,8 @@ export SAM_AZURE_CHAT_ENDPOINT="https://aidp-i18ntt-sg.byteintl.net/api/modelhub
 export SAM_AZURE_CHAT_API_VERSION="2024-02-01"
 export SAM_AZURE_CHAT_MODEL="gpt-5.4-2026-03-05"
 export SAM_AZURE_CHAT_API_KEY="replace-with-chat-api-key"
+export SAM_AZURE_CHAT_MAX_RETRIES="3"
+export SAM_AZURE_CHAT_RETRY_BASE_SECONDS="2"
 ```
 
 ```bash
