@@ -39,6 +39,7 @@ from sam.embedding import (
     AzureOpenAIEmbeddingProvider,
     CachedEmbeddingProvider,
     LocalHashEmbeddingProvider,
+    SentenceTransformerEmbeddingProvider,
     create_embedding_provider,
     inspect_embedding_provider_config,
     preflight_embedding_endpoint,
@@ -2875,6 +2876,83 @@ class SamCoreTest(unittest.TestCase):
             provider = create_embedding_provider("azure_openai_sdk")
 
         self.assertIsInstance(provider, AzureOpenAISDKEmbeddingProvider)
+
+    def test_sentence_transformer_embedding_provider_encodes_batches(self) -> None:
+        captured: dict[str, object] = {}
+
+        class FakeSentenceTransformer:
+            def __init__(self, model_name: str, *, device: str | None = None, trust_remote_code: bool = False) -> None:
+                captured["model_name"] = model_name
+                captured["device"] = device
+                captured["trust_remote_code"] = trust_remote_code
+
+            def encode(self, texts, **kwargs):
+                captured["encode"] = kwargs
+                return [
+                    [float(index), float(len(text))]
+                    for index, text in enumerate(texts)
+                ]
+
+        fake_module = type("FakeSentenceTransformers", (), {"SentenceTransformer": FakeSentenceTransformer})()
+
+        with patch.dict(
+            "os.environ",
+            {
+                "SAM_SENTENCE_TRANSFORMER_MODEL": "/models/qwen3-embedding-0.6b",
+                "SAM_SENTENCE_TRANSFORMER_DEVICE": "cpu",
+                "SAM_SENTENCE_TRANSFORMER_BATCH_SIZE": "2",
+                "SAM_SENTENCE_TRANSFORMER_NORMALIZE": "1",
+            },
+            clear=True,
+        ), patch.dict("sys.modules", {"sentence_transformers": fake_module}):
+            provider = SentenceTransformerEmbeddingProvider()
+            embeddings = provider.embed_many(["alpha", "beta"])
+
+        self.assertEqual(captured["model_name"], "/models/qwen3-embedding-0.6b")
+        self.assertEqual(captured["device"], "cpu")
+        self.assertTrue(captured["trust_remote_code"])
+        self.assertEqual(captured["encode"]["batch_size"], 2)
+        self.assertTrue(captured["encode"]["normalize_embeddings"])
+        self.assertFalse(captured["encode"]["show_progress_bar"])
+        self.assertEqual(embeddings, [[0.0, 5.0], [1.0, 4.0]])
+
+    def test_create_embedding_provider_supports_sentence_transformers(self) -> None:
+        class FakeSentenceTransformer:
+            def __init__(self, model_name: str, **kwargs) -> None:
+                self.model_name = model_name
+
+            def encode(self, texts, **kwargs):
+                return [[1.0, 0.0] for _ in texts]
+
+        fake_module = type("FakeSentenceTransformers", (), {"SentenceTransformer": FakeSentenceTransformer})()
+
+        with patch.dict("os.environ", {}, clear=True), patch.dict("sys.modules", {"sentence_transformers": fake_module}):
+            provider = create_embedding_provider("sentence_transformers")
+
+        self.assertIsInstance(provider, SentenceTransformerEmbeddingProvider)
+
+    def test_embedding_config_diagnostic_supports_sentence_transformers(self) -> None:
+        with patch.dict(
+            "os.environ",
+            {
+                "SAM_SENTENCE_TRANSFORMER_MODEL": "/models/qwen3-embedding-0.6b",
+                "SAM_SENTENCE_TRANSFORMER_DEVICE": "cpu",
+            },
+            clear=True,
+        ), patch("importlib.util.find_spec", return_value=object()):
+            status = inspect_embedding_provider_config("sentence_transformers")
+
+        self.assertTrue(status["ready"])
+        self.assertIn("SAM_SENTENCE_TRANSFORMER_MODEL", status["configured_optional"])
+        self.assertEqual(status["missing_packages"], [])
+
+    def test_embedding_config_reports_missing_sentence_transformers_package(self) -> None:
+        with patch("importlib.util.find_spec", return_value=None):
+            status = inspect_embedding_provider_config("sentence_transformers")
+
+        self.assertFalse(status["ready"])
+        self.assertIn("sentence-transformers", status["missing_packages"])
+        self.assertIn("sentence-transformers", status["install_hint"])
 
     def test_embedding_config_diagnostic_supports_azure_openai_sdk(self) -> None:
         with patch.dict(

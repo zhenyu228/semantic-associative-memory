@@ -12,6 +12,11 @@ dependencies = [
     "openai>=1.0.0",
 ]
 
+[project.optional-dependencies]
+local-embedding = [
+    "sentence-transformers>=3.0.0",
+]
+
 [tool.setuptools]
 package-dir = {"" = "src"}
 

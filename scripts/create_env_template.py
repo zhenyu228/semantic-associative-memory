@@ -24,6 +24,14 @@ SAM_AZURE_EMBEDDING_INPUT_MODE=single
 SAM_AZURE_EMBEDDING_TIMEOUT=120
 SAM_AZURE_EMBEDDING_API_KEY=replace-with-embedding-api-key
 
+# 如果在线 embedding endpoint 不可用，可以安装可选依赖后切换到本地模型：
+# conda run -n sam python -m pip install -e ".[local-embedding]"
+# SAM_EMBEDDING_PROVIDER=sentence_transformers
+# SAM_SENTENCE_TRANSFORMER_MODEL=/Users/bytedance/models/Qwen3-Embedding-0.6B
+# SAM_SENTENCE_TRANSFORMER_DEVICE=cpu
+# SAM_SENTENCE_TRANSFORMER_BATCH_SIZE=8
+# SAM_SENTENCE_TRANSFORMER_NORMALIZE=1
+
 SAM_CHAT_PROVIDER=azure_openai_sdk
 SAM_AZURE_CHAT_ENDPOINT=https://genai-sg-og.tiktok-row.org/gpt/openapi/online/v2/crawl
 SAM_AZURE_CHAT_API_VERSION=2024-02-01

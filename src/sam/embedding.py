@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import asyncio
+import inspect
 import importlib.util
 import json
 import math
@@ -60,6 +61,55 @@ class LocalHashEmbeddingProvider(EmbeddingProvider):
         if norm == 0.0:
             return vector
         return [value / norm for value in vector]
+
+
+class SentenceTransformerEmbeddingProvider(EmbeddingProvider):
+    """本地 sentence-transformers embedding provider。
+
+    该 provider 用于在线 embedding endpoint 不可用时接入本地真实语义模型，
+    例如 Qwen/Qwen3-Embedding-0.6B、BGE 或 E5。模型路径和设备均从环境变量读取。
+    """
+
+    def __init__(self) -> None:
+        try:
+            from sentence_transformers import SentenceTransformer
+        except ImportError as exc:
+            raise RuntimeError("使用 sentence_transformers 需要安装 sentence-transformers 包") from exc
+        self.model_name = os.environ.get(
+            "SAM_SENTENCE_TRANSFORMER_MODEL",
+            "Qwen/Qwen3-Embedding-0.6B",
+        )
+        self.device = os.environ.get("SAM_SENTENCE_TRANSFORMER_DEVICE")
+        self.batch_size = int(os.environ.get("SAM_SENTENCE_TRANSFORMER_BATCH_SIZE", "16"))
+        self.normalize = os.environ.get("SAM_SENTENCE_TRANSFORMER_NORMALIZE", "1") != "0"
+        trust_remote_code = os.environ.get("SAM_SENTENCE_TRANSFORMER_TRUST_REMOTE_CODE", "1") != "0"
+        model_kwargs: dict[str, object] = {}
+        init_signature = inspect.signature(SentenceTransformer)
+        if self.device and "device" in init_signature.parameters:
+            model_kwargs["device"] = self.device
+        if "trust_remote_code" in init_signature.parameters:
+            model_kwargs["trust_remote_code"] = trust_remote_code
+        self.model = SentenceTransformer(self.model_name, **model_kwargs)
+
+    @property
+    def cache_namespace(self) -> str:
+        device = self.device or "auto"
+        return f"sentence_transformers:{self.model_name}:{device}:normalize={int(self.normalize)}"
+
+    def embed(self, text: str) -> list[float]:
+        return self.embed_many([text])[0]
+
+    def embed_many(self, texts: list[str]) -> list[list[float]]:
+        if not texts:
+            return []
+        encoded = self.model.encode(
+            texts,
+            batch_size=max(1, self.batch_size),
+            normalize_embeddings=self.normalize,
+            convert_to_numpy=False,
+            show_progress_bar=False,
+        )
+        return [_to_float_list(vector) for vector in encoded]
 
 
 class OpenAIEmbeddingProvider(EmbeddingProvider):
@@ -412,6 +462,8 @@ def create_embedding_provider(name: str | None = None) -> EmbeddingProvider:
     elif provider_name in {"azure_openai_sdk", "azure_sdk"}:
         apply_provider_env_aliases(target_prefix="SAM_AZURE_EMBEDDING_")
         provider = AzureOpenAISDKEmbeddingProvider()
+    elif provider_name in {"sentence_transformers", "sentence_transformer", "hf_local", "local_model"}:
+        provider = SentenceTransformerEmbeddingProvider()
     elif provider_name == "local":
         provider = LocalHashEmbeddingProvider()
     else:
@@ -440,6 +492,21 @@ def inspect_embedding_provider_config(name: str | None = None) -> dict[str, obje
         missing: list[str] = []
         required_any_missing: list[list[str]] = []
         optional = ["SAM_EMBEDDING_CACHE", "SAM_EMBEDDING_CACHE_PATH"]
+    elif provider_name in {"sentence_transformers", "sentence_transformer", "hf_local", "local_model"}:
+        missing = []
+        required_any_missing = []
+        missing_packages = []
+        if importlib.util.find_spec("sentence_transformers") is None:
+            missing_packages.append("sentence-transformers")
+        optional = [
+            "SAM_SENTENCE_TRANSFORMER_MODEL",
+            "SAM_SENTENCE_TRANSFORMER_DEVICE",
+            "SAM_SENTENCE_TRANSFORMER_BATCH_SIZE",
+            "SAM_SENTENCE_TRANSFORMER_NORMALIZE",
+            "SAM_SENTENCE_TRANSFORMER_TRUST_REMOTE_CODE",
+            "SAM_EMBEDDING_CACHE",
+            "SAM_EMBEDDING_CACHE_PATH",
+        ]
     elif provider_name == "openai":
         missing = _missing_env(["OPENAI_API_KEY"])
         required_any_missing = []
@@ -524,7 +591,7 @@ def preflight_embedding_endpoint(name: str | None = None, *, timeout: float = 8.
         load_default_env_file()
     provider_name = name or os.environ.get("SAM_EMBEDDING_PROVIDER", "local")
     provider_name = {"azure": "azure_openai", "azure_sdk": "azure_openai_sdk"}.get(provider_name, provider_name)
-    if provider_name == "local":
+    if provider_name in {"local", "sentence_transformers", "sentence_transformer", "hf_local", "local_model"}:
         return {"checked": False, "ok": True, "reason": "local_provider"}
     if provider_name == "openai":
         url = os.environ.get("OPENAI_BASE_URL", "https://api.openai.com/v1")
@@ -575,6 +642,8 @@ def _is_missing_env_value(value: str | None) -> bool:
 def _install_hint(missing_packages: list[str]) -> str:
     if "openai" in missing_packages:
         return "python -m pip install 'openai>=1.0.0'"
+    if "sentence-transformers" in missing_packages:
+        return "python -m pip install 'sentence-transformers>=3.0.0'"
     return ""
 
 
@@ -617,3 +686,9 @@ def _parallel_embed_batches(
 def _cache_key(namespace: str, text: str) -> str:
     digest = hashlib.sha1(f"{namespace}\n{text}".encode("utf-8")).hexdigest()
     return f"{namespace}:{digest}"
+
+
+def _to_float_list(vector: object) -> list[float]:
+    if hasattr(vector, "tolist"):
+        vector = vector.tolist()
+    return [float(value) for value in vector]  # type: ignore[union-attr]
