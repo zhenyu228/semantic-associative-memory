@@ -134,6 +134,11 @@ class CachedRelationJudge:
         cached = self._cache.get(key)
         if cached:
             self.cache_hits += 1
+            if bool(cached.get("should_link", False)) and str(cached.get("relation_type")) == "budget_exhausted":
+                judgment = _budget_exhausted_skip_judgment(score_breakdown)
+                self._cache[key] = judgment.to_dict()
+                self._write_cache()
+                return judgment
             return RelationJudgment(
                 should_link=bool(cached.get("should_link", False)),
                 relation_type=str(cached.get("relation_type", "unrelated")),
@@ -185,8 +190,10 @@ class BudgetedRelationJudge:
         if self.max_calls is not None and self.calls_made >= self.max_calls:
             self.skipped_count += 1
             should_link = self.on_exhausted == "skip"
+            if should_link:
+                return _budget_exhausted_skip_judgment(score_breakdown)
             return RelationJudgment(
-                should_link=should_link,
+                should_link=False,
                 relation_type="budget_exhausted",
                 confidence=0.0,
                 reason=(
@@ -251,6 +258,19 @@ def _relation_max_calls() -> int | None:
 
 def _relation_budget_exhausted_policy() -> str:
     return os.environ.get("SAM_RELATION_JUDGE_BUDGET_EXHAUSTED", "skip").strip().lower()
+
+
+def _budget_exhausted_skip_judgment(score_breakdown: dict[str, object]) -> RelationJudgment:
+    relation_type = str(score_breakdown.get("relation_type_hint") or "unknown")
+    return RelationJudgment(
+        should_link=True,
+        relation_type=relation_type,
+        confidence=1.0,
+        reason=(
+            "关系判别预算已耗尽，按 skip 策略保留原始候选边："
+            f"relation_type={relation_type}"
+        ),
+    )
 
 
 def relation_judge_stats(judge: RelationJudge | None) -> dict[str, object]:

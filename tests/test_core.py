@@ -79,6 +79,7 @@ from sam.relation_judge import (
     CachedRelationJudge,
     ChatRelationJudge,
     RelationJudgment,
+    _relation_cache_key,
     create_relation_judge,
     relation_judge_stats,
 )
@@ -273,6 +274,63 @@ class SamCoreTest(unittest.TestCase):
         self.assertEqual(score.relation_type, None)
         self.assertEqual(score.score_breakdown["relation_judge"]["should_link"], False)
         self.assertEqual(score.score_breakdown["relation_judge"]["relation_type"], "unrelated")
+
+    def test_graph_builder_preserves_relation_type_when_relation_budget_is_exhausted(self) -> None:
+        class RejectingRelationJudge:
+            def judge(
+                self,
+                seed: MemoryNode,
+                other: MemoryNode,
+                score_breakdown: dict[str, object],
+            ) -> RelationJudgment:
+                return RelationJudgment(
+                    should_link=False,
+                    relation_type="unrelated",
+                    confidence=0.9,
+                    reason="预算未耗尽时会拒绝候选边",
+                )
+
+        self.store.reset()
+        now = utc_now_iso()
+        left = MemoryNode(
+            id="budget_left",
+            text="Alpha bridge evidence focuses on a film award.",
+            summary="Alpha bridge evidence focuses on a film award.",
+            keywords=["alpha", "bridge", "film"],
+            tags=[],
+            source="unit-test",
+            created_at=now,
+            last_accessed_at=None,
+            usage_count=0,
+            confidence=0.8,
+            embedding=[1.0, 0.0, 0.0],
+            metadata={},
+        )
+        right = MemoryNode(
+            id="budget_right",
+            text="Alpha bridge evidence explains the same film award.",
+            summary="Alpha bridge evidence explains the same film award.",
+            keywords=["alpha", "bridge", "award"],
+            tags=[],
+            source="unit-test",
+            created_at=now,
+            last_accessed_at=None,
+            usage_count=0,
+            confidence=0.8,
+            embedding=[1.0, 0.0, 0.0],
+            metadata={},
+        )
+        self.store.upsert_nodes([left, right])
+        judge = BudgetedRelationJudge(RejectingRelationJudge(), max_calls=0, on_exhausted="skip")
+        graph = GraphBuilder(self.store, relation_judge=judge, relation_judge_policy="all")
+
+        edges = graph.build_edges_on_demand([left], [left, right])
+        score = graph._score_candidate_edge(left, right)
+
+        self.assertTrue(edges)
+        self.assertEqual(score.relation_type, "keyword_overlap")
+        self.assertEqual(score.score_breakdown["relation_judge"]["relation_type"], "keyword_overlap")
+        self.assertIn("预算已耗尽", score.score_breakdown["relation_judge"]["reason"])
 
     def test_graph_builder_uses_relation_judge_only_for_risky_edges_by_default(self) -> None:
         class RecordingRelationJudge:
@@ -528,7 +586,45 @@ class SamCoreTest(unittest.TestCase):
         self.assertEqual(judge.skipped_count, 1)
         self.assertEqual(first.should_link, False)
         self.assertEqual(second.should_link, True)
-        self.assertEqual(second.relation_type, "budget_exhausted")
+        self.assertEqual(second.relation_type, "keyword_overlap")
+        self.assertEqual(second.confidence, 1.0)
+
+    def test_cached_relation_judge_normalizes_stale_budget_exhausted_skip(self) -> None:
+        cache_path = Path(self.temp_dir.name) / "relation_cache.json"
+        seed = self.nodes[0]
+        other = self.nodes[1]
+        score_breakdown = {"relation_type_hint": "embedding_similarity", "similarity": 0.2}
+        stale_key = _relation_cache_key(seed, other, score_breakdown)
+        cache_path.write_text(
+            json.dumps(
+                {
+                    stale_key: {
+                        "should_link": True,
+                        "relation_type": "budget_exhausted",
+                        "confidence": 0.0,
+                        "reason": "旧缓存：预算耗尽后保留候选边",
+                    }
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+
+        class FailingRelationJudge:
+            def judge(
+                self,
+                seed: MemoryNode,
+                other: MemoryNode,
+                score_breakdown: dict[str, object],
+            ) -> RelationJudgment:
+                raise AssertionError("命中旧缓存时不应重新调用底层判别器")
+
+        judge = CachedRelationJudge(FailingRelationJudge(), cache_path=cache_path)
+        judgment = judge.judge(seed, other, score_breakdown)
+
+        self.assertTrue(judgment.should_link)
+        self.assertEqual(judgment.relation_type, "embedding_similarity")
+        self.assertEqual(judgment.confidence, 1.0)
 
     def test_relation_judge_stats_reports_cache_and_budget(self) -> None:
         class CountingRelationJudge:

@@ -34,7 +34,7 @@ OPENING_MODULE_SPECS: list[ModuleSpec] = [
         module_id="dynamic_graph_memory",
         title="知识提取与动态知识图谱构建",
         opening_requirement="抽取关键信息单元及语义关系，将知识表示为带属性的记忆节点，并支持图谱动态生长、更新和记忆重构。",
-        target_progress=72,
+        target_progress=74,
         code_evidence=[
             EvidenceSpec("MemoryNode / MemoryEdge 数据结构", "src/sam/models.py", "code"),
             EvidenceSpec("SQLite 记忆存储与事件表", "src/sam/store.py", "code"),
@@ -49,10 +49,11 @@ OPENING_MODULE_SPECS: list[ModuleSpec] = [
             EvidenceSpec("记忆巩固实验", "outputs/runs/memory_consolidation_hotpotqa30_v2/metrics.json", "experiment"),
             EvidenceSpec("弱关系惩罚实验", "outputs/runs/weak_relation_penalty_hotpotqa30/metrics.json", "experiment"),
             EvidenceSpec("图边质量审计 smoke", "outputs/runs/weak_relation_penalty_hotpotqa30/edge_quality_audit.json", "experiment"),
-            EvidenceSpec("GPT-5.4 关系判别 smoke", "outputs/runs/relation_judge_gpt54_querylimit5_smoke/relation_judge_usage.json", "experiment"),
+            EvidenceSpec("GPT-5.4 关系判别 30 条对照", "outputs/runs/relation_compare_risky_q30_budget20_fixed/metrics.json", "experiment"),
+            EvidenceSpec("GPT-5.4 关系判别使用统计", "outputs/runs/relation_compare_risky_q30_budget20_fixed/relation_judge_usage.json", "experiment"),
         ],
         remaining_work=[
-            "GPT-5.4 RelationJudge 已完成低预算 smoke，但尚未形成正式规模实验。",
+            "GPT-5.4 RelationJudge 已完成 30 条对照，但尚未形成 300 条高预算正式实验。",
             "图谱边权仍以经验公式为主，缺少学习式或系统化参数搜索。",
             "记忆重构需要更多跨任务连续验证。",
         ],
