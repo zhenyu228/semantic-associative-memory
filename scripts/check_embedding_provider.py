@@ -22,6 +22,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--env-file", default=None, help="可选：加载本地 .env.local；文件已被 gitignore 忽略")
     parser.add_argument("--probe", default=None, help="可选：发送一条测试文本并返回维度和范数，不打印向量内容")
     parser.add_argument("--preflight-timeout", type=float, default=8.0, help="在线 provider 发请求前的 TCP 预检超时秒数")
+    parser.add_argument("--skip-preflight", action="store_true", help="跳过 TCP 预检，直接用 SDK/API 发起 probe 请求")
     parser.add_argument("--json", action="store_true", help="以 JSON 输出诊断结果")
     return parser.parse_args()
 
@@ -31,20 +32,24 @@ def build_embedding_status(
     provider_name: str | None = None,
     probe: str | None = None,
     preflight_timeout: float = 8.0,
+    skip_preflight: bool = False,
 ) -> dict[str, object]:
     """构建 embedding provider 诊断结果，不暴露 key、endpoint 或向量内容。"""
 
     status = inspect_embedding_provider_config(provider_name)
     if probe and status.get("ready"):
-        preflight = preflight_embedding_endpoint(provider_name, timeout=preflight_timeout)
-        status["network_preflight"] = preflight
-        if preflight.get("checked") and not preflight.get("ok"):
-            status["ready"] = False
-            status["probe_error"] = {
-                "type": str(preflight.get("error_type", "NetworkPreflightError")),
-                "message": str(preflight.get("message", "embedding endpoint network preflight failed")),
-            }
-            return status
+        if skip_preflight:
+            status["network_preflight"] = {"checked": False, "ok": True, "reason": "skipped_by_user"}
+        else:
+            preflight = preflight_embedding_endpoint(provider_name, timeout=preflight_timeout)
+            status["network_preflight"] = preflight
+            if preflight.get("checked") and not preflight.get("ok"):
+                status["ready"] = False
+                status["probe_error"] = {
+                    "type": str(preflight.get("error_type", "NetworkPreflightError")),
+                    "message": str(preflight.get("message", "embedding endpoint network preflight failed")),
+                }
+                return status
         provider = create_embedding_provider(provider_name)
         try:
             embedding = provider.embed(probe)
@@ -70,6 +75,7 @@ def main() -> None:
         provider_name=args.provider,
         probe=args.probe,
         preflight_timeout=args.preflight_timeout,
+        skip_preflight=args.skip_preflight,
     )
 
     if args.json:

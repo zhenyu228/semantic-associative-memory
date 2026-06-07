@@ -24,6 +24,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--env-file", default=None, help="可选：加载本地 .env.local；文件已被 gitignore 忽略")
     parser.add_argument("--embedding-probe", default=None, help="可选：发送一条 embedding 测试文本")
     parser.add_argument("--embedding-preflight-timeout", type=float, default=8.0, help="embedding endpoint TCP 预检超时秒数")
+    parser.add_argument("--skip-embedding-preflight", action="store_true", help="跳过 embedding TCP 预检，直接用 SDK/API 发起 probe 请求")
     parser.add_argument("--chat-probe", default=None, help="可选：发送一条聊天模型测试消息")
     parser.add_argument("--chat-max-tokens", type=int, default=64, help="chat probe 最大输出 token")
     parser.add_argument(
@@ -42,6 +43,7 @@ def build_provider_status(
     chat_provider: str | None = None,
     embedding_probe: str | None = None,
     embedding_preflight_timeout: float = 8.0,
+    skip_embedding_preflight: bool = False,
     chat_probe: str | None = None,
     chat_max_tokens: int = 64,
     required_providers: str = "both",
@@ -54,15 +56,18 @@ def build_provider_status(
     embedding_status = inspect_embedding_provider_config(embedding_provider)
     chat_status = inspect_chat_provider_config(chat_provider)
     if embedding_probe and embedding_status.get("ready"):
-        preflight = preflight_embedding_endpoint(embedding_provider, timeout=embedding_preflight_timeout)
-        embedding_status["network_preflight"] = preflight
-        if preflight.get("checked") and not preflight.get("ok"):
-            embedding_status["ready"] = False
-            embedding_status["probe_error"] = {
-                "type": str(preflight.get("error_type", "NetworkPreflightError")),
-                "message": str(preflight.get("message", "embedding endpoint network preflight failed")),
-            }
+        if skip_embedding_preflight:
+            embedding_status["network_preflight"] = {"checked": False, "ok": True, "reason": "skipped_by_user"}
         else:
+            preflight = preflight_embedding_endpoint(embedding_provider, timeout=embedding_preflight_timeout)
+            embedding_status["network_preflight"] = preflight
+            if preflight.get("checked") and not preflight.get("ok"):
+                embedding_status["ready"] = False
+                embedding_status["probe_error"] = {
+                    "type": str(preflight.get("error_type", "NetworkPreflightError")),
+                    "message": str(preflight.get("message", "embedding endpoint network preflight failed")),
+                }
+        if embedding_status.get("ready"):
             provider = create_embedding_provider(embedding_provider)
             try:
                 embedding = provider.embed(embedding_probe)
@@ -113,6 +118,7 @@ def main() -> None:
         chat_provider=args.chat_provider,
         embedding_probe=args.embedding_probe,
         embedding_preflight_timeout=args.embedding_preflight_timeout,
+        skip_embedding_preflight=args.skip_embedding_preflight,
         chat_probe=args.chat_probe,
         chat_max_tokens=args.chat_max_tokens,
         required_providers=args.require,

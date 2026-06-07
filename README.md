@@ -305,6 +305,17 @@ conda run -n sam python scripts/check_embedding_provider.py \
   --probe "SAM embedding connectivity test."
 ```
 
+如果 TCP 预检超时，但需要确认是否只是预检误判，可以跳过预检并直接调用 OpenAI SDK：
+
+```bash
+SAM_AZURE_EMBEDDING_TIMEOUT=20 SAM_AZURE_EMBEDDING_MAX_RETRIES=1 \
+conda run -n sam python scripts/check_embedding_provider.py \
+  --env-file .env.local \
+  --provider azure_openai_sdk \
+  --probe "SAM embedding direct SDK probe." \
+  --skip-preflight
+```
+
 正式跑实验前，建议先用诊断脚本检查配置。默认只检查环境变量，不会发请求：
 
 ```bash

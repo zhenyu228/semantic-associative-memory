@@ -2423,6 +2423,42 @@ class SamCoreTest(unittest.TestCase):
         self.assertNotIn("example.test", rendered)
         self.assertNotIn("embedding-secret", rendered)
 
+    def test_combined_provider_diagnostic_can_skip_embedding_preflight(self) -> None:
+        class FixedEmbeddingProvider(LocalHashEmbeddingProvider):
+            def embed(self, text: str) -> list[float]:
+                return [3.0, 4.0]
+
+        with patch.dict(
+            "os.environ",
+            {
+                "SAM_AZURE_EMBEDDING_API_KEY": "embedding-secret",
+                "SAM_AZURE_EMBEDDING_ENDPOINT": "https://example.test/gpt/openapi/online/v2/crawl",
+            },
+            clear=True,
+        ), patch(
+            "scripts.check_model_providers.preflight_embedding_endpoint",
+            side_effect=AssertionError("跳过预检时不应该调用 TCP preflight"),
+        ), patch(
+            "scripts.check_model_providers.create_embedding_provider",
+            return_value=FixedEmbeddingProvider(),
+        ) as create_provider:
+            status = build_provider_status(
+                embedding_provider="azure_openai_sdk",
+                chat_provider="heuristic",
+                embedding_probe="probe text",
+                required_providers="embedding",
+                skip_embedding_preflight=True,
+            )
+
+        rendered = json.dumps(status, ensure_ascii=False)
+        create_provider.assert_called_once()
+        self.assertTrue(status["ready"])
+        self.assertEqual(status["embedding"]["probe"]["dimension"], 2)
+        self.assertEqual(status["embedding"]["probe"]["l2_norm"], 5.0)
+        self.assertEqual(status["embedding"]["network_preflight"]["reason"], "skipped_by_user")
+        self.assertNotIn("example.test", rendered)
+        self.assertNotIn("embedding-secret", rendered)
+
     def test_embedding_provider_diagnostic_reports_probe_errors_without_traceback(self) -> None:
         class FailingEmbeddingProvider(LocalHashEmbeddingProvider):
             def embed(self, text: str) -> list[float]:
@@ -2439,6 +2475,29 @@ class SamCoreTest(unittest.TestCase):
         self.assertEqual(status["probe_error"]["type"], "RuntimeError")
         self.assertIn("HTTP 429", status["probe_error"]["message"])
         self.assertNotIn("https://example.test/custom/embeddings", rendered)
+
+    def test_embedding_provider_diagnostic_can_skip_preflight(self) -> None:
+        class FixedEmbeddingProvider(LocalHashEmbeddingProvider):
+            def embed(self, text: str) -> list[float]:
+                return [1.0, 2.0, 2.0]
+
+        with patch(
+            "scripts.check_embedding_provider.preflight_embedding_endpoint",
+            side_effect=AssertionError("跳过预检时不应该调用 TCP preflight"),
+        ), patch(
+            "scripts.check_embedding_provider.create_embedding_provider",
+            return_value=FixedEmbeddingProvider(),
+        ):
+            status = build_embedding_status(
+                provider_name="local",
+                probe="probe text",
+                skip_preflight=True,
+            )
+
+        self.assertTrue(status["ready"])
+        self.assertEqual(status["probe"]["dimension"], 3)
+        self.assertEqual(status["probe"]["l2_norm"], 3.0)
+        self.assertEqual(status["network_preflight"]["reason"], "skipped_by_user")
 
     def test_combined_provider_diagnostic_can_require_only_embedding(self) -> None:
         status = build_provider_status(

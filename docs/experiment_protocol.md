@@ -16,6 +16,22 @@ cd /Users/bytedance/Desktop/masterThesis/SAM
 conda run -n sam python ...
 ```
 
+### 1.1 模型 provider 当前状态
+
+Embedding provider 已按公司 Azure OpenAI SDK 调用方式接入，配置从本地 `.env.local` 读取，不进入 Git 仓库。当前验证命令如下：
+
+```bash
+SAM_AZURE_EMBEDDING_TIMEOUT=20 SAM_AZURE_EMBEDDING_MAX_RETRIES=1 \
+conda run -n sam python scripts/check_embedding_provider.py \
+  --env-file .env.local \
+  --provider azure_openai_sdk \
+  --probe "SAM embedding direct SDK probe" \
+  --skip-preflight \
+  --json
+```
+
+当前结果：环境变量配置完整，但在本机直连 SDK embedding 请求时返回 `TimeoutError`。因此 HotpotQA 300 条与 NovelQA 的在线 embedding 正式实验暂未启动，避免长时间挂起和无效额度消耗。GPT-5.4 chat provider 已能接入，但当前低额度 probe 遇到 qpm 429 限流，需要降低并发或等待限流窗口恢复后再扩大端到端生成实验。
+
 ## 2. HotpotQA 展示实验
 
 ### 2.1 数据集
