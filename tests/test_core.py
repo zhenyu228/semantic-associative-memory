@@ -2907,16 +2907,23 @@ class SamCoreTest(unittest.TestCase):
         )
 
         engine = AnalogyEngine(self.store, self.embedding, self.graph)
+        relation_pattern = engine.relation_pattern_for_case("case_path_match")
         matches = engine.retrieve_cases(
             "bridge evidence should use a shared entity and then a keyword bridge",
             top_k=2,
             relation_pattern=["shared_entity", "keyword_overlap"],
         )
 
+        self.assertEqual(relation_pattern, ["shared_entity", "keyword_overlap"])
         self.assertEqual(matches[0].case_id, "case_path_match")
         self.assertGreater(matches[0].metadata["path_pattern_score"], 0.0)
         self.assertEqual(
             matches[0].metadata["matched_relation_path"],
+            ["shared_entity", "keyword_overlap"],
+        )
+        self.assertGreater(matches[0].metadata["relation_path_count"], 0)
+        self.assertEqual(
+            matches[0].metadata["longest_relation_path"],
             ["shared_entity", "keyword_overlap"],
         )
         self.assertIn("关系路径", matches[0].prompt_hint)
@@ -2956,9 +2963,16 @@ class SamCoreTest(unittest.TestCase):
         result = run_analogy_reuse_probe(engine, masked, top_k=1)
 
         self.assertEqual(result["query_count"], 1)
+        self.assertEqual(result["source_case_hit_count"], 1)
         self.assertEqual(result["consolidated_case_hit_count"], 1)
         self.assertEqual(result["support_overlap_hit_count"], 1)
+        self.assertEqual(result["source_case_hit_rate"], 1.0)
+        self.assertIn("structure_match_hit_count", result)
+        self.assertIn("bad_case_counts", result)
         self.assertTrue(result["cases"][0]["top_match"]["is_consolidated_case"])
+        self.assertTrue(result["cases"][0]["source_case_hit"])
+        self.assertIn("bad_case_type", result["cases"][0])
+        self.assertIn("path_pattern_score", result["cases"][0]["top_match"])
 
     def test_sam_with_analogy_reuses_consolidated_support_as_retrieval_signal(self) -> None:
         self.store.reset()

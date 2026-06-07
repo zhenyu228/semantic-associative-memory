@@ -1,6 +1,6 @@
 {
   "title": "SAM 开题计划进度审计",
-  "overall_progress": 61.0,
+  "overall_progress": 62.0,
   "module_count": 5,
   "modules": [
     {
@@ -180,8 +180,8 @@
       "title": "类比推理触发与应用",
       "opening_requirement": "在新问题激活子图与历史问题-解答链条结构相似时触发类比，检索类似案例并向 LLM 提供提示。",
       "status": "已完成阶段性目标",
-      "target_progress": 50,
-      "estimated_progress": 50,
+      "target_progress": 55,
+      "estimated_progress": 55,
       "code_evidence": [
         {
           "label": "类比检索引擎",
@@ -232,13 +232,19 @@
           "path": "outputs/runs/analogy_retrieval_smoke/metrics.json",
           "kind": "experiment",
           "exists": true
+        },
+        {
+          "label": "结构路径类比复用 30 条",
+          "path": "outputs/runs/analogy_structural_reuse_hotpotqa30_v2/analogy_reuse_results.json",
+          "kind": "experiment",
+          "exists": true
         }
       ],
       "remaining_work": [
         "类比提示对最终答案质量的提升尚未用 GPT-5.4 正式验证。",
         "类比支持证据注入检索排序仍需正式规模实验验证。",
-        "当前类比触发偏规则化，缺少更强的子图结构匹配。",
-        "需要扩展到真实多轮或跨任务类比场景。"
+        "结构路径匹配已经进入实验，但仍需要在未知来源案例和真实多轮任务中验证泛化能力。",
+        "部分来源案例可被找回但未形成可复用巩固证据，需要改进记忆巩固覆盖率。"
       ]
     },
     {
@@ -426,8 +432,8 @@
     }
   ],
   "next_actions": [
-    "类比推理触发与应用：类比提示对最终答案质量的提升尚未用 GPT-5.4 正式验证。",
     "多智能体语义记忆协调机制：当前多智能体实验仍偏受控流程，不是完整 Deep Research 任务。",
+    "类比推理触发与应用：类比提示对最终答案质量的提升尚未用 GPT-5.4 正式验证。",
     "评测体系与检索-生成闭环：正式 embedding endpoint/key 已在本地安全配置中提供，但当前真实 probe 返回 TimeoutError，HotpotQA 300 条和 NovelQA 正式在线 embedding 主实验尚未完成。",
     "知识提取与动态知识图谱构建：GPT-5.4 RelationJudge 尚未形成正式规模实验。",
     "语义激活与联想检索机制：正式 embedding 尚未重跑 HotpotQA 300 条和 NovelQA。"

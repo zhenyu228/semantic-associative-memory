@@ -86,6 +86,9 @@ class AnalogyEngine:
                 reverse=True,
             )[:3]
             consolidated_metadata = _consolidated_case_metadata(nodes)
+            relation_path_signatures = _unique_relation_paths(
+                relation_paths_by_case.get(case_id, [])
+            )
             matches.append(
                 AnalogyMatch(
                     case_id=case_id,
@@ -104,12 +107,38 @@ class AnalogyEngine:
                         "best_node_id": matched_nodes[0].id if matched_nodes else None,
                         "path_pattern_score": round(path_pattern_score, 4),
                         "matched_relation_path": matched_relation_path,
+                        "relation_path_count": len(relation_path_signatures),
+                        "longest_relation_path": _longest_relation_path(relation_path_signatures),
                         **consolidated_metadata,
                     },
                 )
             )
         matches.sort(key=lambda match: match.score, reverse=True)
         return matches[:top_k]
+
+    def relation_pattern_for_case(self, case_id: str, *, max_length: int = 3) -> list[str]:
+        """返回历史案例中最能代表结构的关系路径。"""
+
+        relation_paths = self._relation_paths_by_case().get(case_id, [])
+        normalized_paths = _unique_relation_paths(
+            [
+                path[:max_length]
+                for path in relation_paths
+                if path
+            ]
+        )
+        if not normalized_paths:
+            return []
+        normalized_paths.sort(
+            key=lambda path: (
+                len(path),
+                len(set(path)),
+                _relation_path_strength(path),
+                tuple(path),
+            ),
+            reverse=True,
+        )
+        return normalized_paths[0]
 
     def _group_nodes_by_case(self, nodes: list[MemoryNode]) -> dict[str, list[MemoryNode]]:
         groups: dict[str, list[MemoryNode]] = {}
@@ -334,3 +363,39 @@ def _ordered_relation_overlap(pattern: list[str], path: list[str]) -> float:
         matched += 1
         path_index += 1
     return matched / len(pattern)
+
+
+def _unique_relation_paths(paths: list[list[str]]) -> list[list[str]]:
+    seen: set[tuple[str, ...]] = set()
+    unique: list[list[str]] = []
+    for path in paths:
+        key = tuple(path)
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        unique.append(list(path))
+    return unique
+
+
+def _longest_relation_path(paths: list[list[str]]) -> list[str]:
+    if not paths:
+        return []
+    return max(paths, key=lambda path: (len(path), len(set(path)), tuple(path)))
+
+
+def _relation_path_strength(path: list[str]) -> float:
+    strength_by_type = {
+        "shared_entity": 1.0,
+        "context_cooccurrence": 0.75,
+        "summary_parent": 0.65,
+        "summary_child": 0.65,
+        "keyword_overlap": 0.55,
+        "embedding_similarity": 0.4,
+        "analogy_case_reuse": 0.35,
+    }
+    if not path:
+        return 0.0
+    return sum(
+        strength_by_type.get(relation_type, 0.5)
+        for relation_type in path
+    ) / len(path)

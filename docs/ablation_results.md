@@ -642,3 +642,23 @@ conda run -n sam python scripts/run_demo.py \
 随后使用 `test_company_api.py --timeout 8` 对公司网关做低额度 gate。该脚本现在支持 chat endpoint 与 embedding endpoint 分离，并对单次 HTTP 请求加硬超时。测试中 GPT-5.4 chat 请求成功返回 `OK`，说明 chat key、deployment 和 base url 可用；embedding 请求在 8 秒内未返回，外层 25 秒兜底有时仍会截断整个 gate。因此当前不继续启动 GraphRAG 官方 index，避免在 embedding 服务不稳定时产生不可控等待。后续只有当 embedding gate 能稳定返回向量维度后，才运行 GraphRAG `limit=1` smoke。
 
 随后对 RAPTOR 官方导入超时做了定位。逐项导入检查显示，`umap`、`torch`、`transformers` 和 `sentence_transformers` 的冷启动导入本身就需要较长时间；RAPTOR 顶层 `raptor.__init__` 又会 eager import 多个重依赖模块。因此此前 30 秒审计阈值会把“冷启动较慢”误判为“官方依赖不可用”。将 `audit_official_baselines.py` 默认导入检查 timeout 调整为 75 秒后，RAPTOR import 检查通过。最新审计结果显示：RAPTOR 和 Microsoft GraphRAG 均达到 ready，HippoRAG 仍为 partial；prepared NovelQA demonstration 仍为 120 个 documents 和 8 个 queries。这样官方 baseline 的下一步已经明确为：在 embedding gate 成功后优先跑 RAPTOR 与 GraphRAG 的 `limit=1` smoke，HippoRAG 放到 Linux/CUDA 或单独依赖环境处理。
+
+## 34. 结构路径类比复用实验
+
+为进一步推进类比推理模块，系统将类比复用实验从“文本相似案例命中”扩展为“结构路径匹配”。新增 `AnalogyEngine.relation_pattern_for_case`，可以从某个历史案例的记忆图中抽取代表性关系路径，例如 `summary_parent -> shared_entity -> context_cooccurrence`。在 masked probe 实验中，probe 查询已知来源案例，因此系统会先从来源案例抽取关系路径模式，再用该模式约束 `AnalogyEngine.retrieve_cases`，检查当前问题是否能找回结构相似的历史案例。
+
+同时 `analogy_reuse_results.json` 新增结构化指标：来源案例命中数、来源结构模式可用数、结构路径匹配数、平均 Top-1 类比分数和 bad case 分布。单个 top match 也会输出 `path_pattern_score`、`matched_relation_path`、`relation_path_count` 和 `longest_relation_path`，用于解释类比案例为什么被选中。
+
+30 条 HotpotQA 结构类比复用实验位于 `outputs/runs/analogy_structural_reuse_hotpotqa30_v2/`，结果如下：
+
+| 指标 | 数值 |
+| --- | ---: |
+| 查询数量 | 30 |
+| 来源案例命中率 | 1.000 |
+| 巩固案例命中率 | 0.900 |
+| 支持证据重叠命中率 | 0.900 |
+| 来源结构模式可用率 | 1.000 |
+| 结构路径匹配率 | 1.000 |
+| 平均 Top-1 类比分数 | 1.000 |
+
+bad case 分布为：`success=27`，`source_case_without_consolidation=3`。这说明结构路径匹配本身可以稳定找回来源案例，但仍有 3 条样本虽然找到了正确来源案例，却没有命中可复用的巩固证据链。当前瓶颈因此从“类比触发是否能找回相似案例”转移到“历史案例是否完成了足够覆盖支持证据的记忆巩固”。下一步应优先改进 `MemoryConsolidator` 的支持证据覆盖和巩固条件，而不是继续只提高类比相似度分数。
