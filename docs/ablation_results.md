@@ -606,3 +606,5 @@ conda run -n sam python scripts/run_demo.py \
 ```
 
 本轮已通过单元测试验证：预算上限为 1 时，第一次判别会调用底层模型，第二次判别会被预算拦截；在缓存模式下，同一候选边第二次命中缓存，不会再次消耗预算。无网络 smoke `outputs/runs/relation_budget_off_hotpotqa30_smoke/` 也验证了新增参数不会影响默认检索结果，SAM-full 证据召回率保持 0.617，答案命中率保持 0.667。
+
+随后系统补充了关系判别使用统计产物。`run_demo.py` 和端到端 pipeline 会在每个 run 目录下写入 `relation_judge_usage.json`，记录 RelationJudge 是否启用、缓存路径、缓存大小、缓存命中/未命中、预算上限、实际调用次数和预算跳过次数。无网络 smoke `outputs/runs/relation_usage_output_hotpotqa30_smoke/` 已验证该文件会随运行产物生成；当关系判别关闭时，文件内容为 `enabled=false`，后续启用 `cached_gpt54` 后可用同一字段追踪真实 GPT-5.4 调用成本。

@@ -16,7 +16,7 @@ from sam.graph import GraphBuilder
 from sam.llm import ChatClient
 from sam.models import DatasetDocument, EvaluationQuery
 from sam.query_planner import QueryPlanner
-from sam.relation_judge import RelationJudge
+from sam.relation_judge import RelationJudge, relation_judge_stats
 from sam.reranker import DEFAULT_RERANKER_PROFILE
 from sam.store import MemoryStore
 
@@ -75,6 +75,12 @@ def run_retrieval_generation_pipeline(
             method=generation_method,
         )
         generated_json_path, generated_md_path = write_generation_reports(generated_answers, target)
+        relation_usage = relation_judge_stats(relation_judge)
+        relation_usage_path = target / "relation_judge_usage.json"
+        relation_usage_path.write_text(
+            json.dumps(relation_usage, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
     finally:
         if original_reranker_profile is None:
             os.environ.pop("SAM_RERANKER_PROFILE", None)
@@ -91,6 +97,7 @@ def run_retrieval_generation_pipeline(
         "reranker_profile": reranker_profile,
         "query_planner_enabled": query_planner is not None,
         "relation_judge_enabled": relation_judge is not None,
+        "relation_judge": relation_usage,
         "retrieval": {
             "metrics_json": str(metrics_json_path),
             "metrics_markdown": str(metrics_md_path),
@@ -104,6 +111,7 @@ def run_retrieval_generation_pipeline(
         },
         "outputs": {
             "cases_json": str(target / "cases.json"),
+            "relation_judge_usage_json": str(relation_usage_path),
             "generation_bad_cases_json": str(target / "generation_bad_cases.json"),
             "generation_bad_cases_markdown": str(target / "generation_bad_cases.md"),
         },

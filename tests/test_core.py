@@ -78,6 +78,7 @@ from sam.relation_judge import (
     ChatRelationJudge,
     RelationJudgment,
     create_relation_judge,
+    relation_judge_stats,
 )
 from sam.retriever import Retriever
 from sam.reuse_experiment import build_masked_queries, summarize_memory_reuse
@@ -487,6 +488,10 @@ class SamCoreTest(unittest.TestCase):
         self.assertEqual(base_judge.calls, 1)
         self.assertEqual(first.to_dict(), second.to_dict())
         self.assertEqual(first.to_dict(), third.to_dict())
+        self.assertEqual(judge.cache_hits, 1)
+        self.assertEqual(judge.cache_misses, 1)
+        self.assertEqual(reloaded.cache_hits, 1)
+        self.assertEqual(reloaded.cache_misses, 0)
         self.assertTrue(cache_path.exists())
 
     def test_budgeted_relation_judge_skips_after_max_calls(self) -> None:
@@ -522,6 +527,46 @@ class SamCoreTest(unittest.TestCase):
         self.assertEqual(first.should_link, False)
         self.assertEqual(second.should_link, True)
         self.assertEqual(second.relation_type, "budget_exhausted")
+
+    def test_relation_judge_stats_reports_cache_and_budget(self) -> None:
+        class CountingRelationJudge:
+            def __init__(self) -> None:
+                self.calls = 0
+
+            def judge(
+                self,
+                seed: MemoryNode,
+                other: MemoryNode,
+                score_breakdown: dict[str, object],
+            ) -> RelationJudgment:
+                self.calls += 1
+                return RelationJudgment(
+                    should_link=True,
+                    relation_type="same_topic",
+                    confidence=0.9,
+                    reason="测试判别通过",
+                )
+
+        cache_path = Path(self.temp_dir.name) / "relation_cache.json"
+        judge = CachedRelationJudge(
+            BudgetedRelationJudge(CountingRelationJudge(), max_calls=1),
+            cache_path=cache_path,
+        )
+        seed = self.nodes[0]
+        other = self.nodes[1]
+        payload = {"relation_type_hint": "keyword_overlap", "similarity": 0.5}
+
+        judge.judge(seed, other, payload)
+        judge.judge(seed, other, payload)
+
+        stats = relation_judge_stats(judge)
+
+        self.assertEqual(stats["type"], "CachedRelationJudge")
+        self.assertEqual(stats["cache_hits"], 1)
+        self.assertEqual(stats["cache_misses"], 1)
+        self.assertEqual(stats["base"]["type"], "BudgetedRelationJudge")
+        self.assertEqual(stats["base"]["calls_made"], 1)
+        self.assertEqual(stats["base"]["skipped_count"], 0)
 
     def test_create_relation_judge_wraps_cached_gpt54_with_budget_inside_cache(self) -> None:
         cache_path = Path(self.temp_dir.name) / "relation_cache.json"
@@ -3676,10 +3721,13 @@ class SamCoreTest(unittest.TestCase):
         self.assertEqual(summary["query_count"], 2)
         self.assertIn("retrieval", summary)
         self.assertIn("generation", summary)
+        self.assertIn("relation_judge", summary)
+        self.assertFalse(summary["relation_judge"]["enabled"])
         self.assertTrue((output_dir / "metrics.json").exists())
         self.assertTrue((output_dir / "cases.json").exists())
         self.assertTrue((output_dir / "generated_answers.json").exists())
         self.assertTrue((output_dir / "generation_bad_cases.json").exists())
+        self.assertTrue((output_dir / "relation_judge_usage.json").exists())
         self.assertTrue((output_dir / "pipeline_summary.json").exists())
         generated = json.loads((output_dir / "generated_answers.json").read_text(encoding="utf-8"))
         self.assertIn("context_answer_judgment", generated[0]["metadata"])

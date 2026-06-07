@@ -119,6 +119,8 @@ class CachedRelationJudge:
         self.base_judge = base_judge
         self.cache_path = Path(cache_path) if cache_path else None
         self._cache: dict[str, dict[str, object]] = {}
+        self.cache_hits = 0
+        self.cache_misses = 0
         if self.cache_path and self.cache_path.exists():
             self._cache = json.loads(self.cache_path.read_text(encoding="utf-8"))
 
@@ -131,12 +133,14 @@ class CachedRelationJudge:
         key = _relation_cache_key(seed, other, score_breakdown)
         cached = self._cache.get(key)
         if cached:
+            self.cache_hits += 1
             return RelationJudgment(
                 should_link=bool(cached.get("should_link", False)),
                 relation_type=str(cached.get("relation_type", "unrelated")),
                 confidence=max(0.0, min(1.0, float(cached.get("confidence", 0.0)))),
                 reason=str(cached.get("reason", "")),
             )
+        self.cache_misses += 1
         judgment = self.base_judge.judge(seed, other, score_breakdown)
         self._cache[key] = judgment.to_dict()
         self._write_cache()
@@ -247,6 +251,40 @@ def _relation_max_calls() -> int | None:
 
 def _relation_budget_exhausted_policy() -> str:
     return os.environ.get("SAM_RELATION_JUDGE_BUDGET_EXHAUSTED", "skip").strip().lower()
+
+
+def relation_judge_stats(judge: RelationJudge | None) -> dict[str, object]:
+    if judge is None:
+        return {"enabled": False, "type": None}
+    if isinstance(judge, CachedRelationJudge):
+        return {
+            "enabled": True,
+            "type": "CachedRelationJudge",
+            "cache_path": str(judge.cache_path) if judge.cache_path else None,
+            "cache_size": len(judge._cache),
+            "cache_hits": judge.cache_hits,
+            "cache_misses": judge.cache_misses,
+            "base": relation_judge_stats(judge.base_judge),
+        }
+    if isinstance(judge, BudgetedRelationJudge):
+        return {
+            "enabled": True,
+            "type": "BudgetedRelationJudge",
+            "max_calls": judge.max_calls,
+            "on_exhausted": judge.on_exhausted,
+            "calls_made": judge.calls_made,
+            "skipped_count": judge.skipped_count,
+            "base": relation_judge_stats(judge.base_judge),
+        }
+    if isinstance(judge, ChatRelationJudge):
+        return {
+            "enabled": True,
+            "type": "ChatRelationJudge",
+            "chat_provider": judge.chat_provider,
+            "min_confidence": judge.min_confidence,
+            "fail_open": judge.fail_open,
+        }
+    return {"enabled": True, "type": type(judge).__name__}
 
 
 def _relation_chat_provider(provider: str) -> str | None:

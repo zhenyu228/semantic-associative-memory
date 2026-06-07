@@ -25,7 +25,7 @@ from sam.env import load_env_file  # noqa: E402
 from sam.evaluator import Evaluator  # noqa: E402
 from sam.graph import GraphBuilder  # noqa: E402
 from sam.query_planner import create_query_planner  # noqa: E402
-from sam.relation_judge import create_relation_judge  # noqa: E402
+from sam.relation_judge import create_relation_judge, relation_judge_stats  # noqa: E402
 from sam.store import MemoryStore  # noqa: E402
 from sam.visualization import export_graph_artifacts  # noqa: E402
 
@@ -276,6 +276,12 @@ def main() -> None:
         query_planner=query_planner,
     )
     json_path, markdown_path = evaluator.write_reports(result, run_dir)
+    relation_usage = relation_judge_stats(graph_builder.relation_judge)
+    relation_usage_path = run_dir / "relation_judge_usage.json"
+    relation_usage_path.write_text(
+        json.dumps(relation_usage, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
     graph_paths = export_graph_artifacts(
         nodes=_nodes_for_graph_export(store),
         edges=store.get_edges(),
@@ -293,6 +299,7 @@ def main() -> None:
                 f"查询数量：{result.query_count}",
                 f"方法列表：{', '.join(methods)}",
                 f"按需建边日志：{edge_log_path}",
+                f"关系判别统计：{relation_usage_path}",
                 f"Embedding Top-k 证据召回率：{result.vector_recall:.3f}",
                 f"SAM 证据召回率：{result.associative_recall:.3f}",
             ]
@@ -312,6 +319,7 @@ def main() -> None:
     print(f"图谱 HTML：{graph_paths['html']}")
     print(f"图谱 JSON：{graph_paths['json']}")
     print(f"按需建边日志：{edge_log_path}")
+    print(f"关系判别统计：{relation_usage_path}")
 
 
 if __name__ == "__main__":
