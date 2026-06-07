@@ -38,6 +38,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--query-planner", default="disabled", choices=["disabled", "heuristic", "gpt54"], help="查询规划器")
     parser.add_argument("--relation-judge", default="disabled", help="关系级建边判别器：disabled、gpt54 或 cached_gpt54")
     parser.add_argument(
+        "--relation-judge-policy",
+        default="risky",
+        choices=["risky", "all", "off"],
+        help="关系判别调用策略：risky 只判别高风险边；all 判别所有候选边；off 跳过判别",
+    )
+    parser.add_argument(
         "--retrieval-methods",
         default="embedding_topk,sam_full",
         help="逗号分隔的检索方法列表",
@@ -98,6 +104,7 @@ def main() -> None:
         generation_method=args.generation_method,
         query_planner=create_query_planner(args.query_planner),
         relation_judge=create_relation_judge(args.relation_judge),
+        relation_judge_policy=args.relation_judge_policy,
         reranker_profile=args.reranker_profile,
         top_k=args.top_k,
         seed_k=args.seed_k,

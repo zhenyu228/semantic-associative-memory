@@ -265,6 +265,188 @@ class SamCoreTest(unittest.TestCase):
         self.assertEqual(score.score_breakdown["relation_judge"]["should_link"], False)
         self.assertEqual(score.score_breakdown["relation_judge"]["relation_type"], "unrelated")
 
+    def test_graph_builder_uses_relation_judge_only_for_risky_edges_by_default(self) -> None:
+        class RecordingRelationJudge:
+            def __init__(self) -> None:
+                self.calls: list[str] = []
+
+            def judge(
+                self,
+                seed: MemoryNode,
+                other: MemoryNode,
+                score_breakdown: dict[str, object],
+            ) -> RelationJudgment:
+                self.calls.append(str(score_breakdown.get("relation_type_hint")))
+                return RelationJudgment(
+                    should_link=False,
+                    relation_type="unrelated",
+                    confidence=0.9,
+                    reason="测试中拒绝高风险边",
+                )
+
+        self.store.reset()
+        now = utc_now_iso()
+        seed = MemoryNode(
+            id="risk_seed",
+            text="Bridge Person appears in Alpha Film.",
+            summary="Bridge Person appears in Alpha Film.",
+            keywords=["bridge", "alpha"],
+            tags=[],
+            source="unit-test",
+            created_at=now,
+            last_accessed_at=None,
+            usage_count=0,
+            confidence=0.8,
+            embedding=[1.0, 0.0, 0.0],
+            metadata={"entities": ["Bridge Person"]},
+        )
+        strong = MemoryNode(
+            id="risk_strong",
+            text="Bridge Person later received a notable award.",
+            summary="Bridge Person later received a notable award.",
+            keywords=["award", "person"],
+            tags=[],
+            source="unit-test",
+            created_at=now,
+            last_accessed_at=None,
+            usage_count=0,
+            confidence=0.8,
+            embedding=[0.9, 0.1, 0.0],
+            metadata={"entities": ["Bridge Person"]},
+        )
+        risky = MemoryNode(
+            id="risk_keyword",
+            text="Alpha bridge wording appears in an unrelated sports note.",
+            summary="Alpha bridge wording appears in an unrelated sports note.",
+            keywords=["bridge", "alpha"],
+            tags=[],
+            source="unit-test",
+            created_at=now,
+            last_accessed_at=None,
+            usage_count=0,
+            confidence=0.8,
+            embedding=[1.0, 0.0, 0.0],
+            metadata={"entities": []},
+        )
+        self.store.upsert_nodes([seed, strong, risky])
+        judge = RecordingRelationJudge()
+        graph = GraphBuilder(self.store, relation_judge=judge)
+
+        edges = graph.build_edges_on_demand([seed], [seed, strong, risky])
+        edge_keys = {edge.key for edge in edges}
+
+        self.assertEqual(judge.calls, ["keyword_overlap"])
+        self.assertIn(("risk_seed", "risk_strong", "shared_entity"), edge_keys)
+        self.assertNotIn(("risk_seed", "risk_keyword", "keyword_overlap"), edge_keys)
+
+    def test_graph_builder_relation_judge_policy_all_judges_strong_edges(self) -> None:
+        class RecordingRelationJudge:
+            def __init__(self) -> None:
+                self.calls = 0
+
+            def judge(
+                self,
+                seed: MemoryNode,
+                other: MemoryNode,
+                score_breakdown: dict[str, object],
+            ) -> RelationJudgment:
+                self.calls += 1
+                return RelationJudgment(
+                    should_link=True,
+                    relation_type="shared_entity",
+                    confidence=0.9,
+                    reason="测试判别通过",
+                )
+
+        self.store.reset()
+        now = utc_now_iso()
+        left = MemoryNode(
+            id="policy_left",
+            text="Bridge Person appears in Alpha Film.",
+            summary="Bridge Person appears in Alpha Film.",
+            keywords=["bridge"],
+            tags=[],
+            source="unit-test",
+            created_at=now,
+            last_accessed_at=None,
+            usage_count=0,
+            confidence=0.8,
+            embedding=[1.0, 0.0, 0.0],
+            metadata={"entities": ["Bridge Person"]},
+        )
+        right = MemoryNode(
+            id="policy_right",
+            text="Bridge Person received an award.",
+            summary="Bridge Person received an award.",
+            keywords=["award"],
+            tags=[],
+            source="unit-test",
+            created_at=now,
+            last_accessed_at=None,
+            usage_count=0,
+            confidence=0.8,
+            embedding=[0.9, 0.1, 0.0],
+            metadata={"entities": ["Bridge Person"]},
+        )
+        self.store.upsert_nodes([left, right])
+        judge = RecordingRelationJudge()
+        graph = GraphBuilder(self.store, relation_judge=judge, relation_judge_policy="all")
+
+        graph.build_edges_on_demand([left], [left, right])
+
+        self.assertEqual(judge.calls, 1)
+
+    def test_graph_builder_relation_judge_policy_off_skips_all_judgments(self) -> None:
+        class FailingRelationJudge:
+            def judge(
+                self,
+                seed: MemoryNode,
+                other: MemoryNode,
+                score_breakdown: dict[str, object],
+            ) -> RelationJudgment:
+                raise AssertionError("policy=off 不应调用关系判别器")
+
+        self.store.reset()
+        now = utc_now_iso()
+        left = MemoryNode(
+            id="policy_off_left",
+            text="Alpha bridge evidence focuses on a film award.",
+            summary="Alpha bridge evidence focuses on a film award.",
+            keywords=["alpha", "bridge"],
+            tags=[],
+            source="unit-test",
+            created_at=now,
+            last_accessed_at=None,
+            usage_count=0,
+            confidence=0.8,
+            embedding=[1.0, 0.0, 0.0],
+            metadata={},
+        )
+        right = MemoryNode(
+            id="policy_off_right",
+            text="Alpha bridge evidence focuses on a sports roster.",
+            summary="Alpha bridge evidence focuses on a sports roster.",
+            keywords=["alpha", "bridge"],
+            tags=[],
+            source="unit-test",
+            created_at=now,
+            last_accessed_at=None,
+            usage_count=0,
+            confidence=0.8,
+            embedding=[1.0, 0.0, 0.0],
+            metadata={},
+        )
+        self.store.upsert_nodes([left, right])
+        graph = GraphBuilder(
+            self.store,
+            relation_judge=FailingRelationJudge(),
+            relation_judge_policy="off",
+        )
+
+        edges = graph.build_edges_on_demand([left], [left, right])
+
+        self.assertTrue(edges)
+
     def test_cached_relation_judge_reuses_previous_judgment(self) -> None:
         class CountingRelationJudge:
             def __init__(self) -> None:
@@ -1275,7 +1457,7 @@ class SamCoreTest(unittest.TestCase):
         evaluator = Evaluator(
             self.store,
             self.embedding,
-            GraphBuilder(self.store, relation_judge=judge),
+            GraphBuilder(self.store, relation_judge=judge, relation_judge_policy="all"),
         )
 
         evaluator.evaluate(
@@ -1287,6 +1469,36 @@ class SamCoreTest(unittest.TestCase):
         )
 
         self.assertGreater(judge.calls, 0)
+
+    def test_evaluator_preserves_relation_judge_policy_in_isolated_method_runs(self) -> None:
+        class FailingRelationJudge:
+            def judge(
+                self,
+                seed: MemoryNode,
+                other: MemoryNode,
+                score_breakdown: dict[str, object],
+            ) -> RelationJudgment:
+                raise AssertionError("policy=off 应在隔离评测中继续跳过关系判别器")
+
+        evaluator = Evaluator(
+            self.store,
+            self.embedding,
+            GraphBuilder(
+                self.store,
+                relation_judge=FailingRelationJudge(),
+                relation_judge_policy="off",
+            ),
+        )
+
+        result = evaluator.evaluate(
+            self.queries[:1],
+            top_k=2,
+            seed_k=1,
+            hops=1,
+            methods=["sam_full"],
+        )
+
+        self.assertIn("sam_full", result.method_metrics)
 
     def test_feedback_events_are_written(self) -> None:
         self.evaluator.evaluate(

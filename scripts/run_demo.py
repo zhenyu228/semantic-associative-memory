@@ -54,6 +54,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--embedding-cache-path", default=None, help="自定义 embedding 缓存 SQLite 路径")
     parser.add_argument("--embedding-concurrency", type=int, default=None, help="在线 embedding 最大并发数")
     parser.add_argument("--relation-judge", default="disabled", help="关系级建边判别器：disabled、gpt54 或 cached_gpt54")
+    parser.add_argument(
+        "--relation-judge-policy",
+        default="risky",
+        choices=["risky", "all", "off"],
+        help="关系判别调用策略：risky 只判别高风险边；all 判别所有候选边；off 跳过判别",
+    )
     parser.add_argument("--use-retrieval-query", action="store_true", help="使用数据集 metadata 中的 retrieval_query 扩展检索文本")
     parser.add_argument(
         "--query-planner",
@@ -154,7 +160,11 @@ def main() -> None:
         os.environ["SAM_OPENAI_EMBEDDING_CONCURRENCY"] = str(args.embedding_concurrency)
     os.environ["SAM_RERANKER_PROFILE"] = args.reranker_profile
     embedding_provider = create_embedding_provider(args.embedding_provider)
-    graph_builder = GraphBuilder(store, relation_judge=create_relation_judge(args.relation_judge))
+    graph_builder = GraphBuilder(
+        store,
+        relation_judge=create_relation_judge(args.relation_judge),
+        relation_judge_policy=args.relation_judge_policy,
+    )
     query_planner = create_query_planner(args.query_planner)
     evaluator = Evaluator(store, embedding_provider, graph_builder)
 

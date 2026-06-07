@@ -572,3 +572,13 @@ HotpotQA 30 条默认回归 run 位于 `outputs/runs/keyword_quality_signal_hotp
 审计结果显示，该 run 中 SAM-full 的图路径命中数为 89，噪声图路径命中数为 67，图噪声 bad case 数为 20。候选路径中已经可以看到边级字段，例如 `shared_entity` 路径会同时记录共享实体、边相似度和关键词重叠。该结果保留了 SAM-full 相比 Embedding Top-k 的收益：证据召回率提升 0.100，答案命中率提升 0.100。
 
 随后对额外关键词二跳惩罚进行一次 smoke 验证，run 位于 `outputs/runs/unsupported_keyword_penalty_hotpotqa30/`。该策略下 SAM-full 证据召回率下降到 0.583，答案命中率下降到 0.633；图噪声 bad case 数没有下降，反而达到 21。该结果说明，单纯按“缺少共享实体且语义相似度低”惩罚二跳关键词路径过于粗糙，会错误压低一部分真实桥接证据。因此该策略保留为可控消融开关，默认关闭；后续应优先使用 GPT-5.4 RelationJudge 或实体类型约束在建边阶段过滤噪声，而不是只在排序阶段做静态惩罚。
+
+## 29. RelationJudge 风险路由策略
+
+GPT-5.4 RelationJudge 如果对所有候选边逐条判别，会在按需建图阶段产生大量模型调用。上一轮 30 条 HotpotQA smoke 的建边日志显示，候选边事件中 `shared_entity` 约 1460 次，`embedding_similarity` 约 984 次，`keyword_overlap` 约 1190 次。若全量调用模型，容易触发 QPM 限流，也不符合按需建图降低成本的设计目标。
+
+因此 `GraphBuilder` 新增 `relation_judge_policy`，并在 `run_demo.py` 和 `run_end_to_end_experiment.py` 中提供 `--relation-judge-policy` 参数。当前支持三种策略：`risky`、`all` 和 `off`。默认 `risky` 只把高风险候选边送入 RelationJudge，主要包括 `keyword_overlap` 和 `embedding_similarity`；对于有明确共享实体支撑的 `shared_entity` 边，默认跳过模型判别并直接保留。`all` 用于严格实验，会对所有候选边调用模型；`off` 用于不调用模型的回归测试。
+
+这样做的直接意义是把 GPT-5.4 用在最需要判断的地方。以 30 条 smoke 的建边事件粗略估算，`risky` 策略可以跳过约 40% 的强共享实体候选判别，同时仍保留对弱关键词边和偶然语义相似边的过滤能力。该策略已经通过单元测试验证：默认情况下强共享实体边不会触发模型判别，弱关键词边会触发判别并可被拒绝；隔离评测中也会保留同一 policy，避免不同方法的图构建条件不一致。
+
+本轮同时运行 `outputs/runs/relation_policy_off_hotpotqa30_smoke/` 验证参数链路。在不启用模型判别的情况下，SAM-full 证据召回率仍为 0.617，答案命中率为 0.667，和默认主流程一致。下一步可以在小样本上使用 `--relation-judge cached_gpt54 --relation-judge-policy risky` 运行低额度 GPT-5.4 建边实验，并结合 `outputs/cache/relation_judge_cache.json` 缓存判别结果，逐步扩大到 30 条和 300 条。

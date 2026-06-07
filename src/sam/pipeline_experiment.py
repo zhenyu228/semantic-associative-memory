@@ -33,6 +33,7 @@ def run_retrieval_generation_pipeline(
     generation_method: str,
     query_planner: QueryPlanner | None = None,
     relation_judge: RelationJudge | None = None,
+    relation_judge_policy: str = "risky",
     reranker_profile: str = DEFAULT_RERANKER_PROFILE,
     top_k: int = 4,
     seed_k: int = 1,
@@ -47,7 +48,11 @@ def run_retrieval_generation_pipeline(
     original_reranker_profile = os.environ.get("SAM_RERANKER_PROFILE")
     try:
         os.environ["SAM_RERANKER_PROFILE"] = reranker_profile
-        graph_builder = GraphBuilder(store, relation_judge=relation_judge)
+        graph_builder = GraphBuilder(
+            store,
+            relation_judge=relation_judge,
+            relation_judge_policy=relation_judge_policy,
+        )
         evaluator = Evaluator(store, embedding_provider, graph_builder)
         evaluator.ingest(documents)
         retrieval_result = evaluator.evaluate(

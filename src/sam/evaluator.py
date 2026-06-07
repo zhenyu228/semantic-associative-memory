@@ -173,6 +173,7 @@ class Evaluator:
                 method_graph_builder = GraphBuilder(
                     method_store,
                     relation_judge=self.graph_builder.relation_judge,
+                    relation_judge_policy=self.graph_builder.relation_judge_policy,
                 )
                 retriever = Retriever(method_store, self.embedding_provider, method_graph_builder)
                 try:

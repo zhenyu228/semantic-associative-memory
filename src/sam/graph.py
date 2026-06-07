@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import dataclass
 from itertools import combinations
 from pathlib import Path
@@ -97,11 +98,13 @@ class GraphBuilder:
         similarity_threshold: float = 0.18,
         keyword_overlap_threshold: int = 2,
         relation_judge: RelationJudge | None = None,
+        relation_judge_policy: str | None = None,
     ) -> None:
         self.store = store
         self.similarity_threshold = similarity_threshold
         self.keyword_overlap_threshold = keyword_overlap_threshold
         self.relation_judge = relation_judge
+        self.relation_judge_policy = _relation_judge_policy(relation_judge_policy)
         self.edge_creation_log: list[dict[str, object]] = []
 
     def build_edges_on_demand(
@@ -332,6 +335,21 @@ class GraphBuilder:
     ) -> EdgeScore:
         if self.relation_judge is None or edge_score.relation_type is None:
             return edge_score
+        if not self._should_judge_edge(edge_score):
+            score_breakdown = {
+                **edge_score.score_breakdown,
+                "relation_judge": {
+                    "policy": self.relation_judge_policy,
+                    "skipped": True,
+                    "reason": "低风险候选边跳过模型判别",
+                },
+            }
+            return EdgeScore(
+                relation_type=edge_score.relation_type,
+                weight=edge_score.weight,
+                reason=f"{edge_score.reason}；关系判别跳过：低风险候选边",
+                score_breakdown=score_breakdown,
+            )
         score_breakdown = {
             **edge_score.score_breakdown,
             "relation_type_hint": edge_score.relation_type,
@@ -357,6 +375,21 @@ class GraphBuilder:
             reason=f"{edge_score.reason}；关系判别：{judgment.reason}",
             score_breakdown=score_breakdown,
         )
+
+    def _should_judge_edge(self, edge_score: EdgeScore) -> bool:
+        if self.relation_judge_policy == "off":
+            return False
+        if self.relation_judge_policy == "all":
+            return True
+        relation_type = edge_score.relation_type
+        if relation_type in {"keyword_overlap", "embedding_similarity"}:
+            return True
+        if relation_type == "shared_entity":
+            shared_entities = edge_score.score_breakdown.get("shared_entities", [])
+            if not isinstance(shared_entities, list) or not shared_entities:
+                return True
+            return False
+        return True
 
     def _entity_score(self, shared_entities: list[str]) -> float:
         return min(0.95, 0.55 + 0.12 * len(shared_entities)) if shared_entities else 0.0
@@ -405,6 +438,13 @@ def _edge_quality(keyword_overlap: list[str]) -> str:
     if all(keyword in LOW_INFORMATION_EDGE_KEYWORDS for keyword in keyword_overlap):
         return "low_information_keyword_overlap"
     return "normal"
+
+
+def _relation_judge_policy(value: str | None = None) -> str:
+    policy = (value or os.environ.get("SAM_RELATION_JUDGE_POLICY") or "risky").strip().lower()
+    if policy not in {"risky", "all", "off"}:
+        raise ValueError("SAM_RELATION_JUDGE_POLICY 只能是 risky、all 或 off")
+    return policy
 
 
 def _uninformative_edge_keywords(seed: MemoryNode, other: MemoryNode) -> set[str]:
