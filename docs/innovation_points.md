@@ -16,6 +16,7 @@
 当前证据：
 
 - HotpotQA 1 条真实 embedding smoke 已输出建图成本审计，说明在线 embedding 链路下也能完成写入、检索、局部建边和审计。
+- HotpotQA 30 条真实 embedding smoke `outputs/runs/hotpotqa30_real_embedding_smoke_v2/` 中，300 个文档节点的全量建图理论边数为 44850，SAM 实际唯一新建无向节点对为 1164，占比 0.025953，估算节省比例为 0.974047。
 - 300 条 HotpotQA 主实验已经证明 SAM-full 相比 Embedding Top-k 有更高证据召回率；图扩展关闭后，SAM-no-graph 指标下降，说明局部图谱确实参与了检索。
 
 该创新点对应专家提出的“建图成本可能很高”的问题。当前回答是：SAM 不追求一次性全量建图，而是将建图动作推迟到查询发生时，只围绕被激活记忆进行局部关系补全，并将新增边和触达边记录为可审计产物。
@@ -32,11 +33,12 @@
 
 当前主要结果：
 
+- `outputs/runs/hotpotqa30_real_embedding_smoke_v2/`：使用公司可用 embedding endpoint 跑通 30 条 HotpotQA。Embedding Top-k 证据召回率 0.867，RAPTOR 0.900，GraphRAG 0.767，HippoRAG 0.900，SAM-full 0.883，SAM-no-graph 0.867。
 - `outputs/runs/fair_ablation_hotpotqa_300/`：Embedding Top-k 证据召回率 0.572，SAM-full 0.603，SAM-no-graph 0.578。
 - `outputs/runs/lexical_isolated_hotpotqa300/`：Embedding Top-k 证据召回率 0.570，SAM-full 0.662，SAM-with-lexical-activation 0.670。
 - `outputs/runs/feedback_ablation_hotpotqa_300_isolated/`：Embedding Top-k 证据召回率 0.572，RAPTOR 0.635，GraphRAG 0.562，HippoRAG 0.587，SAM-full 0.603，SAM-no-graph 0.572。
 
-阶段结论：图联想扩展能补回一部分纯向量召回遗漏的支持证据，尤其在 HotpotQA bridge-style 多跳问题中体现更明显。当前 SAM 的稳定优势主要来自图扩展和候选路径重排；多路径、记忆状态和反馈权重仍需要通过连续任务进一步放大。
+阶段结论：图联想扩展能补回一部分纯向量召回遗漏的支持证据，尤其在 HotpotQA bridge-style 多跳问题中体现更明显。真实 embedding 的 30 条 smoke 中，SAM-full 相比 Embedding Top-k 多命中 1 条支持证据，增益较小但方向一致；RAPTOR 和 HippoRAG 在该小样本上更强，说明 SAM 后续仍需要加强路径重排和摘要结构融合。当前 SAM 的稳定优势主要来自图扩展和候选路径重排；多路径、记忆状态和反馈权重仍需要通过连续任务进一步放大。
 
 ## 3. 状态与反馈驱动的记忆演化
 
@@ -52,6 +54,7 @@
 当前证据：
 
 - `outputs/runs/feedback_ablation_hotpotqa_300_isolated/` 中，SAM-full 写入了节点访问、边经过、证据命中、答案命中和路径拒绝事件。
+- `outputs/runs/hotpotqa30_real_embedding_smoke_v2/` 中，SAM-full 写入 `node_retrieved` 120 条、`edge_traversed` 141 条、`support_hit` 53 条、`answer_hit` 24 条、`path_rejected` 66 条、`memory_consolidated` 30 条。
 - `outputs/runs/agent_memory_reuse_shared_context_hotpotqa300/` 显示共享上下文下存在支持证据增益，说明历史记忆可以被后续流程读取。
 
 阶段结论：动态状态已经不是静态字段，而是会在检索后写回系统，并进入后续排序和共享记忆流程。当前不足是 HotpotQA 独立样本之间共享实体和重复查询有限，反馈机制在单轮指标上与 SAM-full 尚未拉开明显差距；后续应设计同主题连续任务来放大记忆演化效果。

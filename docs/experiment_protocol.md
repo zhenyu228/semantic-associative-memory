@@ -67,6 +67,19 @@ conda run -n sam python scripts/warm_embedding_cache.py \
 
 `--max-texts` 控制本次最多请求多少条缺失文本；重复执行同一条命令会从已有 cache 继续补齐。当前真实 endpoint smoke `outputs/runs/hotpotqa30_embedding_cache_warmup_budgeted_v2/` 使用 `--max-texts 3`，预热前缺失 300 条，预热后 cache hit 为 3，缺失降为 297，证明分批预热和 namespace 统计已经可用。
 
+2026-06-10 已继续补齐 HotpotQA 30 条样本文档与 query summary 的真实 embedding cache。最终 plan 显示唯一文本数 330、cache hit 330、cache miss 0，说明 30 条实验可以在不继续请求 embedding endpoint 的情况下复现。随后运行 `outputs/runs/hotpotqa30_real_embedding_smoke_v2/`，主要结果如下：
+
+| 方法 | 证据命中数 | 证据召回率 | 答案命中数 | 答案命中率 |
+| --- | ---: | ---: | ---: | ---: |
+| Embedding Top-k | 52 | 0.867 | 26 | 0.867 |
+| RAPTOR | 54 | 0.900 | 27 | 0.900 |
+| GraphRAG | 46 | 0.767 | 20 | 0.667 |
+| HippoRAG | 54 | 0.900 | 26 | 0.867 |
+| SAM-full | 53 | 0.883 | 26 | 0.867 |
+| SAM-no-graph | 52 | 0.867 | 26 | 0.867 |
+
+该 run 同时输出了按需建图成本审计：300 个文档节点的全量建图理论边数为 44850，实际唯一新建无向节点对为 1164，占比 0.025953，估算节省比例为 0.974047。平均每个 query 新建无向节点对 38.8。这个结果可以用于回答“建图成本是否过高”的问题：当前实现只围绕检索激活上下文局部建图，没有对整个候选集合做全量两两建边。
+
 为避免在线 embedding endpoint 阻塞实验，系统新增本地 `sentence_transformers` provider。安装可选依赖后，可以使用本地 Qwen3-Embedding-0.6B、BGE 或 E5 路径运行：
 
 ```bash

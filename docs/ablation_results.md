@@ -47,6 +47,23 @@ conda run -n sam python scripts/run_demo.py \
 | SAM-static-graph | 362 | 0.603 | 179 | 0.597 |
 | SAM-with-summary | 355 | 0.592 | 171 | 0.570 |
 
+### 2.1 真实在线 embedding endpoint 30 条 smoke
+
+2026-06-10 使用公司可用的 `text-embedding-3-large` endpoint 跑通 HotpotQA 30 条 smoke。该实验先通过 `scripts/warm_embedding_cache.py` 分批预热 cache，最终 330 条唯一文本全部 cache hit，再运行 `scripts/run_demo.py`。运行目录为 `outputs/runs/hotpotqa30_real_embedding_smoke_v2/`。
+
+| 方法 | 证据命中数 | 证据召回率 | 答案命中数 | 答案命中率 |
+| --- | ---: | ---: | ---: | ---: |
+| Embedding Top-k | 52 | 0.867 | 26 | 0.867 |
+| RAPTOR | 54 | 0.900 | 27 | 0.900 |
+| GraphRAG | 46 | 0.767 | 20 | 0.667 |
+| HippoRAG | 54 | 0.900 | 26 | 0.867 |
+| SAM-full | 53 | 0.883 | 26 | 0.867 |
+| SAM-no-graph | 52 | 0.867 | 26 | 0.867 |
+
+该结果说明：换用真实 embedding 后，基础向量召回本身已经较强，SAM-full 相比 Embedding Top-k 和 SAM-no-graph 多命中 1 条支持证据，但优势幅度不大；RAPTOR 和 HippoRAG 在 30 条小样本上达到 0.900 证据召回率，是后续需要追平的强对照。当前 SAM 的优势证据更多体现在“可解释路径”和“局部建图成本控制”上，而不是大幅压过所有 baseline。
+
+该 run 的按需建图成本审计显示：300 个文档节点全量建图理论边数为 44850，实际唯一新建无向节点对为 1164，唯一新建节点对 / 全量边比例为 0.025953，估算边比较节省比例为 0.974047，平均每个 query 新建无向节点对 38.8。
+
 ## 3. SAM 消融结果
 
 | 方法 | 证据命中数 | 证据召回率 | 答案命中率 | 平均路径长度 | 平均候选路径数 | 平均路径支持分 | 平均边记忆分 |
