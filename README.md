@@ -263,13 +263,15 @@ conda run -n sam python scripts/create_env_template.py --output .env.local
 
 ```bash
 export SAM_EMBEDDING_PROVIDER=azure_openai_sdk
-export SAM_AZURE_EMBEDDING_ENDPOINT="https://search-va.byteintl.net/gpt/openapi/online/v2/crawl"
+export SAM_AZURE_EMBEDDING_ENDPOINT="https://aidp-i18ntt-sg.tiktok-row.net/gpt/openapi/online/v2/crawl"
 export SAM_AZURE_EMBEDDING_API_VERSION="2023-07-01-preview"
 export SAM_AZURE_EMBEDDING_MODEL="text-embedding-3-large"
 export SAM_AZURE_EMBEDDING_DIMENSIONS="1024"
-export SAM_AZURE_EMBEDDING_CONCURRENCY="10"
+export SAM_AZURE_EMBEDDING_CONCURRENCY="1"
 export SAM_AZURE_EMBEDDING_BATCH_SIZE="16"
 export SAM_AZURE_EMBEDDING_INPUT_MODE="single"
+export SAM_AZURE_EMBEDDING_RATE_LIMIT_RETRIES="30"
+export SAM_AZURE_EMBEDDING_RATE_LIMIT_SLEEP_SECONDS="5"
 export SAM_AZURE_EMBEDDING_API_KEY="replace-with-embedding-api-key"
 ```
 
@@ -284,12 +286,14 @@ conda run -n sam python scripts/run_demo.py \
   --env-file .env.local \
   --embedding-provider azure_openai_sdk \
   --embedding-cache \
-  --embedding-concurrency 10
+  --embedding-concurrency 1
 ```
 
 `--embedding-cache` 会把向量缓存到 `data/embedding_cache.sqlite`，该文件已被 gitignore 排除。也可以用 `--embedding-cache-path outputs/runs/<run_name>/embedding_cache.sqlite` 把缓存放进某次实验目录。
 
 在线 embedding provider 会按 `SAM_AZURE_EMBEDDING_CONCURRENCY` 控制并发。`azure_openai_sdk` 默认使用 `SAM_AZURE_EMBEDDING_INPUT_MODE=single`，即每条文本单独调用 `embeddings.create(input=文本)`，对齐公司内部示例代码；如果网关支持批量输入，可以设置 `SAM_AZURE_EMBEDDING_INPUT_MODE=batch`，此时会按 `SAM_AZURE_EMBEDDING_BATCH_SIZE` 分批发送列表。默认 payload 会同时发送 `model` 和 `dimensions`，适配公司网关；如果你的 Azure 标准部署不接受 body 中的 `model` 字段，可以设置：
+
+公司 embedding 网关存在 qpm 限流时，建议先保持 `SAM_AZURE_EMBEDDING_CONCURRENCY=1`，并使用 `SAM_AZURE_EMBEDDING_RATE_LIMIT_RETRIES` 与 `SAM_AZURE_EMBEDDING_RATE_LIMIT_SLEEP_SECONDS` 控制 429/qpm limit 后的等待重试。真实实验建议开启 `--embedding-cache-path outputs/runs/<run_name>/embedding_cache.sqlite`，避免重复消耗额度。
 
 ```bash
 export SAM_AZURE_EMBEDDING_SEND_MODEL="0"

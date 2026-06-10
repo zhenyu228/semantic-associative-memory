@@ -59,6 +59,7 @@ from sam.generation import (
     write_generation_comparison_reports,
     write_generation_reports,
 )
+from sam.graph_cost_audit import audit_graph_build_cost, write_graph_build_cost_audit
 from sam.graph import GraphBuilder
 from sam.llm import (
     AzureOpenAIChatClient,
@@ -141,6 +142,34 @@ class SamCoreTest(unittest.TestCase):
         self.assertTrue(any("score_breakdown" in edge.metadata for edge in edges))
         self.assertTrue(self.graph.edge_creation_log)
         self.assertIn("score_breakdown", self.graph.edge_creation_log[0])
+
+    def test_graph_build_cost_audit_compares_local_edges_to_full_graph(self) -> None:
+        edge_log = [
+            {"action": "created", "relation_type": "shared_entity", "source_id": "a", "target_id": "b"},
+            {"action": "created", "relation_type": "shared_entity", "source_id": "b", "target_id": "a"},
+            {"action": "created", "relation_type": "keyword_overlap", "source_id": "a", "target_id": "c"},
+            {"action": "updated", "relation_type": "shared_entity", "source_id": "b", "target_id": "c"},
+        ]
+
+        audit = audit_graph_build_cost(
+            edge_log=edge_log,
+            document_count=10,
+            query_count=2,
+        )
+
+        self.assertEqual(audit["summary"]["created_edge_log_count"], 3)
+        self.assertEqual(audit["summary"]["touched_edge_log_count"], 4)
+        self.assertEqual(audit["summary"]["unique_created_directed_edge_count"], 3)
+        self.assertEqual(audit["summary"]["unique_created_undirected_pair_count"], 2)
+        self.assertEqual(audit["summary"]["theoretical_full_edge_count"], 45)
+        self.assertEqual(audit["summary"]["average_created_undirected_pairs_per_query"], 1.0)
+        self.assertLess(audit["summary"]["unique_created_pair_to_full_ratio"], 0.05)
+        self.assertEqual(audit["relation_type_counts"]["shared_entity"], 3)
+
+        output_dir = Path(self.temp_dir.name) / "graph_cost_audit"
+        json_path, markdown_path = write_graph_build_cost_audit(audit, output_dir)
+        self.assertTrue(json_path.exists())
+        self.assertIn("全量建图理论边数", markdown_path.read_text(encoding="utf-8"))
 
     def test_low_information_keyword_overlap_does_not_create_edge(self) -> None:
         self.store.reset()
@@ -2838,6 +2867,35 @@ class SamCoreTest(unittest.TestCase):
 
         self.assertEqual([payload["input"] for payload in payloads], [["alpha", "beta"]])
         self.assertEqual(embeddings, [[0.0, 5.0], [1.0, 4.0]])
+
+    def test_azure_embedding_sdk_provider_retries_qpm_limit(self) -> None:
+        class FakeEmbeddingResponse:
+            data = [type("EmbeddingItem", (), {"embedding": [0.3, 0.4]})()]
+
+        class FakeEmbeddings:
+            def __init__(self) -> None:
+                self.calls = 0
+
+            async def create(self, **_kwargs):
+                self.calls += 1
+                if self.calls < 3:
+                    raise RuntimeError("qpm limit, retry later")
+                return FakeEmbeddingResponse()
+
+        provider = AzureOpenAISDKEmbeddingProvider.__new__(AzureOpenAISDKEmbeddingProvider)
+        provider.client = type("FakeClient", (), {"embeddings": FakeEmbeddings()})()
+        provider.model = "text-embedding-3-large"
+        provider.dimensions = 1024
+        provider.max_retries = 1
+        provider.rate_limit_retries = 3
+        provider.retry_base_seconds = 0.0
+        provider.rate_limit_sleep_seconds = 0.0
+        provider.request_timeout = 5.0
+
+        vector = asyncio.run(provider._embed_one_async("retry text"))
+
+        self.assertEqual(vector, [0.3, 0.4])
+        self.assertEqual(provider.client.embeddings.calls, 3)
 
     def test_azure_embedding_sdk_provider_times_out_hanging_request(self) -> None:
         class FakeEmbeddings:

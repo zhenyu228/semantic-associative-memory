@@ -268,6 +268,9 @@ class AzureOpenAISDKEmbeddingProvider(EmbeddingProvider):
         self.batch_size = int(os.environ.get("SAM_AZURE_EMBEDDING_BATCH_SIZE", "16"))
         self.max_retries = int(os.environ.get("SAM_AZURE_EMBEDDING_MAX_RETRIES", "5"))
         self.request_timeout = float(os.environ.get("SAM_AZURE_EMBEDDING_TIMEOUT", "120"))
+        self.retry_base_seconds = float(os.environ.get("SAM_AZURE_EMBEDDING_RETRY_BASE_SECONDS", "1"))
+        self.rate_limit_retries = int(os.environ.get("SAM_AZURE_EMBEDDING_RATE_LIMIT_RETRIES", "30"))
+        self.rate_limit_sleep_seconds = float(os.environ.get("SAM_AZURE_EMBEDDING_RATE_LIMIT_SLEEP_SECONDS", "5"))
         self.input_mode = os.environ.get("SAM_AZURE_EMBEDDING_INPUT_MODE", "single").strip().lower()
         if self.input_mode not in {"single", "batch"}:
             raise ValueError("SAM_AZURE_EMBEDDING_INPUT_MODE 只能是 single 或 batch")
@@ -329,17 +332,20 @@ class AzureOpenAISDKEmbeddingProvider(EmbeddingProvider):
         }
         if self.dimensions is not None:
             payload["dimensions"] = self.dimensions
-        for attempt in range(self.max_retries):
+        for attempt in range(self.max_retries + self.rate_limit_retries):
             try:
                 response = await asyncio.wait_for(
                     self.client.embeddings.create(**payload),
                     timeout=self.request_timeout,
                 )
                 return [float(value) for value in response.data[0].embedding]
-            except Exception:
-                if attempt == self.max_retries - 1:
+            except Exception as exc:
+                if _is_rate_limit_error(exc) and attempt < self.max_retries + self.rate_limit_retries - 1:
+                    await asyncio.sleep(self.rate_limit_sleep_seconds)
+                    continue
+                if attempt >= self.max_retries - 1:
                     raise
-                await asyncio.sleep(min(8.0, 1.0 + attempt))
+                await asyncio.sleep(min(8.0, self.retry_base_seconds + attempt))
         raise RuntimeError("embedding SDK 请求失败")
 
     async def _embed_batch_async(self, texts: list[str]) -> list[list[float]]:
@@ -349,7 +355,7 @@ class AzureOpenAISDKEmbeddingProvider(EmbeddingProvider):
         }
         if self.dimensions is not None:
             payload["dimensions"] = self.dimensions
-        for attempt in range(self.max_retries):
+        for attempt in range(self.max_retries + self.rate_limit_retries):
             try:
                 response = await asyncio.wait_for(
                     self.client.embeddings.create(**payload),
@@ -359,10 +365,13 @@ class AzureOpenAISDKEmbeddingProvider(EmbeddingProvider):
                     [float(value) for value in item.embedding]
                     for item in response.data
                 ]
-            except Exception:
-                if attempt == self.max_retries - 1:
+            except Exception as exc:
+                if _is_rate_limit_error(exc) and attempt < self.max_retries + self.rate_limit_retries - 1:
+                    await asyncio.sleep(self.rate_limit_sleep_seconds)
+                    continue
+                if attempt >= self.max_retries - 1:
                     raise
-                await asyncio.sleep(min(8.0, 1.0 + attempt))
+                await asyncio.sleep(min(8.0, self.retry_base_seconds + attempt))
         raise RuntimeError("embedding SDK 请求失败")
 
 
@@ -547,6 +556,9 @@ def inspect_embedding_provider_config(name: str | None = None) -> dict[str, obje
             "SAM_AZURE_EMBEDDING_AUTH_HEADER",
             "SAM_AZURE_EMBEDDING_TIMEOUT",
             "SAM_AZURE_EMBEDDING_MAX_RETRIES",
+            "SAM_AZURE_EMBEDDING_RATE_LIMIT_RETRIES",
+            "SAM_AZURE_EMBEDDING_RATE_LIMIT_SLEEP_SECONDS",
+            "SAM_AZURE_EMBEDDING_RETRY_BASE_SECONDS",
             "SAM_EMBEDDING_CACHE",
             "SAM_EMBEDDING_CACHE_PATH",
         ]
@@ -630,6 +642,11 @@ def _require_env(key: str) -> str:
     if _is_missing_env_value(value):
         raise ValueError(f"缺少环境变量 {key}")
     return value
+
+
+def _is_rate_limit_error(exc: Exception) -> bool:
+    message = str(exc).lower()
+    return "rate limit" in message or "qpm limit" in message or "429" in message or "limit" in message
 
 
 def _is_missing_env_value(value: str | None) -> bool:

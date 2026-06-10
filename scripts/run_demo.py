@@ -24,6 +24,7 @@ from sam.embedding import create_embedding_provider  # noqa: E402
 from sam.env import load_env_file  # noqa: E402
 from sam.evaluator import Evaluator  # noqa: E402
 from sam.graph import GraphBuilder  # noqa: E402
+from sam.graph_cost_audit import audit_graph_build_cost, write_graph_build_cost_audit  # noqa: E402
 from sam.query_planner import create_query_planner  # noqa: E402
 from sam.relation_judge import create_relation_judge, relation_judge_stats  # noqa: E402
 from sam.store import MemoryStore  # noqa: E402
@@ -338,6 +339,15 @@ def main() -> None:
         focus_query_id=focus_query_id,
     )
     edge_log_path = graph_builder.write_edge_creation_log(graph_dir / "edge_creation_log.json")
+    graph_cost_audit = audit_graph_build_cost(
+        edge_log=graph_builder.edge_creation_log,
+        document_count=len(documents),
+        query_count=len(queries),
+    )
+    graph_cost_json, _graph_cost_md = write_graph_build_cost_audit(
+        graph_cost_audit,
+        graph_dir,
+    )
     (run_dir / "logs" / "run_summary.txt").write_text(
         "\n".join(
             [
@@ -346,6 +356,7 @@ def main() -> None:
                 f"查询数量：{result.query_count}",
                 f"方法列表：{', '.join(methods)}",
                 f"按需建边日志：{edge_log_path}",
+                f"按需建图成本审计：{graph_cost_json}",
                 f"关系判别统计：{relation_usage_path}",
                 f"Embedding Top-k 证据召回率：{result.vector_recall:.3f}",
                 f"SAM 证据召回率：{result.associative_recall:.3f}",

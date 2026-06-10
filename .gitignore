@@ -21,6 +21,7 @@ evaluation/.venvs/
 # Local environment
 .env
 .env.*
+tests/test_embedding.py
 
 # System files
 .DS_Store

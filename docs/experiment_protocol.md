@@ -30,7 +30,19 @@ conda run -n sam python scripts/check_embedding_provider.py \
   --json
 ```
 
-当前结果：环境变量配置完整，但在本机直连 SDK embedding 请求时返回 `TimeoutError`。2026-06-07 使用 `SAM_AZURE_EMBEDDING_TIMEOUT=10`、`SAM_AZURE_EMBEDDING_MAX_RETRIES=1` 重新验证，跳过 TCP preflight 后真实 embedding 请求仍超时；同一 `.env.local` 下 GPT-5.4 chat provider probe 成功返回 `2`。因此 HotpotQA 300 条与 NovelQA 的在线 embedding 正式实验暂未启动，避免长时间挂起和无效额度消耗。GPT-5.4 chat provider 已确认可用；后续扩大端到端生成实验时仍需要低并发、分批运行，以规避 qpm 429 限流。
+当前结果：2026-06-10 将 embedding endpoint 从旧的 `search-va.byteintl.net` 切换为 `aidp-i18ntt-sg.tiktok-row.net` 后，`azure_openai_sdk` probe 已成功返回 1024 维向量，L2 范数约为 1.000。该结果说明公司 embedding 模型链路已经可用。HotpotQA 1 条真实 embedding smoke 位于 `outputs/runs/hotpotqa1_embedding_smoke/`，完整跑通检索、图谱和建图成本审计。扩大到 HotpotQA 30 条时触发 qpm 429 限流，因此后续需要低并发、分批预热 cache，再继续完成 30 条和 300 条正式实验。GPT-5.4 chat provider 已确认可用；端到端生成实验同样需要低并发、分批运行。
+
+当前 embedding endpoint 模板：
+
+```bash
+export SAM_AZURE_EMBEDDING_ENDPOINT="https://aidp-i18ntt-sg.tiktok-row.net/gpt/openapi/online/v2/crawl"
+export SAM_AZURE_EMBEDDING_API_VERSION="2023-07-01-preview"
+export SAM_AZURE_EMBEDDING_MODEL="text-embedding-3-large"
+export SAM_AZURE_EMBEDDING_DIMENSIONS="1024"
+export SAM_AZURE_EMBEDDING_CONCURRENCY="1"
+export SAM_AZURE_EMBEDDING_RATE_LIMIT_RETRIES="30"
+export SAM_AZURE_EMBEDDING_RATE_LIMIT_SLEEP_SECONDS="5"
+```
 
 为避免在线 embedding endpoint 阻塞实验，系统新增本地 `sentence_transformers` provider。安装可选依赖后，可以使用本地 Qwen3-Embedding-0.6B、BGE 或 E5 路径运行：
 
