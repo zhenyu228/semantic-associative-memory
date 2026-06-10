@@ -30,7 +30,7 @@ conda run -n sam python scripts/check_embedding_provider.py \
   --json
 ```
 
-当前结果：2026-06-10 将 embedding endpoint 从旧的 `search-va.byteintl.net` 切换为 `aidp-i18ntt-sg.tiktok-row.net` 后，`azure_openai_sdk` probe 已成功返回 1024 维向量，L2 范数约为 1.000。该结果说明公司 embedding 模型链路已经可用。HotpotQA 1 条真实 embedding smoke 位于 `outputs/runs/hotpotqa1_embedding_smoke/`，完整跑通检索、图谱和建图成本审计。扩大到 HotpotQA 30 条时触发 qpm 429 限流，因此后续需要低并发、分批预热 cache，再继续完成 30 条和 300 条正式实验。GPT-5.4 chat provider 已确认可用；端到端生成实验同样需要低并发、分批运行。
+当前结果：2026-06-10 将 embedding endpoint 从旧的 `search-va.byteintl.net` 切换为 `aidp-i18ntt-sg.tiktok-row.net` 后，`azure_openai_sdk` probe 已成功返回 1024 维向量，L2 范数约为 1.000。该结果说明公司 embedding 模型链路已经可用。HotpotQA 1 条真实 embedding smoke 位于 `outputs/runs/hotpotqa1_incremental_cache_smoke/`，完整跑通检索、图谱、建图成本审计和 SQLite embedding cache。扩大到 HotpotQA 30 条时触发 qpm 429 限流，因此后续采用低并发、分批预热 cache 的方式逐步完成 30 条和 300 条正式实验。GPT-5.4 chat provider 已确认可用；端到端生成实验同样需要低并发、分批运行。
 
 当前 embedding endpoint 模板：
 
@@ -42,7 +42,30 @@ export SAM_AZURE_EMBEDDING_DIMENSIONS="1024"
 export SAM_AZURE_EMBEDDING_CONCURRENCY="1"
 export SAM_AZURE_EMBEDDING_RATE_LIMIT_RETRIES="30"
 export SAM_AZURE_EMBEDDING_RATE_LIMIT_SLEEP_SECONDS="5"
+export SAM_EMBEDDING_CACHE_WRITE_BATCH_SIZE="1"
 ```
+
+### 1.2 分批预热真实 embedding cache
+
+在线 embedding 实验不要一次性请求全部文本。先使用 `scripts/warm_embedding_cache.py` 小批量预热，确认 cache 命中数持续增加后，再运行正式检索实验。
+
+```bash
+SAM_AZURE_EMBEDDING_CONCURRENCY=1 \
+SAM_AZURE_EMBEDDING_RATE_LIMIT_SLEEP_SECONDS=5 \
+SAM_AZURE_EMBEDDING_RATE_LIMIT_RETRIES=5 \
+SAM_EMBEDDING_CACHE_WRITE_BATCH_SIZE=1 \
+conda run -n sam python scripts/warm_embedding_cache.py \
+  --env-file .env.local \
+  --provider azure_openai_sdk \
+  --dataset-file data/processed/hotpotqa_sam_sample.json \
+  --cache-path outputs/runs/hotpotqa30_embedding_cache_warmup/embedding_cache.sqlite \
+  --output-dir outputs/runs/hotpotqa30_embedding_cache_warmup \
+  --max-texts 20 \
+  --no-query-summaries \
+  --json
+```
+
+`--max-texts` 控制本次最多请求多少条缺失文本；重复执行同一条命令会从已有 cache 继续补齐。当前真实 endpoint smoke `outputs/runs/hotpotqa30_embedding_cache_warmup_budgeted_v2/` 使用 `--max-texts 3`，预热前缺失 300 条，预热后 cache hit 为 3，缺失降为 297，证明分批预热和 namespace 统计已经可用。
 
 为避免在线 embedding endpoint 阻塞实验，系统新增本地 `sentence_transformers` provider。安装可选依赖后，可以使用本地 Qwen3-Embedding-0.6B、BGE 或 E5 路径运行：
 

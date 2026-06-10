@@ -419,11 +419,14 @@ class CachedEmbeddingProvider(EmbeddingProvider):
                 results[index] = cached
         missing_texts = list(missing_positions_by_text)
         if missing_texts:
-            embeddings = self.inner.embed_many(missing_texts)
-            for text, embedding in zip(missing_texts, embeddings, strict=True):
-                self._put(text, embedding)
-                for position in missing_positions_by_text[text]:
-                    results[position] = embedding
+            write_batch_size = max(1, int(os.environ.get("SAM_EMBEDDING_CACHE_WRITE_BATCH_SIZE", "1")))
+            for start in range(0, len(missing_texts), write_batch_size):
+                batch_texts = missing_texts[start : start + write_batch_size]
+                embeddings = self.inner.embed_many(batch_texts)
+                for text, embedding in zip(batch_texts, embeddings, strict=True):
+                    self._put(text, embedding)
+                    for position in missing_positions_by_text[text]:
+                        results[position] = embedding
         if any(embedding is None for embedding in results):
             raise RuntimeError("embedding 缓存结果不完整")
         return [embedding for embedding in results if embedding is not None]

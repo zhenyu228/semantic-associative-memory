@@ -21,6 +21,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--env-file", default=None, help="可选：加载本地 env 文件")
     parser.add_argument("--cache-path", required=True, help="embedding cache SQLite 路径")
     parser.add_argument("--batch-size", type=int, default=None, help="覆盖 provider 默认 batch size")
+    parser.add_argument("--max-texts", type=int, default=None, help="本次最多预热多少条缺失文本，用于在线模型分批续跑")
     parser.add_argument("--no-query-summaries", action="store_true", help="不预热 query summary 节点 embedding")
     parser.add_argument("--output-dir", default="outputs/plans", help="预热结果输出目录")
     parser.add_argument("--json", action="store_true", help="同时在终端打印 JSON")
@@ -40,13 +41,16 @@ def main() -> None:
         cache_path=cache_path,
         batch_size=args.batch_size,
         include_query_summaries=not args.no_query_summaries,
+        max_texts=args.max_texts,
     )
     json_path, markdown_path = write_embedding_warmup_result(result, output_dir)
     if args.json:
         print(json.dumps(result, ensure_ascii=False, indent=2))
     print(f"Embedding cache 预热完成：{json_path}")
     print(f"Markdown：{markdown_path}")
+    print(f"本次计划请求文本数：{result['requested_text_count']}")
     print(f"本次写入文本数：{result['warmed_text_count']}")
+    print(f"因预算保留到后续的文本数：{result['skipped_by_budget_count']}")
     after = result.get("after", {})
     if isinstance(after, dict):
         print(f"预热后缺失文本数：{after.get('cache_miss_count')}")

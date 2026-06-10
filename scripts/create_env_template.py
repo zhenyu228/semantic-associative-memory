@@ -27,6 +27,7 @@ SAM_AZURE_EMBEDDING_RATE_LIMIT_RETRIES=30
 SAM_AZURE_EMBEDDING_RATE_LIMIT_SLEEP_SECONDS=5
 SAM_AZURE_EMBEDDING_RETRY_BASE_SECONDS=1
 SAM_AZURE_EMBEDDING_API_KEY=replace-with-embedding-api-key
+SAM_EMBEDDING_CACHE_WRITE_BATCH_SIZE=1
 
 # 如果在线 embedding endpoint 不可用，可以安装可选依赖后切换到本地模型：
 # conda run -n sam python -m pip install -e ".[local-embedding]"

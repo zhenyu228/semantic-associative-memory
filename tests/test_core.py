@@ -4,6 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 import asyncio
+import hashlib
 import os
 import sys
 import json
@@ -40,6 +41,7 @@ from sam.embedding import (
     AzureOpenAISDKEmbeddingProvider,
     AzureOpenAIEmbeddingProvider,
     CachedEmbeddingProvider,
+    EmbeddingProvider,
     LocalHashEmbeddingProvider,
     SentenceTransformerEmbeddingProvider,
     create_embedding_provider,
@@ -3347,6 +3349,45 @@ class SamCoreTest(unittest.TestCase):
         self.assertEqual(first[:2], second)
         self.assertEqual(inner.calls, 2)
 
+    def test_cached_embedding_provider_flushes_successes_before_later_failure(self) -> None:
+        class FailingEmbeddingProvider(EmbeddingProvider):
+            @property
+            def cache_namespace(self) -> str:
+                return "failing-online"
+
+            def __init__(self) -> None:
+                self.calls = 0
+
+            def embed(self, text: str) -> list[float]:
+                return self.embed_many([text])[0]
+
+            def embed_many(self, texts: list[str]) -> list[list[float]]:
+                embeddings: list[list[float]] = []
+                for text in texts:
+                    self.calls += 1
+                    if text == "gamma":
+                        raise RuntimeError("qpm limit")
+                    embeddings.append([float(self.calls), float(len(text))])
+                return embeddings
+
+        cache_path = Path(self.temp_dir.name) / "embedding_cache.sqlite"
+        provider = CachedEmbeddingProvider(FailingEmbeddingProvider(), cache_path)
+        with patch.dict("os.environ", {"SAM_EMBEDDING_CACHE_WRITE_BATCH_SIZE": "1"}, clear=False):
+            with self.assertRaisesRegex(RuntimeError, "qpm limit"):
+                provider.embed_many(["alpha", "beta", "gamma"])
+        provider.close()
+
+        with sqlite3.connect(cache_path) as connection:
+            cached_rows = connection.execute(
+                "SELECT text_sha1 FROM embedding_cache ORDER BY text_sha1"
+            ).fetchall()
+
+        expected_cached = {
+            hashlib.sha1("alpha".encode("utf-8")).hexdigest(),
+            hashlib.sha1("beta".encode("utf-8")).hexdigest(),
+        }
+        self.assertEqual({str(row[0]) for row in cached_rows}, expected_cached)
+
     def test_embedding_run_plan_counts_dataset_texts_and_cache_hits(self) -> None:
         dataset_path = Path(self.temp_dir.name) / "sample.json"
         documents, queries = load_builtin_benchmark_sample()
@@ -3425,6 +3466,53 @@ class SamCoreTest(unittest.TestCase):
         self.assertEqual(plan["cache_namespace_mode"], "exact")
         self.assertEqual(plan["estimated_batch_count"], 2)
 
+    def test_embedding_run_plan_matches_azure_sdk_input_mode_namespace(self) -> None:
+        class FakeAzureNamespaceEmbeddingProvider(EmbeddingProvider):
+            @property
+            def cache_namespace(self) -> str:
+                return (
+                    "azure_sdk:https://example.test/gpt/openapi/online/v2/crawl:"
+                    "2023-07-01-preview:text-embedding-3-large:1024:single"
+                )
+
+            def embed(self, text: str) -> list[float]:
+                return [1.0, float(len(text))]
+
+        dataset_path = Path(self.temp_dir.name) / "sample.json"
+        cache_path = Path(self.temp_dir.name) / "azure_sdk_cache.sqlite"
+        documents, queries = load_builtin_benchmark_sample()
+        save_sam_dataset(
+            dataset_path,
+            documents=documents[:1],
+            queries=queries[:1],
+            dataset_info={"name": "unit"},
+            processing={"source_script": "test"},
+        )
+        cached = CachedEmbeddingProvider(FakeAzureNamespaceEmbeddingProvider(), cache_path)
+        cached.embed_many([f"{documents[0].title}\n{documents[0].text}"])
+        cached.close()
+
+        with patch.dict(
+            "os.environ",
+            {
+                "SAM_AZURE_EMBEDDING_ENDPOINT": "https://example.test/gpt/openapi/online/v2/crawl",
+                "SAM_AZURE_EMBEDDING_API_VERSION": "2023-07-01-preview",
+                "SAM_AZURE_EMBEDDING_MODEL": "text-embedding-3-large",
+                "SAM_AZURE_EMBEDDING_DIMENSIONS": "1024",
+                "SAM_AZURE_EMBEDDING_INPUT_MODE": "single",
+            },
+            clear=True,
+        ):
+            plan = build_embedding_run_plan(
+                dataset_path=dataset_path,
+                provider_name="azure_openai_sdk",
+                cache_path=cache_path,
+                include_query_summaries=False,
+            )
+
+        self.assertEqual(plan["cache_hit_count"], 1)
+        self.assertEqual(plan["cache_miss_count"], 0)
+
     def test_warm_embedding_cache_writes_missing_dataset_vectors(self) -> None:
         dataset_path = Path(self.temp_dir.name) / "sample.json"
         documents, queries = load_builtin_benchmark_sample()
@@ -3455,6 +3543,71 @@ class SamCoreTest(unittest.TestCase):
         self.assertEqual(first["after"]["cache_miss_count"], 0)
         self.assertEqual(second["before"]["cache_miss_count"], 0)
         self.assertEqual(second["warmed_text_count"], 0)
+
+    def test_warm_embedding_cache_respects_max_texts_and_resumes(self) -> None:
+        dataset_path = Path(self.temp_dir.name) / "sample.json"
+        documents, queries = load_builtin_benchmark_sample()
+        save_sam_dataset(
+            dataset_path,
+            documents=documents[:3],
+            queries=queries[:1],
+            dataset_info={"name": "unit"},
+            processing={"source_script": "test"},
+        )
+        cache_path = Path(self.temp_dir.name) / "embedding_cache.sqlite"
+
+        first = warm_embedding_cache(
+            dataset_path=dataset_path,
+            provider_name="local",
+            cache_path=cache_path,
+            include_query_summaries=False,
+            max_texts=2,
+        )
+        second = warm_embedding_cache(
+            dataset_path=dataset_path,
+            provider_name="local",
+            cache_path=cache_path,
+            include_query_summaries=False,
+            max_texts=2,
+        )
+
+        self.assertEqual(first["before"]["cache_miss_count"], 3)
+        self.assertEqual(first["requested_text_count"], 2)
+        self.assertEqual(first["warmed_text_count"], 2)
+        self.assertEqual(first["after"]["cache_miss_count"], 1)
+        self.assertEqual(second["before"]["cache_miss_count"], 1)
+        self.assertEqual(second["requested_text_count"], 1)
+        self.assertEqual(second["warmed_text_count"], 1)
+        self.assertEqual(second["after"]["cache_miss_count"], 0)
+
+    def test_warm_embedding_cache_ignores_global_cache_env_when_creating_inner_provider(self) -> None:
+        dataset_path = Path(self.temp_dir.name) / "sample.json"
+        documents, queries = load_builtin_benchmark_sample()
+        save_sam_dataset(
+            dataset_path,
+            documents=documents[:2],
+            queries=queries[:1],
+            dataset_info={"name": "unit"},
+            processing={"source_script": "test"},
+        )
+        target_cache_path = Path(self.temp_dir.name) / "target_embedding_cache.sqlite"
+        unrelated_env_cache_path = Path(self.temp_dir.name) / "env_embedding_cache.sqlite"
+
+        with patch.dict(
+            "os.environ",
+            {"SAM_EMBEDDING_CACHE_PATH": str(unrelated_env_cache_path)},
+            clear=False,
+        ):
+            result = warm_embedding_cache(
+                dataset_path=dataset_path,
+                provider_name="local",
+                cache_path=target_cache_path,
+                include_query_summaries=False,
+            )
+
+        self.assertEqual(result["warmed_text_count"], 2)
+        self.assertEqual(result["after"]["cache_hit_count"], 2)
+        self.assertEqual(result["after"]["cache_miss_count"], 0)
 
     def test_analogy_engine_returns_case_hints(self) -> None:
         engine = AnalogyEngine(self.store, self.embedding, self.graph)

@@ -273,6 +273,7 @@ export SAM_AZURE_EMBEDDING_INPUT_MODE="single"
 export SAM_AZURE_EMBEDDING_RATE_LIMIT_RETRIES="30"
 export SAM_AZURE_EMBEDDING_RATE_LIMIT_SLEEP_SECONDS="5"
 export SAM_AZURE_EMBEDDING_API_KEY="replace-with-embedding-api-key"
+export SAM_EMBEDDING_CACHE_WRITE_BATCH_SIZE="1"
 ```
 
 如果已经在 `evaluation/official_baselines/.env.local` 里配置了官方 baseline 使用的 `GPT54_API_KEY`、`GPT54_BASE_URL`、`GPT54_API_VERSION`、`GPT54_MODEL`，SAM 会在运行时自动把它们映射为 `SAM_AZURE_CHAT_*` 聊天模型配置，不需要再复制一份 GPT-5.4 key。聊天模型推荐使用 `azure_openai_sdk`，它通过 OpenAI SDK 的 `AzureOpenAI` 调用方式接入公司网关。
@@ -294,6 +295,24 @@ conda run -n sam python scripts/run_demo.py \
 在线 embedding provider 会按 `SAM_AZURE_EMBEDDING_CONCURRENCY` 控制并发。`azure_openai_sdk` 默认使用 `SAM_AZURE_EMBEDDING_INPUT_MODE=single`，即每条文本单独调用 `embeddings.create(input=文本)`，对齐公司内部示例代码；如果网关支持批量输入，可以设置 `SAM_AZURE_EMBEDDING_INPUT_MODE=batch`，此时会按 `SAM_AZURE_EMBEDDING_BATCH_SIZE` 分批发送列表。默认 payload 会同时发送 `model` 和 `dimensions`，适配公司网关；如果你的 Azure 标准部署不接受 body 中的 `model` 字段，可以设置：
 
 公司 embedding 网关存在 qpm 限流时，建议先保持 `SAM_AZURE_EMBEDDING_CONCURRENCY=1`，并使用 `SAM_AZURE_EMBEDDING_RATE_LIMIT_RETRIES` 与 `SAM_AZURE_EMBEDDING_RATE_LIMIT_SLEEP_SECONDS` 控制 429/qpm limit 后的等待重试。真实实验建议开启 `--embedding-cache-path outputs/runs/<run_name>/embedding_cache.sqlite`，避免重复消耗额度。
+
+`SAM_EMBEDDING_CACHE_WRITE_BATCH_SIZE=1` 会让缓存层按单条文本渐进写入 SQLite。这样即使第 N 条请求被限流中断，前 N-1 条已经成功的 embedding 仍会保留在 cache 中，后续重跑会从断点继续。
+
+正式扩大到 30 条或 300 条前，建议先分批预热 cache：
+
+```bash
+conda run -n sam python scripts/warm_embedding_cache.py \
+  --env-file .env.local \
+  --provider azure_openai_sdk \
+  --dataset-file data/processed/hotpotqa_sam_sample.json \
+  --cache-path outputs/runs/hotpotqa30_embedding_cache_warmup/embedding_cache.sqlite \
+  --output-dir outputs/runs/hotpotqa30_embedding_cache_warmup \
+  --max-texts 20 \
+  --no-query-summaries \
+  --json
+```
+
+`--max-texts` 可以重复执行，用于在 qpm 限制下逐步补齐缓存。
 
 ```bash
 export SAM_AZURE_EMBEDDING_SEND_MODEL="0"

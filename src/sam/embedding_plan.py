@@ -68,6 +68,7 @@ def warm_embedding_cache(
     cache_path: str | Path,
     batch_size: int | None = None,
     include_query_summaries: bool = True,
+    max_texts: int | None = None,
     provider: EmbeddingProvider | None = None,
 ) -> dict[str, object]:
     """按 SAM 数据集文本构造方式预热 embedding cache。"""
@@ -90,13 +91,18 @@ def warm_embedding_cache(
         texts=texts,
         namespace=namespace,
     )
+    selected_missing_texts = (
+        missing_texts[: max(0, max_texts)]
+        if max_texts is not None
+        else missing_texts
+    )
     warmed_count = 0
-    if missing_texts:
-        inner = provider or create_embedding_provider(resolved_provider)
+    if selected_missing_texts:
+        inner = provider or _create_uncached_embedding_provider(resolved_provider)
         cached = CachedEmbeddingProvider(inner, cache_path)
         try:
-            cached.embed_many(missing_texts)
-            warmed_count = len(missing_texts)
+            cached.embed_many(selected_missing_texts)
+            warmed_count = len(selected_missing_texts)
         finally:
             cached.close()
             close = getattr(inner, "close", None)
@@ -115,7 +121,10 @@ def warm_embedding_cache(
         "cache_path": str(cache_path),
         "before": before,
         "after": after,
+        "max_texts": max_texts,
+        "requested_text_count": len(selected_missing_texts),
         "warmed_text_count": warmed_count,
+        "skipped_by_budget_count": len(missing_texts) - len(selected_missing_texts),
     }
 
 
@@ -210,13 +219,28 @@ def _cache_namespace_from_env(provider_name: str) -> str | None:
         api_version = os.environ.get("SAM_AZURE_EMBEDDING_API_VERSION", "2023-07-01-preview")
         model = os.environ.get("SAM_AZURE_EMBEDDING_MODEL", "text-embedding-3-large")
         dimensions = os.environ.get("SAM_AZURE_EMBEDDING_DIMENSIONS") or "default"
-        return f"azure_sdk:{endpoint.rstrip('/')}:{api_version}:{model}:{dimensions}"
+        input_mode = os.environ.get("SAM_AZURE_EMBEDDING_INPUT_MODE", "single").strip().lower()
+        return f"azure_sdk:{endpoint.rstrip('/')}:{api_version}:{model}:{dimensions}:{input_mode}"
     if provider_name in {"sentence_transformers", "sentence_transformer", "hf_local", "local_model"}:
         model = os.environ.get("SAM_SENTENCE_TRANSFORMER_MODEL", "Qwen/Qwen3-Embedding-0.6B")
         device = os.environ.get("SAM_SENTENCE_TRANSFORMER_DEVICE") or "auto"
         normalize = int(os.environ.get("SAM_SENTENCE_TRANSFORMER_NORMALIZE", "1") != "0")
         return f"sentence_transformers:{model}:{device}:normalize={normalize}"
     return None
+
+
+def _create_uncached_embedding_provider(provider_name: str) -> EmbeddingProvider:
+    """创建不被全局 cache env 包装的 provider，由 warmup 自己控制目标 cache。"""
+
+    previous_cache_path = os.environ.pop("SAM_EMBEDDING_CACHE_PATH", None)
+    previous_cache_flag = os.environ.pop("SAM_EMBEDDING_CACHE", None)
+    try:
+        return create_embedding_provider(provider_name)
+    finally:
+        if previous_cache_path is not None:
+            os.environ["SAM_EMBEDDING_CACHE_PATH"] = previous_cache_path
+        if previous_cache_flag is not None:
+            os.environ["SAM_EMBEDDING_CACHE"] = previous_cache_flag
 
 
 def _inspect_cache(
@@ -328,7 +352,9 @@ def _warmup_to_markdown(result: dict[str, object]) -> str:
             f"- Provider：{result.get('provider')}",
             f"- Cache：{result.get('cache_path')}",
             f"- 预热前缺失文本数：{before.get('cache_miss_count')}",
+            f"- 本次计划请求文本数：{result.get('requested_text_count')}",
             f"- 本次写入文本数：{result.get('warmed_text_count')}",
+            f"- 因预算保留到后续的文本数：{result.get('skipped_by_budget_count')}",
             f"- 预热后缺失文本数：{after.get('cache_miss_count')}",
             f"- 预热后缓存命中数：{after.get('cache_hit_count')}",
         ]
