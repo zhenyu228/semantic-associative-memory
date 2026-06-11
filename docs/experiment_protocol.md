@@ -411,7 +411,38 @@ conda run -n sam python scripts/run_memory_reuse_experiment.py \
 
 该 run 生成 `memory_events.md` 和 `feedback_edge_changes.md`。事件流记录 `support_hit` 108 条、`answer_hit` 48 条、`path_rejected` 131 条、`memory_consolidated` 60 条；边变化案例显示部分巩固边和共享实体边在 probe 后被增强。该结果可用于说明动态记忆能够在连续任务中被后续查询读取，并改变候选证据和边状态。
 
-## 9. GPT-5.4 多智能体生成对照
+## 9. 类比复用实验
+
+真实 embedding 类比复用实验命令如下：
+
+```bash
+SAM_AZURE_EMBEDDING_CONCURRENCY=1 \
+SAM_AZURE_EMBEDDING_RATE_LIMIT_SLEEP_SECONDS=5 \
+SAM_AZURE_EMBEDDING_RATE_LIMIT_RETRIES=5 \
+SAM_EMBEDDING_CACHE_WRITE_BATCH_SIZE=1 \
+conda run -n sam python scripts/run_analogy_reuse_experiment.py \
+  --env-file .env.local \
+  --dataset-file data/processed/hotpotqa_midterm300_sam_sample.json \
+  --limit 30 \
+  --embedding-provider azure_openai_sdk \
+  --embedding-cache-path outputs/runs/hotpotqa300_real_embedding_cache_warmup/embedding_cache.sqlite \
+  --hops 1 \
+  --run-name analogy_reuse_hotpotqa30_real_embedding_v2
+```
+
+主要结果如下：
+
+| 指标 | 数值 |
+| --- | ---: |
+| 来源案例命中率 | 1.000 |
+| 巩固案例命中率 | 1.000 |
+| 支持证据重叠命中率 | 1.000 |
+| 结构路径匹配率 | 1.000 |
+| 平均 Top-1 类比分数 | 1.020 |
+
+该 run 生成 `analogy_reuse_results.json` 和 `analogy_reuse_results.md`。报告会列出类比命中案例，包含当前 probe、Top-1 历史案例、匹配关系路径、支持证据标题和类比提示摘要；同时保留失败案例审计段落，用于后续更难数据设置下分析类比失败原因。
+
+## 10. GPT-5.4 多智能体生成对照
 
 低额度 q1 验证命令如下：
 

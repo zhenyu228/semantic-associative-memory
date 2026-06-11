@@ -28,7 +28,7 @@ from sam.agent_reuse_experiment import (
 )
 from sam.agents import SharedMemoryCoordinator
 from sam.analogy import AnalogyEngine
-from sam.analogy_experiment import run_analogy_reuse_probe
+from sam.analogy_experiment import run_analogy_reuse_probe, write_analogy_reuse_reports
 from sam.badcase import (
     BadCaseAnalyzer,
     GenerationBadCaseAnalyzer,
@@ -4034,6 +4034,58 @@ class SamCoreTest(unittest.TestCase):
         self.assertTrue(result["cases"][0]["source_case_hit"])
         self.assertIn("bad_case_type", result["cases"][0])
         self.assertIn("path_pattern_score", result["cases"][0]["top_match"])
+        self.assertTrue(result["successful_cases"])
+        self.assertEqual(result["successful_cases"][0]["bad_case_type"], "success")
+        self.assertEqual(result["failed_cases"], [])
+        self.assertIn("bad_case_explanation", result["cases"][0])
+
+        _, markdown_path = write_analogy_reuse_reports(
+            output_dir=Path(self.temp_dir.name) / "analogy_report",
+            result=result,
+        )
+        markdown = markdown_path.read_text(encoding="utf-8")
+        self.assertIn("## 类比命中案例", markdown)
+        self.assertIn("## 类比失败案例", markdown)
+        self.assertIn("本次未发现失败案例", markdown)
+
+    def test_analogy_reuse_report_includes_failed_case_explanation(self) -> None:
+        result = {
+            "query_count": 1,
+            "source_case_hit_count": 0,
+            "source_case_hit_rate": 0.0,
+            "consolidated_case_hit_count": 0,
+            "consolidated_case_hit_rate": 0.0,
+            "support_overlap_hit_count": 0,
+            "support_overlap_hit_rate": 0.0,
+            "structure_pattern_available_count": 1,
+            "structure_match_hit_count": 0,
+            "structure_match_hit_rate": 0.0,
+            "average_top_match_score": 0.42,
+            "bad_case_counts": {"wrong_case": 1},
+            "successful_cases": [],
+            "failed_cases": [
+                {
+                    "query_id": "q_probe",
+                    "bad_case_type": "wrong_case",
+                    "bad_case_explanation": "Top-1 历史案例不是当前来源案例。",
+                    "top_match": {"case_id": "q_other"},
+                }
+            ],
+            "cases": [],
+        }
+
+        _, markdown_path = write_analogy_reuse_reports(
+            output_dir=Path(self.temp_dir.name) / "analogy_failed_report",
+            result=result,
+        )
+
+        markdown = markdown_path.read_text(encoding="utf-8")
+        self.assertIn("## 类比命中案例", markdown)
+        self.assertIn("| 无 | 无 | 0.000 | 无 | 无 | 无 |", markdown)
+        self.assertIn("## 类比失败案例", markdown)
+        self.assertIn("q_probe", markdown)
+        self.assertIn("wrong_case", markdown)
+        self.assertIn("Top-1 历史案例不是当前来源案例。", markdown)
 
     def test_sam_with_analogy_reuses_consolidated_support_as_retrieval_signal(self) -> None:
         self.store.reset()

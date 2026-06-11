@@ -66,6 +66,14 @@ def run_analogy_reuse_probe(
             relation_pattern=relation_pattern,
             structure_match=structure_match,
         )
+        bad_case_explanation = _analogy_bad_case_explanation(
+            bad_case_type=bad_case_type,
+            top_match=top_match,
+            source_query_id=source_query_id,
+            relation_pattern=relation_pattern,
+            structure_match=structure_match,
+            support_overlap=support_overlap,
+        )
         bad_case_counts[bad_case_type] = bad_case_counts.get(bad_case_type, 0) + 1
         cases.append(
             {
@@ -81,9 +89,12 @@ def run_analogy_reuse_probe(
                 "structure_match_hit": structure_match,
                 "support_overlap_hit": support_overlap,
                 "bad_case_type": bad_case_type,
+                "bad_case_explanation": bad_case_explanation,
             }
         )
     query_count = len(queries)
+    successful_cases = [case for case in cases if case["bad_case_type"] == "success"]
+    failed_cases = [case for case in cases if case["bad_case_type"] != "success"]
     return {
         "query_count": query_count,
         "source_case_hit_count": source_case_hits,
@@ -98,6 +109,8 @@ def run_analogy_reuse_probe(
         "structure_match_hit_rate": structure_match_hits / query_count if query_count else 0.0,
         "average_top_match_score": total_top_match_score / query_count if query_count else 0.0,
         "bad_case_counts": bad_case_counts,
+        "successful_cases": successful_cases[:5],
+        "failed_cases": failed_cases[:5],
         "cases": cases,
     }
 
@@ -153,23 +166,91 @@ def _serialize_match(match) -> dict[str, object]:
 
 
 def _analogy_reuse_markdown(result: dict[str, object]) -> str:
-    return "\n".join(
+    lines = [
+        "# SAM 类比复用实验",
+        "",
+        f"- 查询数量：{result.get('query_count')}",
+        f"- 来源案例命中数：{result.get('source_case_hit_count')}",
+        f"- 来源案例命中率：{float(result.get('source_case_hit_rate', 0.0)):.3f}",
+        f"- 巩固案例命中数：{result.get('consolidated_case_hit_count')}",
+        f"- 巩固案例命中率：{float(result.get('consolidated_case_hit_rate', 0.0)):.3f}",
+        f"- 支持证据重叠命中数：{result.get('support_overlap_hit_count')}",
+        f"- 支持证据重叠命中率：{float(result.get('support_overlap_hit_rate', 0.0)):.3f}",
+        f"- 来源结构模式可用数：{result.get('structure_pattern_available_count')}",
+        f"- 结构路径匹配数：{result.get('structure_match_hit_count')}",
+        f"- 结构路径匹配率：{float(result.get('structure_match_hit_rate', 0.0)):.3f}",
+        f"- 平均 Top-1 类比分数：{float(result.get('average_top_match_score', 0.0)):.3f}",
+        f"- Bad case 分布：{json.dumps(result.get('bad_case_counts', {}), ensure_ascii=False)}",
+        "",
+        "## 类比命中案例",
+        "",
+        "| Query | Top-1 历史案例 | 分数 | 匹配关系路径 | 支持证据标题 | 类比提示摘要 |",
+        "| --- | --- | ---: | --- | --- | --- |",
+    ]
+    for case in result.get("successful_cases", [])[:3]:
+        if isinstance(case, dict):
+            lines.append(_analogy_case_row(case))
+    if not result.get("successful_cases"):
+        lines.append("| 无 | 无 | 0.000 | 无 | 无 | 无 |")
+    lines.extend(
         [
-            "# SAM 类比复用实验",
             "",
-            f"- 查询数量：{result.get('query_count')}",
-            f"- 来源案例命中数：{result.get('source_case_hit_count')}",
-            f"- 来源案例命中率：{float(result.get('source_case_hit_rate', 0.0)):.3f}",
-            f"- 巩固案例命中数：{result.get('consolidated_case_hit_count')}",
-            f"- 巩固案例命中率：{float(result.get('consolidated_case_hit_rate', 0.0)):.3f}",
-            f"- 支持证据重叠命中数：{result.get('support_overlap_hit_count')}",
-            f"- 支持证据重叠命中率：{float(result.get('support_overlap_hit_rate', 0.0)):.3f}",
-            f"- 来源结构模式可用数：{result.get('structure_pattern_available_count')}",
-            f"- 结构路径匹配数：{result.get('structure_match_hit_count')}",
-            f"- 结构路径匹配率：{float(result.get('structure_match_hit_rate', 0.0)):.3f}",
-            f"- 平均 Top-1 类比分数：{float(result.get('average_top_match_score', 0.0)):.3f}",
-            f"- Bad case 分布：{json.dumps(result.get('bad_case_counts', {}), ensure_ascii=False)}",
+            "## 类比失败案例",
+            "",
+            "| Query | 类型 | Top-1 历史案例 | 失败解释 |",
+            "| --- | --- | --- | --- |",
         ]
+    )
+    for case in result.get("failed_cases", [])[:5]:
+        if isinstance(case, dict):
+            top_match = case.get("top_match", {})
+            if not isinstance(top_match, dict):
+                top_match = {}
+            lines.append(
+                "| "
+                + " | ".join(
+                    [
+                        str(case.get("query_id", "")),
+                        str(case.get("bad_case_type", "")),
+                        str(top_match.get("case_id", "")),
+                        str(case.get("bad_case_explanation", "")).replace("|", "/"),
+                    ]
+                )
+                + " |"
+            )
+    if not result.get("failed_cases"):
+        lines.append("| 无 | success | 无 | 本次未发现失败案例 |")
+    return "\n".join(lines)
+
+
+def _analogy_case_row(case: dict[str, object]) -> str:
+    top_match = case.get("top_match", {})
+    if not isinstance(top_match, dict):
+        top_match = {}
+    titles = top_match.get("support_titles") or top_match.get("evidence_titles") or []
+    if isinstance(titles, list):
+        title_text = "；".join(str(title) for title in titles[:3])
+    else:
+        title_text = str(titles)
+    relation_path = top_match.get("matched_relation_path", [])
+    if isinstance(relation_path, list):
+        relation_text = " -> ".join(str(item) for item in relation_path)
+    else:
+        relation_text = str(relation_path)
+    prompt_hint = str(top_match.get("prompt_hint", "")).replace("|", "/")
+    return (
+        "| "
+        + " | ".join(
+            [
+                str(case.get("query_id", "")),
+                str(top_match.get("case_id", "")),
+                f"{float(top_match.get('score', 0.0)):.3f}",
+                relation_text or "无",
+                title_text or "无",
+                prompt_hint[:120],
+            ]
+        )
+        + " |"
     )
 
 
@@ -195,3 +276,32 @@ def _analogy_bad_case_type(
     if not support_overlap:
         return "no_support_overlap"
     return "partial_success"
+
+
+def _analogy_bad_case_explanation(
+    *,
+    bad_case_type: str,
+    top_match: dict[str, object],
+    source_query_id: str,
+    relation_pattern: list[str],
+    structure_match: bool,
+    support_overlap: bool,
+) -> str:
+    if bad_case_type == "success":
+        return "Top-1 类比案例命中来源巩固记忆，且支持证据与当前 gold 存在重叠。"
+    if bad_case_type == "no_match":
+        return "没有检索到可用历史案例，通常说明 warmup 阶段没有形成足够相似的巩固记忆。"
+    if bad_case_type == "structure_mismatch":
+        expected = " -> ".join(relation_pattern) if relation_pattern else "空结构"
+        actual = top_match.get("matched_relation_path") or []
+        actual_text = " -> ".join(str(item) for item in actual) if isinstance(actual, list) else str(actual)
+        return f"检索到历史案例，但关系路径不匹配；期望 {expected}，实际 {actual_text or '无匹配路径'}。"
+    if bad_case_type == "source_case_without_consolidation":
+        return "Top-1 命中了来源问题，但该来源没有巩固记忆节点，说明 warmup 未沉淀出可复用案例。"
+    if bad_case_type == "wrong_case":
+        return f"Top-1 历史案例为 {top_match.get('case_id')}，不是当前 probe 对应的来源案例 {source_query_id}。"
+    if bad_case_type == "no_support_overlap":
+        return "Top-1 命中来源巩固案例，但其记录的支持证据与当前 gold evidence 没有重叠。"
+    if bad_case_type == "partial_success":
+        return f"类比案例部分有效；结构匹配={structure_match}，支持证据重叠={support_overlap}。"
+    return f"未归类失败类型：{bad_case_type}。"

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -15,6 +16,7 @@ from sam.analogy import AnalogyEngine  # noqa: E402
 from sam.analogy_experiment import run_analogy_reuse_probe, write_analogy_reuse_reports  # noqa: E402
 from sam.dataset_format import load_sam_dataset, summarize_sam_dataset  # noqa: E402
 from sam.embedding import create_embedding_provider  # noqa: E402
+from sam.env import load_env_file  # noqa: E402
 from sam.evaluator import Evaluator  # noqa: E402
 from sam.graph import GraphBuilder  # noqa: E402
 from sam.reuse_experiment import build_masked_queries  # noqa: E402
@@ -29,15 +31,28 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--db", default=None, help="SQLite 数据库路径，默认写入 run 目录")
     parser.add_argument("--limit", type=int, default=30, help="参与 warmup/probe 的查询数量")
     parser.add_argument("--embedding-provider", default=None, help="local、openai、azure_openai 或 azure_openai_sdk")
+    parser.add_argument("--env-file", default=None, help="可选：加载本地 .env.local；文件已被 gitignore 忽略")
+    parser.add_argument("--embedding-cache", action="store_true", help="启用 SQLite embedding 缓存，默认写入 data/embedding_cache.sqlite")
+    parser.add_argument("--embedding-cache-path", default=None, help="自定义 embedding 缓存 SQLite 路径")
+    parser.add_argument("--embedding-concurrency", type=int, default=None, help="在线 embedding 最大并发数")
     parser.add_argument("--top-k", type=int, default=3, help="类比候选案例数量")
     parser.add_argument("--retrieval-top-k", type=int, default=4, help="warmup 检索返回文档数")
     parser.add_argument("--seed-k", type=int, default=1, help="SAM warmup 种子节点数")
-    parser.add_argument("--hops", type=int, default=2, help="SAM warmup 图扩展跳数")
+    parser.add_argument("--hops", type=int, default=1, help="SAM warmup 图扩展跳数；默认采用一跳局部联想")
     return parser.parse_args()
 
 
 def main() -> None:
     args = parse_args()
+    if args.env_file:
+        load_env_file(_resolve_path(args.env_file))
+    if args.embedding_cache:
+        os.environ["SAM_EMBEDDING_CACHE"] = "1"
+    if args.embedding_cache_path:
+        os.environ["SAM_EMBEDDING_CACHE_PATH"] = str(_resolve_path(args.embedding_cache_path))
+    if args.embedding_concurrency is not None:
+        os.environ["SAM_AZURE_EMBEDDING_CONCURRENCY"] = str(args.embedding_concurrency)
+        os.environ["SAM_OPENAI_EMBEDDING_CONCURRENCY"] = str(args.embedding_concurrency)
     run_name = args.run_name or f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_analogy_reuse"
     run_dir = ROOT / args.output_root / run_name
     run_dir.mkdir(parents=True, exist_ok=True)
@@ -94,6 +109,11 @@ def main() -> None:
     print(f"支持证据重叠命中率：{float(result['support_overlap_hit_rate']):.3f}")
     print(f"JSON：{json_path}")
     print(f"Markdown：{markdown_path}")
+
+
+def _resolve_path(value: str) -> Path:
+    path = Path(value)
+    return path if path.is_absolute() else ROOT / path
 
 
 if __name__ == "__main__":

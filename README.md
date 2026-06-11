@@ -656,6 +656,25 @@ conda run -n sam python scripts/run_analogy_reuse_experiment.py \
 
 该实验同样先 warmup 生成巩固记忆，再用 masked probe 查询类比检索历史案例，统计是否命中对应的巩固案例以及是否覆盖真实支持证据。
 
+如果要复现实验文档中的真实 embedding 版本，可以运行：
+
+```bash
+SAM_AZURE_EMBEDDING_CONCURRENCY=1 \
+SAM_AZURE_EMBEDDING_RATE_LIMIT_SLEEP_SECONDS=5 \
+SAM_AZURE_EMBEDDING_RATE_LIMIT_RETRIES=5 \
+SAM_EMBEDDING_CACHE_WRITE_BATCH_SIZE=1 \
+conda run -n sam python scripts/run_analogy_reuse_experiment.py \
+  --env-file .env.local \
+  --dataset-file data/processed/hotpotqa_midterm300_sam_sample.json \
+  --limit 30 \
+  --embedding-provider azure_openai_sdk \
+  --embedding-cache-path outputs/runs/hotpotqa300_real_embedding_cache_warmup/embedding_cache.sqlite \
+  --hops 1 \
+  --run-name analogy_reuse_hotpotqa30_real_embedding_v2
+```
+
+该版本的 `analogy_reuse_results.md` 会额外列出类比命中案例和类比失败案例，便于检查历史证据链是如何被重新激活的。
+
 ## 数据集
 
 ### HotpotQA
