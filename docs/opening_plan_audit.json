@@ -1,6 +1,6 @@
 {
   "title": "SAM 开题计划进度审计",
-  "overall_progress": 65.2,
+  "overall_progress": 73.6,
   "module_count": 5,
   "modules": [
     {
@@ -134,8 +134,8 @@
       "title": "语义激活与联想检索机制",
       "opening_requirement": "先用语义相似度锁定候选，再沿知识图谱关联路径扩展邻近记忆，形成与当前问题相关的记忆子图。",
       "status": "已完成阶段性目标",
-      "target_progress": 78,
-      "estimated_progress": 78,
+      "target_progress": 84,
+      "estimated_progress": 84,
       "code_evidence": [
         {
           "label": "两阶段检索与消融模式",
@@ -228,10 +228,34 @@
             "embedding_evidence_recall": 0.5167,
             "embedding_answer_hit_rate": 0.5667
           }
+        },
+        {
+          "label": "HotpotQA 300 条真实 embedding 主实验",
+          "path": "outputs/runs/hotpotqa300_real_embedding_main_v4_hops1/metrics.json",
+          "kind": "experiment",
+          "exists": true,
+          "summary": {
+            "sam_evidence_recall": 0.89,
+            "sam_answer_hit_rate": 0.9067,
+            "embedding_evidence_recall": 0.8767,
+            "embedding_answer_hit_rate": 0.9067
+          }
+        },
+        {
+          "label": "NovelQA 12 条真实 embedding smoke",
+          "path": "outputs/runs/novelqa12_real_embedding_query_plan_v1/metrics.json",
+          "kind": "experiment",
+          "exists": true,
+          "summary": {
+            "sam_evidence_recall": 0.3571,
+            "sam_answer_hit_rate": 0.0,
+            "embedding_evidence_recall": 0.3571,
+            "embedding_answer_hit_rate": 0.0833
+          }
         }
       ],
       "remaining_work": [
-        "HotpotQA 300 条正式 embedding 主实验已完成，NovelQA 正式在线 embedding 小样本仍需补充。",
+        "HotpotQA 300 条和 NovelQA 12 条真实 embedding 已跑通，但 NovelQA 长文本效果仍弱。",
         "多路径与记忆状态需要在连续任务中继续拉开贡献差异。",
         "仍需进一步降低图噪声和缺失支持证据问题。"
       ]
@@ -241,8 +265,8 @@
       "title": "类比推理触发与应用",
       "opening_requirement": "在新问题激活子图与历史问题-解答链条结构相似时触发类比，检索类似案例并向 LLM 提供提示。",
       "status": "已完成阶段性目标",
-      "target_progress": 58,
-      "estimated_progress": 58,
+      "target_progress": 68,
+      "estimated_progress": 68,
       "code_evidence": [
         {
           "label": "类比检索引擎",
@@ -311,10 +335,22 @@
           "path": "outputs/runs/analogy_structural_consolidation_hotpotqa30/analogy_reuse_results.json",
           "kind": "experiment",
           "exists": true
+        },
+        {
+          "label": "真实 embedding 类比复用 30 条",
+          "path": "outputs/runs/analogy_reuse_hotpotqa30_real_embedding_v2/analogy_reuse_results.json",
+          "kind": "experiment",
+          "exists": true
+        },
+        {
+          "label": "GPT-5.4 共享记忆与类比生成对照 10 条",
+          "path": "outputs/runs/agent_generation_gpt54_q10_real_embedding_v1/agent_generation_comparison.json",
+          "kind": "experiment",
+          "exists": true
         }
       ],
       "remaining_work": [
-        "类比提示对最终答案质量的提升尚未用 GPT-5.4 正式验证。",
+        "GPT-5.4 10 条生成对照已跑通，但类比提示暂未带来最终答案率提升。",
         "类比支持证据注入检索排序仍需正式规模实验验证。",
         "结构路径匹配已经进入实验，但仍需要在未知来源案例和真实多轮任务中验证泛化能力。",
         "结构性巩固已覆盖来源案例，但仍有样本缺少真实支持证据重叠，需要继续改进检索和建边质量。"
@@ -325,8 +361,8 @@
       "title": "多智能体语义记忆协调机制",
       "opening_requirement": "构建全局洞察层、会话层、交互细节层，支持多智能体共享中间结果和经验以重建推理链。",
       "status": "已完成阶段性目标",
-      "target_progress": 56,
-      "estimated_progress": 56,
+      "target_progress": 70,
+      "estimated_progress": 70,
       "code_evidence": [
         {
           "label": "共享记忆协调器",
@@ -395,11 +431,23 @@
           "path": "outputs/runs/agent_workflow_conflict_smoke/agent_workflow.json",
           "kind": "experiment",
           "exists": true
+        },
+        {
+          "label": "多智能体 workflow 审计",
+          "path": "outputs/runs/agent_workflow_audit_smoke/agent_workflow_audit.json",
+          "kind": "experiment",
+          "exists": true
+        },
+        {
+          "label": "GPT-5.4 多智能体生成对照 10 条",
+          "path": "outputs/runs/agent_generation_gpt54_q10_real_embedding_v1/agent_generation_comparison.json",
+          "kind": "experiment",
+          "exists": true
         }
       ],
       "remaining_work": [
         "当前多智能体实验仍偏受控流程，不是完整 Deep Research 任务。",
-        "共享记忆已经作为 grounded context 接入生成阶段，但本地启发式生成器不能抽取复杂答案，需要用 GPT-5.4 运行正式对照。",
+        "共享记忆已经作为 grounded context 接入 GPT-5.4 生成阶段，但 10 条实验暂未带来答案率增益。",
         "workflow 已能在答案验证失败时自动触发冲突裁决，但仍需设计更真实的多角色分歧任务集。"
       ]
     },
@@ -408,8 +456,8 @@
       "title": "评测体系与检索-生成闭环",
       "opening_requirement": "设计正式实验和评测体系，覆盖跨文档语义整合、推理链重建、多智能体协作和生成结果反馈。",
       "status": "已完成阶段性目标",
-      "target_progress": 60,
-      "estimated_progress": 60,
+      "target_progress": 72,
+      "estimated_progress": 72,
       "code_evidence": [
         {
           "label": "端到端实验入口",
@@ -513,20 +561,50 @@
             "partial_count": 1,
             "prepared_dataset_count": 1
           }
+        },
+        {
+          "label": "HotpotQA 300 条真实 embedding 主实验",
+          "path": "outputs/runs/hotpotqa300_real_embedding_main_v4_hops1/metrics.json",
+          "kind": "experiment",
+          "exists": true,
+          "summary": {
+            "sam_evidence_recall": 0.89,
+            "sam_answer_hit_rate": 0.9067,
+            "embedding_evidence_recall": 0.8767,
+            "embedding_answer_hit_rate": 0.9067
+          }
+        },
+        {
+          "label": "NovelQA 12 条真实 embedding smoke",
+          "path": "outputs/runs/novelqa12_real_embedding_query_plan_v1/metrics.json",
+          "kind": "experiment",
+          "exists": true,
+          "summary": {
+            "sam_evidence_recall": 0.3571,
+            "sam_answer_hit_rate": 0.0,
+            "embedding_evidence_recall": 0.3571,
+            "embedding_answer_hit_rate": 0.0833
+          }
+        },
+        {
+          "label": "GPT-5.4 多智能体生成对照 10 条",
+          "path": "outputs/runs/agent_generation_gpt54_q10_real_embedding_v1/agent_generation_comparison.json",
+          "kind": "experiment",
+          "exists": true
         }
       ],
       "remaining_work": [
-        "HotpotQA 300 条正式 embedding 主实验已完成，NovelQA 正式在线 embedding 小样本仍需补充。",
-        "GPT-5.4 grounded 生成闭环已跑通低额度实验，但需要扩大到更多样本并接入语义答案判别。",
+        "真实 embedding 主实验已覆盖 HotpotQA 300 条和 NovelQA 12 条，但 NovelQA 长文本效果仍需专项优化。",
+        "GPT-5.4 grounded 生成闭环和多智能体生成对照已跑通小规模实验，但需要扩大样本并改进证据引用提示。",
         "官方 baseline 中 GraphRAG 已达到本地 ready 状态，RAPTOR 和 HippoRAG 仍需修复官方依赖后再跑正式分数。"
       ]
     }
   ],
   "next_actions": [
+    "类比推理触发与应用：GPT-5.4 10 条生成对照已跑通，但类比提示暂未带来最终答案率提升。",
     "多智能体语义记忆协调机制：当前多智能体实验仍偏受控流程，不是完整 Deep Research 任务。",
-    "类比推理触发与应用：类比提示对最终答案质量的提升尚未用 GPT-5.4 正式验证。",
-    "评测体系与检索-生成闭环：HotpotQA 300 条正式 embedding 主实验已完成，NovelQA 正式在线 embedding 小样本和更大规模 GPT-5.4 生成实验仍需补充。",
+    "评测体系与检索-生成闭环：真实 embedding 主实验已覆盖 HotpotQA 300 条和 NovelQA 12 条，但 NovelQA 长文本效果仍需专项优化。",
     "知识提取与动态知识图谱构建：GPT-5.4 RelationJudge 已完成 30 条对照，但尚未形成 300 条高预算正式实验。",
-    "语义激活与联想检索机制：HotpotQA 300 条正式 embedding 主实验已完成，NovelQA 正式在线 embedding 小样本仍需补充。"
+    "语义激活与联想检索机制：HotpotQA 300 条和 NovelQA 12 条真实 embedding 已跑通，但 NovelQA 长文本效果仍弱。"
   ]
 }
