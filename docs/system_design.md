@@ -504,6 +504,8 @@ final_score = semantic_score + graph_score + path_quality + memory_state + feedb
 
 随后新增 `agent_workflow_audit` 审计产物。`write_agent_workflow_reports()` 会自动额外输出 `agent_workflow_audit.json` 和 `agent_workflow_audit.md`，统计样本数、验证通过数、handoff 总数、冲突裁决数、平均共享记忆数量、被 rejected 记忆污染的次数和污染案例数。5 条审计 smoke 位于 `outputs/runs/agent_workflow_audit_smoke/`：总计 25 条共享记忆、10 次 handoff、5 次冲突裁决，`rejected_memory_used_count=0`，`contaminated_case_count=0`。这说明版本过滤机制不只是代码接口，也能在实验产物中证明 rejected 版本没有进入 writer/verifier 的后续上下文。
 
+最新 GPT-5.4 多智能体生成对照位于 `outputs/runs/agent_generation_gpt54_q10_real_embedding_v1/`。10 条 HotpotQA 样本中，`baseline`、`shared_memory`、`shared_memory_with_analogy` 的答案命中率均为 0.600，上下文含答案率均为 0.700；共享记忆设置的平均补充上下文数为 2.0。这个结果说明共享记忆和类比提示已经真实进入 GPT-5.4 生成阶段，但目前还没有转化为最终答案率增益，后续需要进一步做上下文压缩、证据编号引用和检索侧缺失证据补全。
+
 ### P7：检索-生成闭环与 Bad Case 驱动改进
 
 开题计划中的系统最终应形成“记忆检索 -> 证据组织 -> 答案生成 -> 结果反馈”的闭环。当前已补充：

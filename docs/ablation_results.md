@@ -877,10 +877,18 @@ bad case 分布从 `success=27, source_case_without_consolidation=3` 变为 `suc
 
 进一步在 300 条 HotpotQA 上运行共享记忆复用实验，结果位于 `outputs/runs/agent_memory_reuse_shared_context_hotpotqa300/`：Embedding Top-k 支持证据命中数为 343，SAM-full 支持证据命中数为 362，支持证据增益总数为 48；其中 46 条样本存在正向证据增益，writer 使用 retriever handoff 的比例为 1.000，verifier 使用 writer handoff 的比例为 1.000，多智能体复用链路成功率为 0.153。该结果说明多智能体模块已经能在 300 条规模上稳定记录和传递 SAM 相对 baseline 的证据增益，但最终答案质量仍依赖更强的生成模型和更可靠的答案抽取。
 
-## 38. GPT-5.4 多智能体生成对照 q1 限流诊断
+## 38. GPT-5.4 多智能体生成对照
 
 为验证共享记忆和类比提示在真实生成模型下的效果，系统对 `scripts/run_agent_generation_experiment.py` 和 `scripts/run_agent_memory_reuse_experiment.py` 增加 `--env-file` 参数，使脚本能够直接加载本地 `.env.local` 中的 GPT-5.4 provider 配置，而不需要把 key 写入命令或仓库文件。
 
 随后使用 GPT-5.4 对 1 条 HotpotQA 样本运行多智能体生成对照，路径为 `outputs/runs/agent_generation_gpt54_q1/`。本次运行包括 `baseline`、`shared_memory` 和 `shared_memory_with_analogy` 三个变体。实际结果显示三组均触发 `RateLimitError`，错误信息为 qpm 429 限流，因此答案命中率均为 0。该结果不能用于比较三种方法的生成效果，但验证了两个工程能力：第一，GPT-5.4 多智能体生成实验入口已经能加载本地 provider 配置并执行；第二，生成阶段的 API 限流、超时或调用失败不会再导致整个实验崩溃，而会被写入 `agent_generation_comparison.json` 和 `generation_bad_cases/`，分类为 `generation_error`。
 
-本次 bad case 诊断显示，失败原因不是共享记忆或类比提示逻辑错误，而是模型服务限流导致样本没有进入有效答案生成。后续应在 qpm 恢复后继续沿用同一命令扩展到 3 条、10 条，再比较 shared memory 与 shared memory + analogy 是否能把“上下文含答案”转化为“最终答案命中”。
+为解决 qpm 限流问题，聊天模型 provider 新增 `SAM_AZURE_CHAT_RATE_LIMIT_RETRIES`、`SAM_AZURE_CHAT_RATE_LIMIT_SLEEP_SECONDS` 和 `SAM_AZURE_CHAT_MIN_INTERVAL_SECONDS`。在低频请求设置下，进一步完成 10 条 HotpotQA GPT-5.4 多智能体生成对照，路径为 `outputs/runs/agent_generation_gpt54_q10_real_embedding_v1/`。
+
+| 变体 | 答案命中数 | 答案命中率 | 上下文含答案数 | 有证据但生成失败数 | 平均 prompt token 估计 |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| baseline | 6 | 0.600 | 7 | 1 | 675.4 |
+| shared_memory | 6 | 0.600 | 7 | 1 | 1398.4 |
+| shared_memory_with_analogy | 6 | 0.600 | 7 | 1 | 1461.9 |
+
+该 run 没有 API 调用失败，说明 GPT-5.4 多智能体生成对照链路已经可以稳定运行到 10 条规模。结果同时暴露出当前瓶颈：共享记忆和类比提示确实进入了生成 prompt，使平均 prompt token 明显增加，并且共享记忆平均补充上下文数量为 2；但三种设置的最终答案命中率相同，暂未观察到答案率增益。bad case 主要集中在 `retrieval_context_missing_answer` 和 `context_available_but_generation_failed`，说明下一步应优先改进证据召回、上下文压缩和要求模型显式引用证据编号的生成提示，而不是只增加共享记忆长度。

@@ -72,6 +72,9 @@ class AzureOpenAIChatClient(ChatClient):
     - SAM_AZURE_CHAT_MODEL，默认 gpt-5.4-2026-03-05
     - SAM_AZURE_CHAT_URL，可选；如果公司网关不是标准 Azure 路径，可直接传完整 URL
     - SAM_AZURE_CHAT_AUTH_HEADER，可选，默认 api-key
+    - SAM_AZURE_CHAT_RATE_LIMIT_RETRIES，可选，限流错误重试次数
+    - SAM_AZURE_CHAT_RATE_LIMIT_SLEEP_SECONDS，可选，限流错误最小等待秒数
+    - SAM_AZURE_CHAT_MIN_INTERVAL_SECONDS，可选，相邻请求最小间隔
     """
 
     def __init__(self) -> None:
@@ -85,6 +88,14 @@ class AzureOpenAIChatClient(ChatClient):
             raise ValueError("缺少 SAM_AZURE_CHAT_ENDPOINT 或 SAM_AZURE_CHAT_URL")
         self.endpoint = endpoint.rstrip("/") if endpoint else ""
         self.auth_header = os.environ.get("SAM_AZURE_CHAT_AUTH_HEADER", "api-key")
+        self.request_timeout = float(os.environ.get("SAM_AZURE_CHAT_TIMEOUT", "120"))
+        self.retry_base_seconds = float(os.environ.get("SAM_AZURE_CHAT_RETRY_BASE_SECONDS", "2"))
+        self.rate_limit_retries = int(os.environ.get("SAM_AZURE_CHAT_RATE_LIMIT_RETRIES", "3"))
+        self.rate_limit_sleep_seconds = float(
+            os.environ.get("SAM_AZURE_CHAT_RATE_LIMIT_SLEEP_SECONDS", str(self.retry_base_seconds))
+        )
+        self.min_interval_seconds = float(os.environ.get("SAM_AZURE_CHAT_MIN_INTERVAL_SECONDS", "0"))
+        self._last_request_at = 0.0
 
     @property
     def request_url(self) -> str:
@@ -102,17 +113,35 @@ class AzureOpenAIChatClient(ChatClient):
             "max_tokens": max_tokens,
             "stream": False,
         }
-        request = urllib.request.Request(
-            self.request_url,
-            data=json.dumps(payload).encode("utf-8"),
-            headers={
-                self.auth_header: self.api_key,
-                "Content-Type": "application/json",
-            },
-            method="POST",
-        )
-        with urllib.request.urlopen(request, timeout=120) as response:
-            data = json.loads(response.read().decode("utf-8"))
+        for attempt in range(max(1, self.rate_limit_retries)):
+            try:
+                self._last_request_at = _throttle_request(
+                    self._last_request_at,
+                    self.min_interval_seconds,
+                )
+                request = urllib.request.Request(
+                    self.request_url,
+                    data=json.dumps(payload).encode("utf-8"),
+                    headers={
+                        self.auth_header: self.api_key,
+                        "Content-Type": "application/json",
+                    },
+                    method="POST",
+                )
+                with urllib.request.urlopen(request, timeout=self.request_timeout) as response:
+                    data = json.loads(response.read().decode("utf-8"))
+                break
+            except Exception as exc:
+                if not _is_rate_limit_error(exc) or attempt == max(1, self.rate_limit_retries) - 1:
+                    raise
+                time.sleep(
+                    _rate_limit_retry_delay(
+                        exc,
+                        attempt,
+                        self.retry_base_seconds,
+                        self.rate_limit_sleep_seconds,
+                    )
+                )
         return str(data["choices"][0]["message"]["content"]).strip()
 
 
@@ -132,6 +161,14 @@ class AzureOpenAISDKChatClient(ChatClient):
         self.request_timeout = float(os.environ.get("SAM_AZURE_CHAT_TIMEOUT", "60"))
         self.max_retries = int(os.environ.get("SAM_AZURE_CHAT_MAX_RETRIES", "3"))
         self.retry_base_seconds = float(os.environ.get("SAM_AZURE_CHAT_RETRY_BASE_SECONDS", "2"))
+        self.rate_limit_retries = int(
+            os.environ.get("SAM_AZURE_CHAT_RATE_LIMIT_RETRIES", str(self.max_retries))
+        )
+        self.rate_limit_sleep_seconds = float(
+            os.environ.get("SAM_AZURE_CHAT_RATE_LIMIT_SLEEP_SECONDS", str(self.retry_base_seconds))
+        )
+        self.min_interval_seconds = float(os.environ.get("SAM_AZURE_CHAT_MIN_INTERVAL_SECONDS", "0"))
+        self._last_request_at = 0.0
         self.client = openai.AzureOpenAI(
             api_key=self.api_key,
             api_version=self.api_version,
@@ -140,8 +177,12 @@ class AzureOpenAISDKChatClient(ChatClient):
         )
 
     def complete(self, messages: list[dict[str, object]], max_tokens: int = 500) -> str:
-        for attempt in range(max(1, self.max_retries)):
+        for attempt in range(max(1, self.rate_limit_retries)):
             try:
+                self._last_request_at = _throttle_request(
+                    self._last_request_at,
+                    self.min_interval_seconds,
+                )
                 response = self.client.chat.completions.create(
                     model=self.model,
                     messages=messages,
@@ -150,9 +191,16 @@ class AzureOpenAISDKChatClient(ChatClient):
                 )
                 break
             except Exception as exc:
-                if not _is_rate_limit_error(exc) or attempt == max(1, self.max_retries) - 1:
+                if not _is_rate_limit_error(exc) or attempt == max(1, self.rate_limit_retries) - 1:
                     raise
-                time.sleep(_retry_delay_seconds(exc, attempt, self.retry_base_seconds))
+                time.sleep(
+                    _rate_limit_retry_delay(
+                        exc,
+                        attempt,
+                        self.retry_base_seconds,
+                        self.rate_limit_sleep_seconds,
+                    )
+                )
         content = response.choices[0].message.content
         if isinstance(content, list):
             return "".join(str(item.get("text", item)) for item in content).strip()
@@ -214,6 +262,9 @@ def inspect_chat_provider_config(name: str | None = None) -> dict[str, object]:
             "SAM_AZURE_CHAT_TIMEOUT",
             "SAM_AZURE_CHAT_MAX_RETRIES",
             "SAM_AZURE_CHAT_RETRY_BASE_SECONDS",
+            "SAM_AZURE_CHAT_RATE_LIMIT_RETRIES",
+            "SAM_AZURE_CHAT_RATE_LIMIT_SLEEP_SECONDS",
+            "SAM_AZURE_CHAT_MIN_INTERVAL_SECONDS",
         ]
     else:
         return {
@@ -285,3 +336,24 @@ def _retry_delay_seconds(exc: Exception, attempt: int, base_seconds: float) -> f
             except ValueError:
                 pass
     return max(0.0, min(60.0, base_seconds * (2 ** attempt)))
+
+
+def _rate_limit_retry_delay(
+    exc: Exception,
+    attempt: int,
+    base_seconds: float,
+    minimum_seconds: float,
+) -> float:
+    return max(
+        _retry_delay_seconds(exc, attempt, base_seconds),
+        max(0.0, minimum_seconds),
+    )
+
+
+def _throttle_request(last_request_at: float, min_interval_seconds: float) -> float:
+    min_interval_seconds = max(0.0, min_interval_seconds)
+    if last_request_at > 0.0 and min_interval_seconds > 0.0:
+        elapsed = time.monotonic() - last_request_at
+        if elapsed < min_interval_seconds:
+            time.sleep(min_interval_seconds - elapsed)
+    return time.monotonic()

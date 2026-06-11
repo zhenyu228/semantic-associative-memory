@@ -2529,6 +2529,113 @@ class SamCoreTest(unittest.TestCase):
         self.assertEqual(answer, "OK after retry")
         self.assertEqual(len(calls), 2)
 
+    def test_azure_chat_sdk_client_uses_dedicated_rate_limit_retry_budget(self) -> None:
+        calls: list[dict[str, object]] = []
+        sleeps: list[float] = []
+
+        class FakeRateLimitError(RuntimeError):
+            status_code = 429
+
+        class FakeMessage:
+            content = "OK after dedicated retry"
+
+        class FakeChoice:
+            message = FakeMessage()
+
+        class FakeChatResponse:
+            choices = [FakeChoice()]
+
+        class FakeCompletions:
+            def create(self, **kwargs):
+                calls.append(kwargs)
+                if len(calls) < 3:
+                    raise FakeRateLimitError("qpm limit")
+                return FakeChatResponse()
+
+        class FakeChat:
+            def __init__(self) -> None:
+                self.completions = FakeCompletions()
+
+        class FakeAzureOpenAI:
+            def __init__(self, **kwargs) -> None:
+                self.chat = FakeChat()
+
+        fake_openai = type("FakeOpenAI", (), {"AzureOpenAI": FakeAzureOpenAI})()
+
+        with patch.dict(
+            "os.environ",
+            {
+                "SAM_AZURE_CHAT_API_KEY": "test-key",
+                "SAM_AZURE_CHAT_ENDPOINT": "https://example.test/api/modelhub/online/v2/crawl",
+                "SAM_AZURE_CHAT_MAX_RETRIES": "1",
+                "SAM_AZURE_CHAT_RATE_LIMIT_RETRIES": "3",
+                "SAM_AZURE_CHAT_RETRY_BASE_SECONDS": "0",
+                "SAM_AZURE_CHAT_RATE_LIMIT_SLEEP_SECONDS": "7",
+            },
+            clear=True,
+        ), patch.dict("sys.modules", {"openai": fake_openai}), patch(
+            "sam.llm.time.sleep",
+            side_effect=lambda seconds: sleeps.append(seconds),
+        ):
+            answer = AzureOpenAISDKChatClient().complete(
+                [{"role": "user", "content": "What is 1+1?"}],
+                max_tokens=32,
+            )
+
+        self.assertEqual(answer, "OK after dedicated retry")
+        self.assertEqual(len(calls), 3)
+        self.assertEqual(sleeps, [7.0, 7.0])
+
+    def test_azure_chat_sdk_client_throttles_between_requests(self) -> None:
+        calls: list[dict[str, object]] = []
+        sleeps: list[float] = []
+
+        class FakeMessage:
+            content = "OK"
+
+        class FakeChoice:
+            message = FakeMessage()
+
+        class FakeChatResponse:
+            choices = [FakeChoice()]
+
+        class FakeCompletions:
+            def create(self, **kwargs):
+                calls.append(kwargs)
+                return FakeChatResponse()
+
+        class FakeChat:
+            def __init__(self) -> None:
+                self.completions = FakeCompletions()
+
+        class FakeAzureOpenAI:
+            def __init__(self, **kwargs) -> None:
+                self.chat = FakeChat()
+
+        fake_openai = type("FakeOpenAI", (), {"AzureOpenAI": FakeAzureOpenAI})()
+
+        with patch.dict(
+            "os.environ",
+            {
+                "SAM_AZURE_CHAT_API_KEY": "test-key",
+                "SAM_AZURE_CHAT_ENDPOINT": "https://example.test/api/modelhub/online/v2/crawl",
+                "SAM_AZURE_CHAT_MIN_INTERVAL_SECONDS": "5",
+            },
+            clear=True,
+        ), patch.dict("sys.modules", {"openai": fake_openai}), patch(
+            "sam.llm.time.monotonic",
+            side_effect=[100.0, 101.0, 105.0],
+        ), patch(
+            "sam.llm.time.sleep",
+            side_effect=lambda seconds: sleeps.append(seconds),
+        ):
+            client = AzureOpenAISDKChatClient()
+            client.complete([{"role": "user", "content": "first"}])
+            client.complete([{"role": "user", "content": "second"}])
+
+        self.assertEqual(len(calls), 2)
+        self.assertEqual(sleeps, [4.0])
+
     def test_create_chat_client_supports_azure_openai_sdk(self) -> None:
         fake_openai = type("FakeOpenAI", (), {"AzureOpenAI": staticmethod(lambda **kwargs: object())})()
         with patch.dict(

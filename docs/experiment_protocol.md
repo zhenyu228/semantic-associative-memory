@@ -340,7 +340,9 @@ conda run -n sam python scripts/check_model_providers.py \
 
 ```bash
 export SAM_AZURE_CHAT_MAX_RETRIES=3
-export SAM_AZURE_CHAT_RETRY_BASE_SECONDS=2
+export SAM_AZURE_CHAT_RATE_LIMIT_RETRIES=20
+export SAM_AZURE_CHAT_RATE_LIMIT_SLEEP_SECONDS=65
+export SAM_AZURE_CHAT_MIN_INTERVAL_SECONDS=65
 ```
 
 ## 7. GPT-5.4 检索-生成闭环
@@ -447,9 +449,11 @@ conda run -n sam python scripts/run_analogy_reuse_experiment.py \
 低额度 q1 验证命令如下：
 
 ```bash
-SAM_AZURE_CHAT_TIMEOUT=30 \
-SAM_AZURE_CHAT_MAX_RETRIES=2 \
-SAM_AZURE_CHAT_RETRY_BASE_SECONDS=5 \
+SAM_AZURE_CHAT_TIMEOUT=120 \
+SAM_AZURE_CHAT_MAX_RETRIES=3 \
+SAM_AZURE_CHAT_RATE_LIMIT_RETRIES=20 \
+SAM_AZURE_CHAT_RATE_LIMIT_SLEEP_SECONDS=65 \
+SAM_AZURE_CHAT_MIN_INTERVAL_SECONDS=65 \
 conda run -n sam python scripts/run_agent_generation_experiment.py \
   --env-file .env.local \
   --cases-file outputs/runs/fair_ablation_hotpotqa_300/cases.json \
@@ -462,4 +466,34 @@ conda run -n sam python scripts/run_agent_generation_experiment.py \
   --output-dir outputs/runs/agent_generation_gpt54_q1
 ```
 
-当前运行结果位于 `outputs/runs/agent_generation_gpt54_q1/`。GPT-5.4 三个生成变体均遇到 qpm 429 限流，系统已将失败写入 `agent_generation_comparison.json` 和 `generation_bad_cases/generation_bad_cases.json`，bad case 类型为 `generation_error`。该结果说明实验入口和错误审计链路已经打通，但不作为方法效果结论。后续在限流恢复后，将同一命令的 `--limit` 逐步提高到 3、10，并比较 `baseline`、`shared_memory`、`shared_memory_with_analogy` 的 grounded answer hit rate。
+q1 运行结果位于 `outputs/runs/agent_generation_gpt54_q1/`。当时 GPT-5.4 三个生成变体均遇到 qpm 429 限流，系统已将失败写入 `agent_generation_comparison.json` 和 `generation_bad_cases/generation_bad_cases.json`，bad case 类型为 `generation_error`。
+
+随后使用低频请求参数完成 10 条生成对照：
+
+```bash
+SAM_AZURE_CHAT_TIMEOUT=120 \
+SAM_AZURE_CHAT_MAX_RETRIES=3 \
+SAM_AZURE_CHAT_RATE_LIMIT_RETRIES=10 \
+SAM_AZURE_CHAT_RATE_LIMIT_SLEEP_SECONDS=20 \
+SAM_AZURE_CHAT_MIN_INTERVAL_SECONDS=20 \
+conda run -n sam python scripts/run_agent_generation_experiment.py \
+  --env-file .env.local \
+  --cases-file outputs/runs/hotpotqa300_real_embedding_main_v4_hops1/cases.json \
+  --all-cases-file outputs/runs/hotpotqa300_real_embedding_main_v4_hops1/cases.json \
+  --method sam_full \
+  --chat-provider azure_openai_sdk \
+  --embedding-provider local \
+  --limit 10 \
+  --analogy-top-k 1 \
+  --output-dir outputs/runs/agent_generation_gpt54_q10_real_embedding_v1
+```
+
+主要结果如下：
+
+| 变体 | 答案命中率 | 上下文含答案率 | 平均补充上下文数 |
+| --- | ---: | ---: | ---: |
+| baseline | 0.600 | 0.700 | 0.0 |
+| shared_memory | 0.600 | 0.700 | 2.0 |
+| shared_memory_with_analogy | 0.600 | 0.700 | 2.0 |
+
+该 run 没有 API 调用失败，说明 GPT-5.4 多智能体生成对照链路已经可运行。当前结论是：共享记忆和类比提示已经进入生成上下文，但 10 条样本中最终答案率没有超过 baseline，下一步需要优化检索证据覆盖、上下文压缩和证据引用提示。

@@ -79,8 +79,9 @@
 
 - `outputs/runs/agent_workflow_audit_smoke/`：产生 planner、retriever、writer、verifier 多角色记忆，包含 handoff、冲突裁决和 rejected 版本过滤。
 - `outputs/runs/agent_memory_reuse_shared_context_hotpotqa300/`：writer/verifier 对共享记忆的读取率为 1.0，说明共享记忆确实被后续 agent 使用。
+- `outputs/runs/agent_generation_gpt54_q10_real_embedding_v1/`：完成 10 条 GPT-5.4 多智能体生成对照，baseline、shared_memory、shared_memory_with_analogy 的答案命中率均为 0.600；共享记忆和类比提示进入生成上下文，但暂未带来最终答案率提升。
 
-阶段结论：多智能体共享记忆的底座已完成，可以支撑“证据交接、答案交接、冲突裁决、版本过滤”四类核心行为。下一阶段需要接入 GPT-5.4 做生成式对照，比较无共享记忆、有共享记忆、有共享记忆并带类比提示三种设置。
+阶段结论：多智能体共享记忆的底座已完成，可以支撑“证据交接、答案交接、冲突裁决、版本过滤”四类核心行为，并已经进入 GPT-5.4 生成对照。当前效果边界是：共享记忆可以增加可审计上下文，但如果检索证据本身缺失或生成提示没有强制证据引用，最终答案率不一定提升。
 
 ## 5. 类比推理机制
 
