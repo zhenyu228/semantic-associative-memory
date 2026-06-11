@@ -13,6 +13,7 @@ from sam.graph import GraphBuilder
 from sam.models import DatasetDocument, EvaluationQuery, MemoryNode, RetrievalHit
 from sam.query_planner import QueryPlanner
 from sam.retriever import RETRIEVAL_METHOD_NAMES, SAM_RETRIEVAL_CONFIGS, Retriever
+from sam.reuse_experiment import memory_reuse_candidate_ids
 from sam.store import MemoryStore
 from sam.feedback import FeedbackUpdater
 
@@ -302,6 +303,12 @@ class Evaluator:
             assert isinstance(retrieval_query, str)
             assert isinstance(support_node_ids, set)
             assert isinstance(candidate_ids, list)
+            candidate_ids = memory_reuse_candidate_ids(
+                store=method_store,
+                query=query,
+                method=method,
+                base_candidate_ids=candidate_ids,
+            )
             candidate_ids = self._candidate_ids_for_method(method_store, method, candidate_ids)
 
             hits = retriever.retrieve(

@@ -378,7 +378,40 @@ SAM_AZURE_CHAT_TIMEOUT=30 conda run -n sam python scripts/run_end_to_end_experim
 - 已在 HotpotQA 小样本上观察到 SAM 相比纯向量检索新增命中支持证据。
 - 已完成 NovelQA demonstration 的长文本数据接入和可视化闭环。
 
-## 8. GPT-5.4 多智能体生成对照
+## 8. 连续记忆复用实验
+
+该实验用于验证“状态与反馈驱动的记忆演化”是否能影响后续检索。实验分为 warmup 和 probe 两阶段：warmup 使用正常候选集，让 SAM 形成巩固记忆；probe 将每个问题的 gold 支持文档从候选集中移除，再观察系统能否通过历史巩固记忆把证据带回候选池。
+
+真实 embedding run 位于 `outputs/runs/memory_reuse_hotpotqa30_real_embedding_v3/`。复现命令如下：
+
+```bash
+SAM_AZURE_EMBEDDING_CONCURRENCY=1 \
+SAM_AZURE_EMBEDDING_RATE_LIMIT_SLEEP_SECONDS=5 \
+SAM_AZURE_EMBEDDING_RATE_LIMIT_RETRIES=5 \
+SAM_EMBEDDING_CACHE_WRITE_BATCH_SIZE=1 \
+conda run -n sam python scripts/run_memory_reuse_experiment.py \
+  --env-file .env.local \
+  --dataset-file data/processed/hotpotqa_midterm300_sam_sample.json \
+  --limit 30 \
+  --embedding-provider azure_openai_sdk \
+  --embedding-cache-path outputs/runs/hotpotqa300_real_embedding_cache_warmup/embedding_cache.sqlite \
+  --hops 1 \
+  --run-name memory_reuse_hotpotqa30_real_embedding_v3
+```
+
+主要结果如下：
+
+| 方法 | 证据召回率 | 答案命中率 |
+| --- | ---: | ---: |
+| Embedding Top-k | 0.000 | 0.300 |
+| SAM-full | 0.900 | 0.867 |
+| SAM-no-memory-state | 0.900 | 0.867 |
+| SAM-no-feedback | 0.900 | 0.867 |
+| SAM-static-graph | 0.900 | 0.867 |
+
+该 run 生成 `memory_events.md` 和 `feedback_edge_changes.md`。事件流记录 `support_hit` 108 条、`answer_hit` 48 条、`path_rejected` 131 条、`memory_consolidated` 60 条；边变化案例显示部分巩固边和共享实体边在 probe 后被增强。该结果可用于说明动态记忆能够在连续任务中被后续查询读取，并改变候选证据和边状态。
+
+## 9. GPT-5.4 多智能体生成对照
 
 低额度 q1 验证命令如下：
 

@@ -19,7 +19,9 @@ from sam.evaluator import Evaluator  # noqa: E402
 from sam.graph import GraphBuilder  # noqa: E402
 from sam.reuse_experiment import (  # noqa: E402
     build_masked_queries,
+    snapshot_edges,
     summarize_memory_reuse,
+    write_memory_reuse_event_reports,
     write_memory_reuse_reports,
 )
 from sam.store import MemoryStore  # noqa: E402
@@ -39,11 +41,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--embedding-concurrency", type=int, default=None, help="在线 embedding 最大并发数")
     parser.add_argument("--top-k", type=int, default=4, help="最终返回文档数")
     parser.add_argument("--seed-k", type=int, default=1, help="SAM 种子节点数")
-    parser.add_argument("--hops", type=int, default=2, help="图扩展跳数")
+    parser.add_argument("--hops", type=int, default=1, help="图扩展跳数；默认采用一跳局部联想")
     parser.add_argument(
         "--probe-methods",
-        default="embedding_topk,sam_no_feedback",
-        help="probe 阶段方法列表；默认比较 Embedding Top-k 与不继续反馈的 SAM",
+        default="embedding_topk,sam_full,sam_no_memory_state,sam_no_feedback,sam_static_graph",
+        help="probe 阶段方法列表；默认比较 baseline 与连续记忆消融方法",
     )
     return parser.parse_args()
 
@@ -108,6 +110,7 @@ def main() -> None:
                 if "consolidat" in edge.relation_type
             ]
         )
+        edges_before_probe = snapshot_edges(store.get_edges())
 
         probe_result = evaluator.evaluate(
             masked_queries,
@@ -130,6 +133,12 @@ def main() -> None:
             warmup_metrics=warmup_result.to_dict(),
             probe_metrics=probe_result.to_dict(),
             probe_cases=probe_result.cases,
+        )
+        write_memory_reuse_event_reports(
+            output_dir=run_dir,
+            events=store.get_memory_events(limit=10000),
+            edges_after=store.get_edges(),
+            edges_before=edges_before_probe,
         )
     finally:
         store.close()

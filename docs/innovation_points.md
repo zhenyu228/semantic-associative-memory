@@ -58,9 +58,10 @@
 - `outputs/runs/feedback_ablation_hotpotqa_300_isolated/` 中，SAM-full 写入了节点访问、边经过、证据命中、答案命中和路径拒绝事件。
 - `outputs/runs/hotpotqa30_real_embedding_smoke_v2/` 中，SAM-full 写入 `node_retrieved` 120 条、`edge_traversed` 141 条、`support_hit` 53 条、`answer_hit` 24 条、`path_rejected` 66 条、`memory_consolidated` 30 条。
 - `outputs/runs/hotpotqa300_real_embedding_main_v4_hops1/` 中，SAM-full 写入 `node_retrieved` 1198 条、`edge_traversed` 898 条、`support_hit` 534 条、`answer_hit` 240 条、`path_rejected` 624 条、`memory_consolidated` 300 条。
+- `outputs/runs/memory_reuse_hotpotqa30_real_embedding_v3/` 中，warmup 阶段生成 30 个巩固记忆节点和 108 条巩固边；masked probe 阶段 Embedding Top-k 证据召回率为 0.000，SAM-full 为 0.900。该 run 输出 `memory_events.md` 和 `feedback_edge_changes.md`，其中 `consolidates_support` 边出现 0.7200 -> 0.7600 的权重变化，`shared_entity` 边出现 0.7100 -> 0.7500 的权重变化。
 - `outputs/runs/agent_memory_reuse_shared_context_hotpotqa300/` 显示共享上下文下存在支持证据增益，说明历史记忆可以被后续流程读取。
 
-阶段结论：动态状态已经不是静态字段，而是会在检索后写回系统，并进入后续排序和共享记忆流程。当前版本还修正了反馈阶段的 embedding 成本问题：长期巩固记忆的向量由命中证据节点向量加权合成，不再为每条反馈额外调用在线 embedding。当前不足是 HotpotQA 独立样本之间共享实体和重复查询有限，反馈机制在单轮指标上与 SAM-full 尚未拉开明显差距；后续应设计同主题连续任务来放大记忆演化效果。
+阶段结论：动态状态已经不是静态字段，而是会在检索后写回系统，并进入后续排序和共享记忆流程。当前版本还修正了反馈阶段的 embedding 成本问题：长期巩固记忆的向量由命中证据节点向量加权合成，不再为每条反馈额外调用在线 embedding。单轮 HotpotQA 中反馈机制不容易拉开差距，但受控连续复用实验已经证明历史巩固记忆和反馈边状态能影响后续检索候选与边权。下一阶段应把这种受控复用扩展到同主题多轮问答和多智能体协作任务。
 
 ## 4. 多智能体共享记忆机制
 

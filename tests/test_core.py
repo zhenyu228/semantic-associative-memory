@@ -90,7 +90,14 @@ from sam.relation_judge import (
     relation_judge_stats,
 )
 from sam.retriever import Retriever
-from sam.reuse_experiment import build_masked_queries, summarize_memory_reuse
+from sam.reuse_experiment import (
+    build_masked_queries,
+    memory_reuse_candidate_ids,
+    snapshot_edges,
+    summarize_memory_reuse,
+    write_memory_reuse_event_reports,
+    write_memory_reuse_reports,
+)
 from sam.store import MemoryStore
 from scripts.run_demo import _nodes_for_graph_export
 from scripts.check_embedding_provider import build_embedding_status
@@ -2074,6 +2081,43 @@ class SamCoreTest(unittest.TestCase):
         self.assertFalse(set(masked[0].supporting_doc_ids) & set(masked[0].candidate_doc_ids))
         self.assertEqual(masked[0].metadata["reuse_probe"], True)
 
+    def test_memory_reuse_candidates_expose_history_only_to_sam_methods(self) -> None:
+        self.evaluator.evaluate(
+            self.queries[:1],
+            top_k=3,
+            seed_k=1,
+            hops=1,
+            methods=["sam_full"],
+        )
+        masked = build_masked_queries(self.queries[:1])[0]
+        support_node_ids = {
+            node.id
+            for node in self.store.get_nodes()
+            if node.metadata.get("original_doc_id") in masked.supporting_doc_ids
+        }
+        base_candidate_ids = [
+            node.id
+            for node in self.store.get_nodes()
+            if node.metadata.get("original_doc_id") in masked.candidate_doc_ids
+        ]
+        self.assertFalse(support_node_ids & set(base_candidate_ids))
+
+        baseline_candidates = memory_reuse_candidate_ids(
+            store=self.store,
+            query=masked,
+            method="embedding_topk",
+            base_candidate_ids=base_candidate_ids,
+        )
+        sam_candidates = memory_reuse_candidate_ids(
+            store=self.store,
+            query=masked,
+            method="sam_full",
+            base_candidate_ids=base_candidate_ids,
+        )
+
+        self.assertFalse(support_node_ids & set(baseline_candidates))
+        self.assertTrue(support_node_ids & set(sam_candidates))
+
     def test_memory_reuse_summary_reports_gain(self) -> None:
         baseline = {"support_hits": 0, "evidence_recall": 0.0}
         sam = {"support_hits": 2, "evidence_recall": 1.0}
@@ -2087,6 +2131,65 @@ class SamCoreTest(unittest.TestCase):
 
         self.assertEqual(summary["support_hit_gain"], 2)
         self.assertEqual(summary["evidence_recall_gain"], 1.0)
+
+    def test_memory_reuse_reports_include_method_table_and_edge_changes(self) -> None:
+        output_dir = Path(self.temp_dir.name) / "memory_reuse_report"
+        summary = {
+            "warmup_consolidated_count": 1,
+            "warmup_consolidation_edge_count": 2,
+            "baseline_support_hits": 0,
+            "sam_support_hits": 2,
+            "support_hit_gain": 2,
+            "baseline_evidence_recall": 0.0,
+            "sam_evidence_recall": 1.0,
+            "evidence_recall_gain": 1.0,
+        }
+        probe_metrics = {
+            "method_metrics": {
+                "embedding_topk": {
+                    "display_name": "Embedding Top-k",
+                    "support_hits": 0,
+                    "evidence_recall": 0.0,
+                    "answer_hit_rate": 0.0,
+                    "average_path_length": 1.0,
+                    "average_edge_memory_score": 0.0,
+                },
+                "sam_full": {
+                    "display_name": "SAM-full",
+                    "support_hits": 2,
+                    "evidence_recall": 1.0,
+                    "answer_hit_rate": 1.0,
+                    "average_path_length": 2.0,
+                    "average_edge_memory_score": 0.1,
+                },
+            }
+        }
+
+        _json_path, markdown_path = write_memory_reuse_reports(
+            output_dir=output_dir,
+            summary=summary,
+            warmup_metrics={},
+            probe_metrics=probe_metrics,
+            probe_cases=[],
+        )
+
+        self.assertIn("Probe 方法对比", markdown_path.read_text(encoding="utf-8"))
+        self.assertIn("SAM-full", markdown_path.read_text(encoding="utf-8"))
+
+        self.graph.build_edges_on_demand(self.nodes[:1], self.nodes)
+        before = snapshot_edges(self.store.get_edges())
+        edge = self.store.get_edges()[0]
+        self.store.activate_edges([(edge.source_id, edge.target_id, edge.relation_type)])
+        _events_json, events_md, changes_json, changes_md = write_memory_reuse_event_reports(
+            output_dir=output_dir,
+            events=self.store.get_memory_events(limit=100),
+            edges_after=self.store.get_edges(),
+            edges_before=before,
+        )
+
+        self.assertTrue(changes_json.exists())
+        self.assertIn("连续记忆复用反馈边变化", changes_md.read_text(encoding="utf-8"))
+        self.assertIn("连续记忆复用事件流", events_md.read_text(encoding="utf-8"))
 
     def test_edge_quality_audit_counts_support_and_noise_relations(self) -> None:
         cases = [

@@ -319,6 +319,20 @@ Warmup 阶段生成了 22 个巩固记忆节点和 62 条巩固相关边。Probe
 
 需要注意，该实验是受控连续复用实验，不等同于普通 HotpotQA 排行榜式评测。它验证的是动态记忆系统在信息缺失场景下利用历史经验补全证据的能力。后续应扩展到真实连续任务，例如同一主题多轮问答、跨文档研究任务和多智能体协作任务。
 
+2026-06-11 使用真实 embedding cache 重跑连续记忆复用实验，run 位于 `outputs/runs/memory_reuse_hotpotqa30_real_embedding_v3/`。该 run 使用 HotpotQA 300 条统一数据文件中的前 30 条，warmup 后构造 masked probe，并比较 Embedding Top-k、SAM-full、SAM-no-memory-state、SAM-no-feedback 和 SAM-static-graph。参数为 `top-k=4`、`seed-k=1`、`hops=1`。
+
+| 方法 | 支持证据命中数 | 证据召回率 | 答案命中率 | 平均路径长度 | 平均边记忆分 |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Embedding Top-k | 0 | 0.000 | 0.300 | 1.00 | 0.000 |
+| SAM-full | 54 | 0.900 | 0.867 | 1.90 | 0.069 |
+| SAM-no-memory-state | 54 | 0.900 | 0.867 | 1.90 | 0.000 |
+| SAM-no-feedback | 54 | 0.900 | 0.867 | 1.90 | 0.069 |
+| SAM-static-graph | 54 | 0.900 | 0.867 | 1.71 | 0.082 |
+
+该 run 的 warmup 阶段生成 30 个巩固记忆节点和 108 条巩固边；probe 阶段 baseline 无法访问被 mask 的 gold 支持文档，因此证据召回率为 0。SAM 方法通过 warmup 巩固记忆把历史支持证据重新带回候选池，最终命中 54 条支持证据，证据召回率达到 0.900。
+
+该 run 还新增 `memory_events.md` 和 `feedback_edge_changes.md`。事件流包含 `node_retrieved` 240 条、`edge_traversed` 198 条、`support_hit` 108 条、`answer_hit` 48 条、`path_rejected` 131 条、`memory_consolidated` 60 条。反馈边变化案例显示，部分 `consolidates_support` 边从 0.7200 增强到 0.7600，部分 `shared_entity` 边从 0.7100 增强到 0.7500，说明反馈不是只写日志，而是会改变后续可读取的边状态。
+
 ## 11. 类比复用实验
 
 为推进开题计划中的类比推理模块，系统进一步让 `AnalogyEngine` 识别巩固记忆案例，并返回案例答案、支持证据节点、支持证据标题和匹配关系路径。新增脚本 `scripts/run_analogy_reuse_experiment.py` 用于评估 masked probe 查询能否类比到 warmup 阶段形成的成功经验。
