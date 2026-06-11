@@ -17,6 +17,7 @@
 
 - HotpotQA 1 条真实 embedding smoke 已输出建图成本审计，说明在线 embedding 链路下也能完成写入、检索、局部建边和审计。
 - HotpotQA 30 条真实 embedding smoke `outputs/runs/hotpotqa30_real_embedding_smoke_v2/` 中，300 个文档节点的全量建图理论边数为 44850，SAM 实际唯一新建无向节点对为 1164，占比 0.025953，估算节省比例为 0.974047。
+- 300 条 HotpotQA 真实 embedding 主实验 `outputs/runs/hotpotqa300_real_embedding_main_v4_hops1/` 中，2992 个文档节点的全量建图理论边数为 4474536，SAM 实际唯一新建无向节点对为 2347，占比 0.000525，估算节省比例为 0.999475，平均每个 query 新建无向节点对 7.823。
 - 300 条 HotpotQA 主实验已经证明 SAM-full 相比 Embedding Top-k 有更高证据召回率；图扩展关闭后，SAM-no-graph 指标下降，说明局部图谱确实参与了检索。
 
 该创新点对应专家提出的“建图成本可能很高”的问题。当前回答是：SAM 不追求一次性全量建图，而是将建图动作推迟到查询发生时，只围绕被激活记忆进行局部关系补全，并将新增边和触达边记录为可审计产物。
@@ -34,11 +35,12 @@
 当前主要结果：
 
 - `outputs/runs/hotpotqa30_real_embedding_smoke_v2/`：使用公司可用 embedding endpoint 跑通 30 条 HotpotQA。Embedding Top-k 证据召回率 0.867，RAPTOR 0.900，GraphRAG 0.767，HippoRAG 0.900，SAM-full 0.883，SAM-no-graph 0.867。
+- `outputs/runs/hotpotqa300_real_embedding_main_v4_hops1/`：使用公司可用 embedding endpoint 跑通 300 条 HotpotQA。Embedding Top-k 证据召回率 0.877，RAPTOR 0.890，GraphRAG 0.795，HippoRAG 0.882，SAM-full 0.890，SAM-no-graph 0.877。SAM-full 相比 Embedding Top-k 和 SAM-no-graph 多命中 8 个支持证据。
 - `outputs/runs/fair_ablation_hotpotqa_300/`：Embedding Top-k 证据召回率 0.572，SAM-full 0.603，SAM-no-graph 0.578。
 - `outputs/runs/lexical_isolated_hotpotqa300/`：Embedding Top-k 证据召回率 0.570，SAM-full 0.662，SAM-with-lexical-activation 0.670。
 - `outputs/runs/feedback_ablation_hotpotqa_300_isolated/`：Embedding Top-k 证据召回率 0.572，RAPTOR 0.635，GraphRAG 0.562，HippoRAG 0.587，SAM-full 0.603，SAM-no-graph 0.572。
 
-阶段结论：图联想扩展能补回一部分纯向量召回遗漏的支持证据，尤其在 HotpotQA bridge-style 多跳问题中体现更明显。真实 embedding 的 30 条 smoke 中，SAM-full 相比 Embedding Top-k 多命中 1 条支持证据，增益较小但方向一致；RAPTOR 和 HippoRAG 在该小样本上更强，说明 SAM 后续仍需要加强路径重排和摘要结构融合。当前 SAM 的稳定优势主要来自图扩展和候选路径重排；多路径、记忆状态和反馈权重仍需要通过连续任务进一步放大。
+阶段结论：图联想扩展能补回一部分纯向量召回遗漏的支持证据，尤其在 HotpotQA bridge-style 多跳问题中体现更明显。真实 embedding 的 300 条主实验中，SAM-full 与 RAPTOR 的证据召回率同为 0.890，高于 Embedding Top-k、SAM-no-graph、HippoRAG 和 GraphRAG。二跳扩展在真实 embedding 下曾出现噪声路径，因此当前稳定主实验采用一跳局部联想；二跳扩展需要在 RelationJudge 和路径重排加强后再进入主线。
 
 ## 3. 状态与反馈驱动的记忆演化
 
@@ -55,9 +57,10 @@
 
 - `outputs/runs/feedback_ablation_hotpotqa_300_isolated/` 中，SAM-full 写入了节点访问、边经过、证据命中、答案命中和路径拒绝事件。
 - `outputs/runs/hotpotqa30_real_embedding_smoke_v2/` 中，SAM-full 写入 `node_retrieved` 120 条、`edge_traversed` 141 条、`support_hit` 53 条、`answer_hit` 24 条、`path_rejected` 66 条、`memory_consolidated` 30 条。
+- `outputs/runs/hotpotqa300_real_embedding_main_v4_hops1/` 中，SAM-full 写入 `node_retrieved` 1198 条、`edge_traversed` 898 条、`support_hit` 534 条、`answer_hit` 240 条、`path_rejected` 624 条、`memory_consolidated` 300 条。
 - `outputs/runs/agent_memory_reuse_shared_context_hotpotqa300/` 显示共享上下文下存在支持证据增益，说明历史记忆可以被后续流程读取。
 
-阶段结论：动态状态已经不是静态字段，而是会在检索后写回系统，并进入后续排序和共享记忆流程。当前不足是 HotpotQA 独立样本之间共享实体和重复查询有限，反馈机制在单轮指标上与 SAM-full 尚未拉开明显差距；后续应设计同主题连续任务来放大记忆演化效果。
+阶段结论：动态状态已经不是静态字段，而是会在检索后写回系统，并进入后续排序和共享记忆流程。当前版本还修正了反馈阶段的 embedding 成本问题：长期巩固记忆的向量由命中证据节点向量加权合成，不再为每条反馈额外调用在线 embedding。当前不足是 HotpotQA 独立样本之间共享实体和重复查询有限，反馈机制在单轮指标上与 SAM-full 尚未拉开明显差距；后续应设计同主题连续任务来放大记忆演化效果。
 
 ## 4. 多智能体共享记忆机制
 
@@ -92,4 +95,4 @@
 
 ## 当前优先级
 
-第一优先级是继续巩固 HotpotQA 300 条主实验：使用可用 embedding endpoint 分批预热 cache，重跑 SAM-full、SAM-no-graph、RAPTOR、GraphRAG、HippoRAG 对比，并补充典型案例。第二优先级是连续任务实验：让同一主题记忆在多轮查询中反复被激活，验证反馈和记忆状态是否能影响后续排序。第三优先级是 GPT-5.4 多智能体生成对照与类比案例。
+第一优先级是继续巩固 HotpotQA 300 条主实验：围绕一跳联想的成功结果补充典型案例，并进一步优化二跳路径的噪声控制。第二优先级是连续任务实验：让同一主题记忆在多轮查询中反复被激活，验证反馈和记忆状态是否能影响后续排序。第三优先级是 GPT-5.4 多智能体生成对照与类比案例。

@@ -11,8 +11,9 @@
 - 增加 `sam_vector_anchor` 和 `sam_adaptive_anchor`，测试是否需要固定保留更多初始向量候选。
 - 在 `cases.json` 中记录路径分数拆解，便于定位图路径是否过强。
 - 在 `GraphBuilder` 中加入边质量约束，过滤低信息关键词导致的弱关系边。
+- 在真实 embedding 300 条主实验中对比一跳与二跳扩展。二跳 run 中 SAM-full 证据召回率为 0.860，低于 Embedding Top-k 的 0.877；一跳 run 中 SAM-full 证据召回率提升到 0.890，高于 Embedding Top-k 和 SAM-no-graph 的 0.877。
 
-当前判断：图扩展是有效模块，但重排策略还不够稳定。下一步应把路径可信度、初始向量置信度和边质量分开建模，避免图路径只因连通性强就压过原始强证据。
+当前判断：图扩展是有效模块，但当前阶段应以一跳局部联想作为稳定主设置。二跳路径不是不能用，而是必须依赖更强的 RelationJudge、边质量约束和路径重排，否则会把弱连通关系误当作推理链。
 
 ## 2. 反馈机制在单轮 HotpotQA 上不明显
 
@@ -79,21 +80,22 @@
 - 增加面向 NovelQA 的答案选项判别流程。
 - 先做小规模 12 条或 30 条 smoke，再扩大到正式对照。
 
-## 6. 在线 embedding 主实验尚需分批重跑
+## 6. 在线 embedding 主实验已完成，但需要继续控制运行时成本
 
-现象：公司 embedding endpoint 已经通过连通性测试，并完成 HotpotQA 1 条真实 embedding smoke；扩大到 30 条时触发 qpm 限流。
+现象：公司 embedding endpoint 已经通过连通性测试，并完成 HotpotQA 30 条和 300 条真实 embedding 实验。扩大实验时确实会触发 qpm 限流，因此必须通过低并发、分批预热和 SQLite cache 控制调用成本。
 
 已做修正：
 
 - `.env.local` 模板改为低并发默认配置。
 - `AzureOpenAISDKEmbeddingProvider` 增加 qpm/429 限流重试。
 - README 和实验协议补充低并发、限流等待和 cache 使用方式。
+- `scripts/plan_embedding_run.py` 和 `scripts/warm_embedding_cache.py` 已覆盖文档、query、query summary 和 RAPTOR runtime summary。
+- `MemoryConsolidator` 已改为用证据节点向量合成长期记忆向量，避免反馈阶段每条样本再次调用在线 embedding。
 
-后续执行：
+当前结果：
 
-- 先用 1 到 5 条样本确认缓存可写入。
-- 再分批预热 HotpotQA 30 条 embedding cache。
-- 缓存稳定后重跑 300 条主实验。
+- `outputs/runs/hotpotqa300_real_embedding_main_v4_hops1/` 中，SAM-full 证据召回率 0.890，Embedding Top-k 和 SAM-no-graph 均为 0.877。
+- 该 run 的正式检索阶段复用本地 cache，没有继续请求线上 embedding。
 
 ## 总体判断
 

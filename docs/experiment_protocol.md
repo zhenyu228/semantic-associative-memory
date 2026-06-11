@@ -80,6 +80,46 @@ conda run -n sam python scripts/warm_embedding_cache.py \
 
 该 run 同时输出了按需建图成本审计：300 个文档节点的全量建图理论边数为 44850，实际唯一新建无向节点对为 1164，占比 0.025953，估算节省比例为 0.974047。平均每个 query 新建无向节点对 38.8。这个结果可以用于回答“建图成本是否过高”的问题：当前实现只围绕检索激活上下文局部建图，没有对整个候选集合做全量两两建边。
 
+2026-06-11 已完成 HotpotQA 300 条真实 embedding 主实验。正式 run 使用 `outputs/runs/hotpotqa300_real_embedding_cache_warmup/embedding_cache.sqlite`，预热范围包含文档、query、query summary 和 RAPTOR runtime summary；最终 6063 个唯一运行文本全部 cache hit。运行目录为 `outputs/runs/hotpotqa300_real_embedding_main_v4_hops1/`。
+
+复现命令如下：
+
+```bash
+SAM_AZURE_EMBEDDING_CONCURRENCY=1 \
+SAM_AZURE_EMBEDDING_RATE_LIMIT_SLEEP_SECONDS=5 \
+SAM_AZURE_EMBEDDING_RATE_LIMIT_RETRIES=5 \
+SAM_EMBEDDING_CACHE_WRITE_BATCH_SIZE=1 \
+conda run -n sam python scripts/run_demo.py \
+  --env-file .env.local \
+  --reset \
+  --db outputs/runs/hotpotqa300_real_embedding_main_v4_hops1/sam.sqlite \
+  --dataset hotpotqa \
+  --dataset-file data/processed/hotpotqa_midterm300_sam_sample.json \
+  --query-limit 300 \
+  --embedding-provider azure_openai_sdk \
+  --embedding-cache-path outputs/runs/hotpotqa300_real_embedding_cache_warmup/embedding_cache.sqlite \
+  --methods embedding_topk,raptor_style,graphrag_style,hipporag_style,sam_full,sam_no_graph \
+  --top-k 4 \
+  --seed-k 1 \
+  --hops 1 \
+  --run-name hotpotqa300_real_embedding_main_v4_hops1
+```
+
+主要结果如下：
+
+| 方法 | 证据命中数 | 证据召回率 | 答案命中数 | 答案命中率 |
+| --- | ---: | ---: | ---: | ---: |
+| Embedding Top-k | 526 | 0.877 | 272 | 0.907 |
+| RAPTOR | 534 | 0.890 | 273 | 0.910 |
+| GraphRAG | 477 | 0.795 | 247 | 0.823 |
+| HippoRAG | 529 | 0.882 | 271 | 0.903 |
+| SAM-full | 534 | 0.890 | 272 | 0.907 |
+| SAM-no-graph | 526 | 0.877 | 272 | 0.907 |
+
+结论：在真实 embedding 下，SAM-full 相比 Embedding Top-k 和 SAM-no-graph 多命中 8 个支持证据，证据召回率从 0.877 提升到 0.890。二跳扩展版本曾在 `outputs/runs/hotpotqa300_real_embedding_main_v3/` 中测试，SAM-full 证据召回率为 0.860，说明当前二跳路径噪声较高。因此稳定主实验采用一跳联想，二跳作为后续 RelationJudge 和路径重排增强后的实验方向。
+
+按需建图成本审计显示：2992 个文档节点对应的全量建图理论边数为 4474536，SAM 实际唯一新建无向节点对为 2347，占比 0.000525，估算节省比例为 0.999475，平均每个 query 新建无向节点对 7.823。该结果可直接支撑“动态按需建图能够控制建图成本”的答辩说明。
+
 为避免在线 embedding endpoint 阻塞实验，系统新增本地 `sentence_transformers` provider。安装可选依赖后，可以使用本地 Qwen3-Embedding-0.6B、BGE 或 E5 路径运行：
 
 ```bash

@@ -96,7 +96,7 @@ class Retriever:
         mode: str = "associative",
         top_k: int = 4,
         seed_k: int = 1,
-        hops: int = 2,
+        hops: int = 1,
         candidate_doc_ids: list[str] | None = None,
     ) -> list[RetrievalHit]:
         mode = _normalize_mode(mode)
@@ -178,7 +178,7 @@ class Retriever:
         query: str,
         top_k: int = 4,
         seed_k: int = 1,
-        hops: int = 2,
+        hops: int = 1,
         candidate_doc_ids: list[str] | None = None,
     ) -> dict[str, object]:
         hits = self.retrieve(

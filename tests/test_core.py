@@ -1918,6 +1918,52 @@ class SamCoreTest(unittest.TestCase):
         }
         self.assertIn("memory_consolidated", event_types)
 
+    def test_consolidated_memory_uses_evidence_centroid_without_provider_call(self) -> None:
+        class FailingEmbeddingProvider(EmbeddingProvider):
+            @property
+            def cache_namespace(self) -> str:
+                return "failing"
+
+            def embed(self, text: str) -> list[float]:
+                raise AssertionError("巩固记忆不应重新请求 embedding provider")
+
+        query = self.queries[0]
+        support_node = next(
+            node
+            for node in self.store.get_nodes()
+            if node.metadata.get("original_doc_id") in query.supporting_doc_ids
+        )
+        hit = RetrievalHit(
+            node=support_node,
+            score=0.8,
+            similarity_score=0.8,
+            graph_score=0.0,
+            usage_score=0.0,
+            confidence_score=support_node.confidence,
+            path=[support_node.id],
+            reason="单元测试支持证据",
+            metadata={},
+        )
+
+        record = MemoryConsolidator(
+            self.store,
+            FailingEmbeddingProvider(),
+        ).consolidate_query(
+            query=query,
+            mode="sam_full",
+            hits=[hit],
+            support_node_ids={support_node.id},
+            answer_status="found_in_retrieved_context",
+        )
+
+        self.assertIsNotNone(record)
+        assert record is not None
+        consolidated = self.store.get_node(record.node_id)
+        self.assertIsNotNone(consolidated)
+        assert consolidated is not None
+        self.assertEqual(consolidated.metadata["embedding_source"], "evidence_centroid")
+        self.assertEqual(len(consolidated.embedding), len(support_node.embedding))
+
     def test_graph_export_nodes_include_consolidated_memory(self) -> None:
         self.evaluator.evaluate(
             self.queries[:1],
@@ -3422,6 +3468,79 @@ class SamCoreTest(unittest.TestCase):
         self.assertEqual(plan["cache_miss_count"], 2)
         self.assertEqual(plan["estimated_batch_count"], 1)
         self.assertEqual(plan["will_call_provider"], True)
+
+    def test_embedding_run_plan_can_include_runtime_query_and_raptor_texts(self) -> None:
+        dataset_path = Path(self.temp_dir.name) / "runtime_sample.json"
+        documents = [
+            DatasetDocument(
+                id="d1",
+                dataset="unit",
+                title="Alpha",
+                text="Alpha evidence text",
+                source="unit",
+                tags=[],
+                keywords=["alpha", "evidence"],
+                metadata={"query_id": "q1", "entities": ["EntityA"]},
+            ),
+            DatasetDocument(
+                id="d2",
+                dataset="unit",
+                title="Beta",
+                text="Beta evidence text",
+                source="unit",
+                tags=[],
+                keywords=["beta", "evidence"],
+                metadata={"query_id": "q1", "entities": ["EntityB"]},
+            ),
+            DatasetDocument(
+                id="d3",
+                dataset="unit",
+                title="Gamma",
+                text="Gamma evidence text",
+                source="unit",
+                tags=[],
+                keywords=["gamma", "evidence"],
+                metadata={"query_id": "q2", "entities": ["EntityA"]},
+            ),
+        ]
+        queries = [
+            EvaluationQuery(
+                id="q1",
+                dataset="unit",
+                question="Question one",
+                answer="Alpha",
+                supporting_doc_ids=["d1"],
+                candidate_doc_ids=["d1", "d2"],
+            ),
+            EvaluationQuery(
+                id="q2",
+                dataset="unit",
+                question="Question two",
+                answer="Gamma",
+                supporting_doc_ids=["d3"],
+                candidate_doc_ids=["d3"],
+            ),
+        ]
+        save_sam_dataset(
+            dataset_path,
+            documents=documents,
+            queries=queries,
+            dataset_info={"name": "unit"},
+            processing={"source_script": "test"},
+        )
+
+        plan = build_embedding_run_plan(
+            dataset_path=dataset_path,
+            provider_name="local",
+            include_query_summaries=False,
+            include_query_texts=True,
+            include_raptor_summaries=True,
+        )
+
+        self.assertEqual(plan["document_text_count"], 3)
+        self.assertEqual(plan["query_text_count"], 2)
+        self.assertEqual(plan["raptor_summary_text_count"], 3)
+        self.assertEqual(plan["unique_text_count"], 8)
 
     def test_embedding_run_plan_supports_sentence_transformer_namespace(self) -> None:
         dataset_path = Path(self.temp_dir.name) / "sample.json"

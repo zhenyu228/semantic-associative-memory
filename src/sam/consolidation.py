@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import math
 
 from sam.embedding import EmbeddingProvider
 from sam.models import EvaluationQuery, MemoryEdge, MemoryEvent, MemoryNode, RetrievalHit, utc_now_iso
@@ -88,7 +89,7 @@ class MemoryConsolidator:
             last_accessed_at=existing.last_accessed_at if existing else None,
             usage_count=existing.usage_count if existing else 0,
             confidence=min(0.96, 0.70 + 0.06 * len(support_hits)) if support_hits else 0.62,
-            embedding=self.embedding_provider.embed(text),
+            embedding=_consolidated_embedding(evidence_hits),
             metadata={
                 "node_type": "consolidated_memory",
                 "query_id": query.id,
@@ -102,6 +103,7 @@ class MemoryConsolidator:
                 "evidence_original_doc_ids": evidence_original_doc_ids,
                 "evidence_titles": evidence_titles,
                 "consolidation_source": consolidation_source,
+                "embedding_source": "evidence_centroid",
             },
         )
         self.store.upsert_node(node)
@@ -229,3 +231,28 @@ def _structural_evidence_hits(hits: list[RetrievalHit]) -> list[RetrievalHit]:
         and hit.node.metadata.get("node_type") != "consolidated_memory"
     ]
     return evidence_hits[:3]
+
+
+def _consolidated_embedding(hits: list[RetrievalHit]) -> list[float]:
+    """用已检索证据的向量合成长期记忆向量，避免巩固阶段再次请求在线 embedding。"""
+
+    valid_hits = [hit for hit in hits if hit.node.embedding]
+    if not valid_hits:
+        return []
+    dimensions = min(len(hit.node.embedding) for hit in valid_hits)
+    if dimensions <= 0:
+        return []
+    weighted = [0.0] * dimensions
+    total_weight = 0.0
+    for hit in valid_hits:
+        weight = max(0.05, float(hit.score))
+        total_weight += weight
+        for index, value in enumerate(hit.node.embedding[:dimensions]):
+            weighted[index] += float(value) * weight
+    if total_weight <= 0.0:
+        return [0.0] * dimensions
+    vector = [value / total_weight for value in weighted]
+    norm = math.sqrt(sum(value * value for value in vector))
+    if norm == 0.0:
+        return vector
+    return [value / norm for value in vector]

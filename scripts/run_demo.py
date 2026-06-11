@@ -72,7 +72,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--top-k", type=int, default=4, help="最终返回文档数")
     parser.add_argument("--seed-k", type=int, default=1, help="联想检索种子节点数")
-    parser.add_argument("--hops", type=int, default=2, help="图扩展跳数")
+    parser.add_argument("--hops", type=int, default=1, help="图扩展跳数；默认使用一跳局部联想，二跳需显式开启")
     parser.add_argument(
         "--reranker-profile",
         default="semantic_heavy",

@@ -23,6 +23,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--batch-size", type=int, default=None, help="覆盖 provider 默认 batch size")
     parser.add_argument("--max-texts", type=int, default=None, help="本次最多预热多少条缺失文本，用于在线模型分批续跑")
     parser.add_argument("--no-query-summaries", action="store_true", help="不预热 query summary 节点 embedding")
+    parser.add_argument("--include-query-texts", action="store_true", help="预热检索时的 query embedding 文本")
+    parser.add_argument("--include-raptor-summaries", action="store_true", help="预热 RAPTOR 检索运行时 cluster summary embedding 文本")
     parser.add_argument("--output-dir", default="outputs/plans", help="预热结果输出目录")
     parser.add_argument("--json", action="store_true", help="同时在终端打印 JSON")
     return parser.parse_args()
@@ -41,6 +43,8 @@ def main() -> None:
         cache_path=cache_path,
         batch_size=args.batch_size,
         include_query_summaries=not args.no_query_summaries,
+        include_query_texts=args.include_query_texts,
+        include_raptor_summaries=args.include_raptor_summaries,
         max_texts=args.max_texts,
     )
     json_path, markdown_path = write_embedding_warmup_result(result, output_dir)

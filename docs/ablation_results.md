@@ -1,6 +1,6 @@
 # SAM 300 条消融实验记录
 
-本文档记录当前阶段的 HotpotQA 300 条主实验。运行产物位于 `outputs/runs/fair_ablation_hotpotqa_300/`，该目录不进入 Git 仓库。
+本文档记录当前阶段的 HotpotQA 300 条主实验。运行产物位于 `outputs/runs/`，该目录不进入 Git 仓库。
 
 ## 1. 实验设置
 
@@ -11,7 +11,7 @@
 - 摘要记忆节点数量：300
 - 记忆节点总数：3292
 - Gold 支持证据数量：600
-- 默认参数：`top-k=4`，`seed-k=1`，`hops=2`
+- 当前真实 embedding 主实验参数：`top-k=4`，`seed-k=1`，`hops=1`
 - 统一格式文件：`data/processed/hotpotqa_midterm300_sam_sample.json`
 
 复现命令：
@@ -63,6 +63,67 @@ conda run -n sam python scripts/run_demo.py \
 该结果说明：换用真实 embedding 后，基础向量召回本身已经较强，SAM-full 相比 Embedding Top-k 和 SAM-no-graph 多命中 1 条支持证据，但优势幅度不大；RAPTOR 和 HippoRAG 在 30 条小样本上达到 0.900 证据召回率，是后续需要追平的强对照。当前 SAM 的优势证据更多体现在“可解释路径”和“局部建图成本控制”上，而不是大幅压过所有 baseline。
 
 该 run 的按需建图成本审计显示：300 个文档节点全量建图理论边数为 44850，实际唯一新建无向节点对为 1164，唯一新建节点对 / 全量边比例为 0.025953，估算边比较节省比例为 0.974047，平均每个 query 新建无向节点对 38.8。
+
+### 2.2 真实在线 embedding endpoint 300 条主实验
+
+2026-06-11 使用公司可用的 `text-embedding-3-large` endpoint 完成 HotpotQA 300 条主实验。实验先通过 `scripts/plan_embedding_run.py` 和 `scripts/warm_embedding_cache.py` 预热文档、query、query summary 与 RAPTOR runtime summary 的 embedding cache，最终 6063 个唯一运行文本全部 cache hit，正式检索阶段没有继续请求线上 embedding。
+
+运行目录：`outputs/runs/hotpotqa300_real_embedding_main_v4_hops1/`
+
+核心参数：`top-k=4`，`seed-k=1`，`hops=1`。二跳扩展曾在 `outputs/runs/hotpotqa300_real_embedding_main_v3/` 中测试，SAM-full 证据召回率为 0.860，低于 Embedding Top-k 的 0.877。case 级分析显示，二跳路径会补回少量间接证据，但也更容易把强向量证据挤出 top-k。因此当前稳定主实验采用一跳局部联想，二跳留给后续 RelationJudge 和路径重排增强后再开启。
+
+复现命令：
+
+```bash
+SAM_AZURE_EMBEDDING_CONCURRENCY=1 \
+SAM_AZURE_EMBEDDING_RATE_LIMIT_SLEEP_SECONDS=5 \
+SAM_AZURE_EMBEDDING_RATE_LIMIT_RETRIES=5 \
+SAM_EMBEDDING_CACHE_WRITE_BATCH_SIZE=1 \
+conda run -n sam python scripts/run_demo.py \
+  --env-file .env.local \
+  --reset \
+  --db outputs/runs/hotpotqa300_real_embedding_main_v4_hops1/sam.sqlite \
+  --dataset hotpotqa \
+  --dataset-file data/processed/hotpotqa_midterm300_sam_sample.json \
+  --query-limit 300 \
+  --embedding-provider azure_openai_sdk \
+  --embedding-cache-path outputs/runs/hotpotqa300_real_embedding_cache_warmup/embedding_cache.sqlite \
+  --methods embedding_topk,raptor_style,graphrag_style,hipporag_style,sam_full,sam_no_graph \
+  --top-k 4 \
+  --seed-k 1 \
+  --hops 1 \
+  --run-name hotpotqa300_real_embedding_main_v4_hops1
+```
+
+主要结果如下：
+
+| 方法 | 证据命中数 | 证据召回率 | 答案命中数 | 答案命中率 | 平均路径长度 |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Embedding Top-k | 526 | 0.877 | 272 | 0.907 | 1.00 |
+| RAPTOR | 534 | 0.890 | 273 | 0.910 | 2.00 |
+| GraphRAG | 477 | 0.795 | 247 | 0.823 | 1.00 |
+| HippoRAG | 529 | 0.882 | 271 | 0.903 | 1.00 |
+| SAM-full | 534 | 0.890 | 272 | 0.907 | 1.75 |
+| SAM-no-graph | 526 | 0.877 | 272 | 0.907 | 1.00 |
+
+该结果说明，在真实 embedding 下，SAM-full 相比 Embedding Top-k 和 SAM-no-graph 多命中 8 个支持证据，证据召回率从 0.877 提升到 0.890。SAM-full 与 RAPTOR 的证据召回率持平，高于 HippoRAG 和 GraphRAG。`sam_no_graph` 与 Embedding Top-k 指标一致，说明本轮增益来自图联想扩展，而不是单纯向量召回。
+
+按需建图成本审计结果如下：
+
+| 指标 | 数值 |
+| --- | ---: |
+| 文档节点数 | 2992 |
+| 查询数量 | 300 |
+| 新建边日志数 | 4694 |
+| 唯一新建无向节点对数 | 2347 |
+| 全量建图理论边数 | 4474536 |
+| 唯一新建节点对 / 全量边比例 | 0.000525 |
+| 估算边比较节省比例 | 0.999475 |
+| 平均每 query 新建无向节点对数 | 7.823 |
+
+关系类型分布：`embedding_similarity` 2114 条，`keyword_overlap` 1014 条，`shared_entity` 1566 条。
+
+记忆事件方面，SAM-full 写入 `node_retrieved` 1198 条、`edge_traversed` 898 条、`support_hit` 534 条、`answer_hit` 240 条、`path_rejected` 624 条、`memory_consolidated` 300 条。巩固记忆节点的 embedding 已改为由命中证据节点向量加权合成，不再在反馈阶段额外调用在线 embedding endpoint。
 
 ## 3. SAM 消融结果
 
@@ -686,9 +747,9 @@ conda run -n sam python scripts/run_demo.py \
 
 本轮改造后，`AzureOpenAISDKEmbeddingProvider` 在 single 和 batch 两种输入模式下都会对 `embeddings.create` 设置同一个 timeout，并保留原有并发、维度、模型名和重试参数。单元测试 `test_azure_embedding_sdk_provider_times_out_hanging_request` 模拟网关挂起，验证 provider 能在低 timeout 设置下快速抛出 `TimeoutError`，不会无限阻塞。
 
-随后使用本地 `.env.local` 做低额度真实 probe，命令临时设置 `SAM_AZURE_EMBEDDING_TIMEOUT=5`、`SAM_AZURE_EMBEDDING_MAX_RETRIES=1`，并调用 `scripts/check_embedding_provider.py --provider azure_openai_sdk --probe ...`。诊断结果显示配置项完整，但真实请求返回结构化 `TimeoutError`。这说明当前本地已具备正式 embedding 的配置读取、SDK 调用路径、超时失败和错误报告能力；但公司 embedding endpoint 在本次测试窗口内没有返回向量，因此 HotpotQA 300 条和 NovelQA 的正式在线 embedding 重跑仍需要在接口可用后继续执行。
+随后使用本地 `.env.local` 做低额度真实 probe，命令临时设置 `SAM_AZURE_EMBEDDING_TIMEOUT=5`、`SAM_AZURE_EMBEDDING_MAX_RETRIES=1`，并调用 `scripts/check_embedding_provider.py --provider azure_openai_sdk --probe ...`。早期诊断曾返回结构化 `TimeoutError`，说明超时保护能够把问题边界收敛到在线服务可用性，而不是让实验脚本无限等待。后续 endpoint 恢复后，系统已经完成 HotpotQA 300 条真实 embedding 主实验；NovelQA 正式在线 embedding 小样本仍需补充。
 
-该结果把问题边界收窄到在线 embedding 服务可用性，而不是 SAM 的配置读取或调用代码缺失。后续正式实验的推荐顺序是：先用 1 条 probe 确认 endpoint 返回 1024 维向量，再用 `plan_embedding_run.py` 估算请求量，再用 `warm_embedding_cache.py` 预热缓存，最后重跑 HotpotQA 300 条消融和 NovelQA 小样本实验。
+该结果把问题边界收窄到在线 embedding 服务可用性，而不是 SAM 的配置读取或调用代码缺失。后续正式实验的推荐顺序是：先用 1 条 probe 确认 endpoint 返回 1024 维向量，再用 `plan_embedding_run.py` 估算请求量，再用 `warm_embedding_cache.py` 预热缓存，最后运行目标数据集实验。HotpotQA 300 条已经按该流程完成，NovelQA 小样本可继续沿用同一流程。
 
 ## 32. GPT-5.4 RelationJudge 低预算链路验证
 

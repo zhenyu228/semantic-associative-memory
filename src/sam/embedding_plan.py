@@ -10,7 +10,7 @@ from typing import Any
 
 from sam.dataset_format import load_sam_dataset
 from sam.embedding import CachedEmbeddingProvider, EmbeddingProvider, create_embedding_provider
-from sam.models import DatasetDocument
+from sam.models import DatasetDocument, EvaluationQuery
 from sam.text import extract_keywords
 
 
@@ -22,16 +22,24 @@ def build_embedding_run_plan(
     cache_namespace: str | None = None,
     batch_size: int | None = None,
     include_query_summaries: bool = True,
+    include_query_texts: bool = False,
+    include_raptor_summaries: bool = False,
 ) -> dict[str, object]:
     """估算一次 embedding 实验会请求多少唯一文本。
 
     该函数只读取数据集和本地缓存，不实例化在线 provider，也不发送网络请求。
     """
 
-    documents, _queries, payload = load_sam_dataset(dataset_path)
+    documents, queries, payload = load_sam_dataset(dataset_path)
     document_texts = [_document_embedding_text(document) for document in documents]
     summary_texts = _summary_embedding_texts(documents) if include_query_summaries else []
-    all_texts = [*document_texts, *summary_texts]
+    query_texts = _query_embedding_texts(queries) if include_query_texts else []
+    raptor_summary_texts = (
+        _raptor_summary_embedding_texts(documents, queries)
+        if include_raptor_summaries
+        else []
+    )
+    all_texts = [*document_texts, *summary_texts, *query_texts, *raptor_summary_texts]
     unique_texts = list(dict.fromkeys(all_texts))
     resolved_provider = provider_name or os.environ.get("SAM_EMBEDDING_PROVIDER", "local")
     resolved_batch_size = max(1, batch_size or _provider_batch_size(resolved_provider))
@@ -48,6 +56,8 @@ def build_embedding_run_plan(
         "provider": resolved_provider,
         "document_text_count": len(document_texts),
         "summary_text_count": len(summary_texts),
+        "query_text_count": len(query_texts),
+        "raptor_summary_text_count": len(raptor_summary_texts),
         "total_text_count": len(all_texts),
         "unique_text_count": len(unique_texts),
         "duplicate_text_count": len(all_texts) - len(unique_texts),
@@ -68,6 +78,8 @@ def warm_embedding_cache(
     cache_path: str | Path,
     batch_size: int | None = None,
     include_query_summaries: bool = True,
+    include_query_texts: bool = False,
+    include_raptor_summaries: bool = False,
     max_texts: int | None = None,
     provider: EmbeddingProvider | None = None,
 ) -> dict[str, object]:
@@ -80,10 +92,14 @@ def warm_embedding_cache(
         cache_path=cache_path,
         batch_size=batch_size,
         include_query_summaries=include_query_summaries,
+        include_query_texts=include_query_texts,
+        include_raptor_summaries=include_raptor_summaries,
     )
     texts = _unique_embedding_texts(
         dataset_path=dataset_path,
         include_query_summaries=include_query_summaries,
+        include_query_texts=include_query_texts,
+        include_raptor_summaries=include_raptor_summaries,
     )
     namespace = _cache_namespace_from_env(resolved_provider)
     missing_texts = _missing_cache_texts(
@@ -114,6 +130,8 @@ def warm_embedding_cache(
         cache_path=cache_path,
         batch_size=batch_size,
         include_query_summaries=include_query_summaries,
+        include_query_texts=include_query_texts,
+        include_raptor_summaries=include_raptor_summaries,
     )
     return {
         "dataset_path": str(dataset_path),
@@ -160,11 +178,19 @@ def _unique_embedding_texts(
     *,
     dataset_path: str | Path,
     include_query_summaries: bool,
+    include_query_texts: bool,
+    include_raptor_summaries: bool,
 ) -> list[str]:
-    documents, _queries, _payload = load_sam_dataset(dataset_path)
+    documents, queries, _payload = load_sam_dataset(dataset_path)
     document_texts = [_document_embedding_text(document) for document in documents]
     summary_texts = _summary_embedding_texts(documents) if include_query_summaries else []
-    return list(dict.fromkeys([*document_texts, *summary_texts]))
+    query_texts = _query_embedding_texts(queries) if include_query_texts else []
+    raptor_summary_texts = (
+        _raptor_summary_embedding_texts(documents, queries)
+        if include_raptor_summaries
+        else []
+    )
+    return list(dict.fromkeys([*document_texts, *summary_texts, *query_texts, *raptor_summary_texts]))
 
 
 def _summary_embedding_texts(documents: list[DatasetDocument]) -> list[str]:
@@ -191,6 +217,48 @@ def _summary_embedding_texts(documents: list[DatasetDocument]) -> list[str]:
             f"{summary_text}"
         )
     return texts
+
+
+def _query_embedding_texts(queries: list[EvaluationQuery]) -> list[str]:
+    return [query.question for query in queries]
+
+
+def _raptor_summary_embedding_texts(
+    documents: list[DatasetDocument],
+    queries: list[EvaluationQuery],
+) -> list[str]:
+    documents_by_id = {document.id: document for document in documents}
+    texts: list[str] = []
+    for query in queries:
+        clusters: dict[str, list[DatasetDocument]] = {}
+        for doc_id in query.candidate_doc_ids:
+            document = documents_by_id.get(doc_id)
+            if document is None:
+                continue
+            clusters.setdefault(_raptor_cluster_id(document), []).append(document)
+        for cluster_documents in clusters.values():
+            texts.append(
+                " ".join(
+                    f"{document.title} {' '.join(_document_keywords(document)[:6])} {document.text[:180]}"
+                    for document in cluster_documents
+                )
+            )
+    return texts
+
+
+def _raptor_cluster_id(document: DatasetDocument) -> str:
+    query_id = document.metadata.get("query_id")
+    entities = document.metadata.get("entities", [])
+    if entities:
+        return f"{query_id or document.dataset}::{str(entities[0]).lower()}"
+    keywords = _document_keywords(document)
+    if keywords:
+        return f"{query_id or document.dataset}::{keywords[0]}"
+    return f"{query_id or document.dataset}::misc"
+
+
+def _document_keywords(document: DatasetDocument) -> list[str]:
+    return document.keywords or extract_keywords(_document_embedding_text(document))
 
 
 def _provider_batch_size(provider_name: str) -> int:
@@ -326,6 +394,8 @@ def _plan_to_markdown(plan: dict[str, object]) -> str:
             f"- Provider：{plan.get('provider')}",
             f"- 文档 embedding 文本数：{plan.get('document_text_count')}",
             f"- 摘要 embedding 文本数：{plan.get('summary_text_count')}",
+            f"- Query embedding 文本数：{plan.get('query_text_count')}",
+            f"- RAPTOR 摘要 embedding 文本数：{plan.get('raptor_summary_text_count')}",
             f"- 唯一文本数：{plan.get('unique_text_count')}",
             f"- 缓存命中数：{plan.get('cache_hit_count')}",
             f"- 预计需要请求文本数：{plan.get('cache_miss_count')}",

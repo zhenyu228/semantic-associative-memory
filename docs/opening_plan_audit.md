@@ -52,10 +52,11 @@
   - 已存在：`outputs/runs/lexical_isolated_hotpotqa300/metrics.json`，HotpotQA 300 条候选集隔离实验，摘要：{"sam_evidence_recall": 0.6617, "sam_answer_hit_rate": 0.75, "embedding_evidence_recall": 0.57, "embedding_answer_hit_rate": 0.6467}
   - 已存在：`outputs/runs/fair_ablation_hotpotqa_300/ablation_metrics.json`，HotpotQA 300 条消融，摘要：{"sam_evidence_recall": 0.6033, "sam_answer_hit_rate": 0.5967}
   - 已存在：`outputs/runs/feedback_ablation_hotpotqa_300_isolated/ablation_metrics.json`，反馈消融 300 条，摘要：{"sam_evidence_recall": 0.6033, "sam_answer_hit_rate": 0.5967}
+  - 已存在：`outputs/runs/hotpotqa300_real_embedding_main_v4_hops1/metrics.json`，HotpotQA 300 条真实 embedding 主实验，摘要：{"sam_evidence_recall": 0.89, "sam_answer_hit_rate": 0.9067, "embedding_evidence_recall": 0.8767, "raptor_evidence_recall": 0.89}
   - 已存在：`outputs/runs/reranker_profile_hotpotqa300_noise_penalty/reranker_profile_comparison.json`，PathReranker 300 条 profile 对比，摘要：{"best_profile": "semantic_heavy", "profile_count": 4}
   - 已存在：`outputs/runs/edge_audit_penalty_hotpotqa30/metrics.json`，Edge-audit 惩罚 30 条 smoke，摘要：{"sam_evidence_recall": 0.6, "sam_answer_hit_rate": 0.7333, "embedding_evidence_recall": 0.5167, "embedding_answer_hit_rate": 0.5667}
 - 剩余工作：
-  - 正式 embedding 尚未重跑 HotpotQA 300 条和 NovelQA。
+  - HotpotQA 300 条正式 embedding 主实验已完成，NovelQA 正式在线 embedding 小样本仍需补充。
   - 多路径与记忆状态需要在连续任务中继续拉开贡献差异。
   - 仍需进一步降低图噪声和缺失支持证据问题。
 
@@ -123,7 +124,7 @@
   - 已存在：`outputs/plans/hotpotqa_local_warmup/embedding_cache_warmup.json`，HotpotQA embedding cache 本地预热 smoke
   - 已存在：`docs/official_baseline_audit.json`，官方 baseline 就绪状态审计，摘要：{"ready_count": 2, "partial_count": 1, "prepared_dataset_count": 1}
 - 剩余工作：
-  - 正式 embedding endpoint/key 已在本地安全配置中提供，但当前真实 probe 返回 TimeoutError，HotpotQA 300 条和 NovelQA 正式在线 embedding 主实验尚未完成。
+  - HotpotQA 300 条正式 embedding 主实验已完成，NovelQA 正式在线 embedding 小样本仍需补充。
   - GPT-5.4 grounded 生成闭环已跑通低额度实验，但需要扩大到更多样本并接入语义答案判别。
   - 官方 baseline 中 GraphRAG 已达到本地 ready 状态，RAPTOR 和 HippoRAG 仍需修复官方依赖后再跑正式分数。
 
@@ -131,6 +132,6 @@
 
 - 多智能体语义记忆协调机制：当前多智能体实验仍偏受控流程，不是完整 Deep Research 任务。
 - 类比推理触发与应用：类比提示对最终答案质量的提升尚未用 GPT-5.4 正式验证。
-- 评测体系与检索-生成闭环：正式 embedding endpoint/key 已在本地安全配置中提供，但当前真实 probe 返回 TimeoutError，HotpotQA 300 条和 NovelQA 正式在线 embedding 主实验尚未完成。
+- 评测体系与检索-生成闭环：HotpotQA 300 条正式 embedding 主实验已完成，NovelQA 正式在线 embedding 小样本和更大规模 GPT-5.4 生成实验仍需补充。
 - 知识提取与动态知识图谱构建：GPT-5.4 RelationJudge 已完成 30 条对照，但尚未形成 300 条高预算正式实验。
-- 语义激活与联想检索机制：正式 embedding 尚未重跑 HotpotQA 300 条和 NovelQA。
+- 语义激活与联想检索机制：HotpotQA 300 条正式 embedding 主实验已完成，NovelQA 正式在线 embedding 小样本仍需补充。

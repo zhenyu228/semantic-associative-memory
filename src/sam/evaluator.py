@@ -86,7 +86,7 @@ class Evaluator:
         queries: list[EvaluationQuery],
         top_k: int = 2,
         seed_k: int = 1,
-        hops: int = 2,
+        hops: int = 1,
         methods: list[str] | None = None,
         use_retrieval_query: bool = False,
         query_planner: QueryPlanner | None = None,
