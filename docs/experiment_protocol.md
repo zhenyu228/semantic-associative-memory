@@ -221,7 +221,7 @@ outputs/runs/midterm_hotpotqa_final/
 - 统一格式文件：`data/processed/novelqa_demo_sam_sample.json`
 - 原始文件：`data/raw/NovelQA.zip`
 
-NovelQA demonstration 的价值在于验证系统可以处理长篇小说切块和长文本问答格式。当前 embedding 仍是轻量本地实现，因此 NovelQA 结果主要用于展示数据接入、图谱构建和可视化闭环，不作为最终效果结论。
+NovelQA demonstration 的价值在于验证系统可以处理长篇小说切块和长文本问答格式。早期结果主要用于展示数据接入、图谱构建和可视化闭环；当前已补充真实 embedding provider 的 12 条 smoke，用于分析长文本场景下不同检索方法的边界。
 
 ### 3.2 复现命令
 
@@ -266,6 +266,46 @@ outputs/runs/midterm_novelqa_demo_final/
 | SAM 动态联想检索 | 0.000 | 0.125 |
 
 说明：NovelQA 当前结果较弱，主要原因是长篇小说 chunk 检索对 embedding 质量和切块策略更加敏感。该实验现阶段用于证明 NovelQA 已被接入统一数据格式，系统能够生成记忆节点、语义边、检索案例和可视化图谱。后续更换 Qwen3-Embedding、BGE 或 E5 后，再作为正式长文本实验。
+
+真实 embedding NovelQA smoke 命令如下：
+
+```bash
+SAM_AZURE_EMBEDDING_CONCURRENCY=1 \
+SAM_AZURE_EMBEDDING_RATE_LIMIT_SLEEP_SECONDS=5 \
+SAM_AZURE_EMBEDDING_RATE_LIMIT_RETRIES=20 \
+SAM_EMBEDDING_CACHE_WRITE_BATCH_SIZE=1 \
+conda run -n sam python scripts/run_demo.py \
+  --env-file .env.local \
+  --dataset novelqa \
+  --dataset-file data/processed/novelqa_demo_eval_sam_sample.json \
+  --novelqa-source data/raw/NovelQA.zip \
+  --novelqa-split demonstration \
+  --query-limit 12 \
+  --embedding-provider azure_openai_sdk \
+  --embedding-cache \
+  --embedding-cache-path outputs/cache/novelqa_real_embedding_cache.sqlite \
+  --embedding-concurrency 1 \
+  --methods embedding_topk,raptor_style,graphrag_style,hipporag_style,sam_full,sam_no_graph \
+  --query-planner heuristic \
+  --top-k 4 \
+  --seed-k 1 \
+  --hops 1 \
+  --run-name novelqa12_real_embedding_query_plan_v1 \
+  --reset
+```
+
+主要结果如下：
+
+| 方法 | 证据召回率 | 答案命中率 |
+| --- | ---: | ---: |
+| Embedding Top-k | 0.357 | 0.083 |
+| RAPTOR | 0.429 | 0.083 |
+| GraphRAG | 0.500 | 0.083 |
+| HippoRAG | 0.429 | 0.083 |
+| SAM-full | 0.357 | 0.000 |
+| SAM-no-graph | 0.357 | 0.083 |
+
+该 run 证明 NovelQA 可以进入真实 embedding 评测闭环，但也显示当前 SAM 的图扩展在长文本小说场景中仍受图噪声影响。后续应把 NovelQA 作为单独优化方向，引入更强实体消歧、关系判别和生成式答案评估。
 
 ## 4. 可检查产物
 

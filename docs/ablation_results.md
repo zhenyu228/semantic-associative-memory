@@ -892,3 +892,20 @@ bad case 分布从 `success=27, source_case_without_consolidation=3` 变为 `suc
 | shared_memory_with_analogy | 6 | 0.600 | 7 | 1 | 1461.9 |
 
 该 run 没有 API 调用失败，说明 GPT-5.4 多智能体生成对照链路已经可以稳定运行到 10 条规模。结果同时暴露出当前瓶颈：共享记忆和类比提示确实进入了生成 prompt，使平均 prompt token 明显增加，并且共享记忆平均补充上下文数量为 2；但三种设置的最终答案命中率相同，暂未观察到答案率增益。bad case 主要集中在 `retrieval_context_missing_answer` 和 `context_available_but_generation_failed`，说明下一步应优先改进证据召回、上下文压缩和要求模型显式引用证据编号的生成提示，而不是只增加共享记忆长度。
+
+## 39. NovelQA 真实 Embedding 长文本 Smoke
+
+为验证系统不只适用于 HotpotQA 的短段落结构，进一步使用真实 embedding provider 运行 NovelQA demonstration 12 条长文本 smoke。实验输入为 `data/processed/novelqa_demo_eval_sam_sample.json`，包含 120 个 Frankenstein 小说 chunk、12 个问题和 14 条可映射支持证据；运行目录为 `outputs/runs/novelqa12_real_embedding_query_plan_v1/`。实验启用启发式 QueryPlanner，方法包括 Embedding Top-k、RAPTOR、GraphRAG、HippoRAG、SAM-full 和 SAM-no-graph。
+
+| 方法 | 证据命中数 | 证据召回率 | 答案命中数 | 答案命中率 |
+| --- | ---: | ---: | ---: | ---: |
+| Embedding Top-k | 5 | 0.357 | 1 | 0.083 |
+| RAPTOR | 6 | 0.429 | 1 | 0.083 |
+| GraphRAG | 7 | 0.500 | 1 | 0.083 |
+| HippoRAG | 6 | 0.429 | 1 | 0.083 |
+| SAM-full | 5 | 0.357 | 0 | 0.000 |
+| SAM-no-graph | 5 | 0.357 | 1 | 0.083 |
+
+按需建图成本审计显示，120 个文档节点的全量建图理论边数为 7140，本次查询驱动的新建无向节点对为 1035，占全量边的 0.144958，估算节省比例为 0.855042。该结果说明按需建图仍能降低构图成本，但 NovelQA 的长文本 chunk 之间语义相似边非常密集，平均每 query 新建无向节点对达到 86.25。
+
+该 run 的结论比较明确：跨数据集接入、真实 embedding、图谱导出、事件日志和成本审计都已经跑通；但 SAM-full 在 NovelQA 上没有超过 no-graph，GraphRAG 当前表现最好。bad case 主要是 `missing_support_evidence`、`answer_not_covered` 和 `graph_noise`，说明长文本小说问答需要更强的实体消歧、关系判别、chunk 定位和生成式答案评估。这个结果不削弱 HotpotQA 主实验结论，但说明 SAM 的长文本版本需要单独优化，不能直接沿用短段落多跳问答的建边和重排权重。
