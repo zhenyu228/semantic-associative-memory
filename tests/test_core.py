@@ -63,6 +63,13 @@ from sam.generation import (
 )
 from sam.graph_cost_audit import audit_graph_build_cost, write_graph_build_cost_audit
 from sam.graph import GraphBuilder
+from sam.graph_strategy_experiment import (
+    GraphStrategyConfig,
+    GraphStrategyExperiment,
+    context_path_proximity,
+    run_alpha_sweep,
+    position_proximity,
+)
 from sam.llm import (
     AzureOpenAIChatClient,
     AzureOpenAISDKChatClient,
@@ -555,6 +562,198 @@ class SamCoreTest(unittest.TestCase):
             bridged.metadata["bridge_entities"][0]["canonical_name"],
             "graphrag",
         )
+
+    def test_context_path_proximity_generalizes_linear_position(self) -> None:
+        same_section_left = ["paper_1", "method", "paragraph_1"]
+        same_section_right = ["paper_1", "method", "paragraph_2"]
+        same_object_other_section = ["paper_1", "experiment", "paragraph_8"]
+        different_object = ["paper_2", "method", "paragraph_1"]
+
+        self.assertGreater(
+            context_path_proximity(same_section_left, same_section_right),
+            context_path_proximity(same_section_left, same_object_other_section),
+        )
+        self.assertGreater(
+            context_path_proximity(same_section_left, same_object_other_section),
+            context_path_proximity(same_section_left, different_object),
+        )
+        self.assertGreater(
+            position_proximity(3, 4),
+            position_proximity(3, 12),
+        )
+
+    def test_graph_strategy_experiment_compares_non_llm_builders(self) -> None:
+        nodes = self._strategy_nodes()
+        experiment = GraphStrategyExperiment(
+            nodes=nodes,
+            queries=[],
+            alpha=0.55,
+            top_k_edges=2,
+            threshold=0.08,
+        )
+
+        results = experiment.compare_build_strategies(
+            ["no_graph", "semantic_only", "position_only", "cam_style", "context_path_only", "sam_context"]
+        )
+
+        self.assertEqual(results["no_graph"].edge_count, 0)
+        self.assertEqual(results["semantic_only"].strategy, "semantic_only")
+        self.assertGreater(results["semantic_only"].candidate_pair_count, 0)
+        self.assertGreater(results["sam_context"].edge_count, 0)
+        self.assertGreaterEqual(
+            results["sam_context"].average_edge_score,
+            results["context_path_only"].average_edge_score,
+        )
+        sample_edge = results["sam_context"].edges[0]
+        self.assertIn("semantic_similarity", sample_edge.metadata["score_breakdown"])
+        self.assertIn("context_path_proximity", sample_edge.metadata["score_breakdown"])
+        self.assertFalse(sample_edge.metadata["uses_llm"])
+
+    def test_graph_strategy_experiment_reports_cost_effectiveness(self) -> None:
+        nodes = self._strategy_nodes()
+        queries = [
+            EvaluationQuery(
+                id="q1",
+                dataset="unit",
+                question="Which evidence explains graph retrieval for long context?",
+                answer="Graph retrieval improves long context evidence.",
+                supporting_doc_ids=["doc_b"],
+                candidate_doc_ids=["doc_a", "doc_b", "doc_c"],
+            )
+        ]
+        experiment = GraphStrategyExperiment(
+            nodes=nodes,
+            queries=queries,
+            alpha=0.55,
+            top_k_edges=2,
+            threshold=0.08,
+        )
+
+        report = experiment.run(
+            strategies=["no_graph", "semantic_only", "cam_style", "sam_context"],
+            top_k=2,
+            seed_k=1,
+            hops=1,
+        )
+
+        self.assertEqual(report["config"]["alpha"], 0.55)
+        self.assertIn("sam_context", report["strategies"])
+        self.assertIn("evidence_recall", report["strategies"]["sam_context"]["metrics"])
+        self.assertIn("build_time_seconds", report["strategies"]["sam_context"]["cost"])
+        self.assertIn("cost_effectiveness", report["strategies"]["sam_context"])
+        self.assertIn("recommended_strategy", report["summary"])
+        self.assertFalse(report["strategies"]["sam_context"]["cost"]["uses_llm"])
+
+    def test_no_graph_strategy_uses_embedding_top_k_not_seed_k_only(self) -> None:
+        nodes = self._strategy_nodes()
+        queries = [
+            EvaluationQuery(
+                id="q1",
+                dataset="unit",
+                question="Which evidence explains graph retrieval for long context?",
+                answer="Graph retrieval improves long context evidence.",
+                supporting_doc_ids=["doc_b"],
+                candidate_doc_ids=["doc_a", "doc_b", "doc_c"],
+            )
+        ]
+
+        report = GraphStrategyExperiment(nodes=nodes, queries=queries).run(
+            strategies=["no_graph"],
+            top_k=2,
+            seed_k=1,
+            hops=1,
+        )
+
+        hits = report["strategies"]["no_graph"]["cases"][0]["hits"]
+        self.assertEqual(len(hits), 2)
+        self.assertTrue(all(len(hit["path"]) == 1 for hit in hits))
+
+    def test_alpha_sweep_compares_sam_context_weights(self) -> None:
+        sweep = run_alpha_sweep(
+            nodes=self._strategy_nodes(),
+            queries=[
+                EvaluationQuery(
+                    id="q1",
+                    dataset="unit",
+                    question="Which evidence explains graph retrieval for long context?",
+                    answer="Graph retrieval improves long context evidence.",
+                    supporting_doc_ids=["doc_b"],
+                    candidate_doc_ids=["doc_a", "doc_b", "doc_c"],
+                )
+            ],
+            alphas=[0.0, 0.5, 1.0],
+            top_k_edges=2,
+            threshold=0.08,
+            top_k=2,
+            seed_k=1,
+            hops=1,
+        )
+
+        self.assertEqual([row["alpha"] for row in sweep["rows"]], [0.0, 0.5, 1.0])
+        self.assertIn("best_alpha", sweep)
+        self.assertIn("selection_rule", sweep)
+
+    def _strategy_nodes(self) -> list[MemoryNode]:
+        now = utc_now_iso()
+        return [
+            MemoryNode(
+                id="node_a",
+                text="Graph retrieval introduces semantic memory for long context question answering.",
+                summary="Graph retrieval semantic memory.",
+                keywords=["graph", "retrieval", "semantic", "memory"],
+                tags=["strategy_test"],
+                source="unit-test",
+                created_at=now,
+                last_accessed_at=None,
+                usage_count=0,
+                confidence=0.9,
+                embedding=self.embedding.embed("Graph retrieval semantic memory"),
+                metadata={
+                    "original_doc_id": "doc_a",
+                    "title": "Graph retrieval intro",
+                    "context_path": ["paper_1", "introduction", "paragraph_1"],
+                    "position": 1,
+                },
+            ),
+            MemoryNode(
+                id="node_b",
+                text="The graph retrieval method improves evidence organization for long context tasks.",
+                summary="Graph retrieval improves evidence organization.",
+                keywords=["graph", "retrieval", "evidence", "long"],
+                tags=["strategy_test"],
+                source="unit-test",
+                created_at=now,
+                last_accessed_at=None,
+                usage_count=0,
+                confidence=0.9,
+                embedding=self.embedding.embed("Graph retrieval improves evidence organization"),
+                metadata={
+                    "original_doc_id": "doc_b",
+                    "title": "Graph retrieval result",
+                    "context_path": ["paper_1", "method", "paragraph_2"],
+                    "position": 2,
+                },
+            ),
+            MemoryNode(
+                id="node_c",
+                text="A separate baseline discusses table extraction and unrelated preprocessing.",
+                summary="Unrelated preprocessing baseline.",
+                keywords=["table", "extraction", "baseline"],
+                tags=["strategy_test"],
+                source="unit-test",
+                created_at=now,
+                last_accessed_at=None,
+                usage_count=0,
+                confidence=0.9,
+                embedding=self.embedding.embed("table extraction unrelated preprocessing"),
+                metadata={
+                    "original_doc_id": "doc_c",
+                    "title": "Unrelated baseline",
+                    "context_path": ["paper_2", "experiment", "paragraph_1"],
+                    "position": 20,
+                },
+            ),
+        ]
 
     def test_relation_judge_can_reject_noisy_candidate_edge(self) -> None:
         class RejectingRelationJudge:
