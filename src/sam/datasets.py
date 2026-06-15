@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import os
+import tarfile
 import zipfile
 import urllib.request
 from pathlib import Path
@@ -44,6 +46,13 @@ DATASET_REFERENCES = {
         "license": "Apache-2.0",
         "note": "长篇小说问答数据集，面向超过 200K token 的长文本理解和检索评测；原始数据需要用户同意访问条件后本地提供。",
     },
+    "scifact": {
+        "name": "SciFact",
+        "homepage": "https://github.com/allenai/scifact",
+        "download_url": "https://scifact.s3-us-west-2.amazonaws.com/release/latest/data.tar.gz",
+        "paper": "https://aclanthology.org/2020.emnlp-main.609/",
+        "note": "科学事实核验数据集，包含 claim、科学论文摘要语料、gold evidence abstract 和 rationale sentence，适合评估跨论文证据检索效果。",
+    },
 }
 
 
@@ -61,6 +70,160 @@ def download_hotpotqa_dev(raw_path: str | Path) -> Path:
     with urllib.request.urlopen(url, timeout=120) as response:
         target.write_bytes(response.read())
     return target
+
+
+def download_scifact_data(raw_root: str | Path) -> Path:
+    """下载并解压 SciFact 官方数据。
+
+    官方数据包含 `corpus.jsonl`、`claims_train.jsonl`、`claims_dev.jsonl`
+    和 `claims_test.jsonl`。原始数据保存在 `data/raw` 下，不进入仓库。
+    """
+
+    target_root = Path(raw_root)
+    target_root.mkdir(parents=True, exist_ok=True)
+    if _find_scifact_file(target_root, "corpus.jsonl") and _find_scifact_file(target_root, "claims_dev.jsonl"):
+        return target_root
+
+    archive_path = target_root / "scifact_data.tar.gz"
+    if not archive_path.exists() or archive_path.stat().st_size < 10_000:
+        with urllib.request.urlopen(DATASET_REFERENCES["scifact"]["download_url"], timeout=120) as response:
+            archive_path.write_bytes(response.read())
+    _extract_tar_safely(archive_path, target_root)
+    return target_root
+
+
+def load_scifact_sample(
+    source_path: str | Path,
+    split: str = "dev",
+    sample_size: int = 50,
+    negative_docs_per_query: int = 20,
+    max_corpus_docs: int = 0,
+) -> tuple[list[DatasetDocument], list[EvaluationQuery], dict[str, Any]]:
+    """把 SciFact 官方 jsonl 数据转换为 SAM 统一格式。
+
+    评测单位是 scientific claim。支持证据来自 `evidence` 字段中的
+    gold evidence abstracts；候选文档由 gold evidence、cited documents
+    和基于词项重叠选出的 hard negatives 构成。
+    """
+
+    if split not in {"train", "dev", "test"}:
+        raise ValueError("SciFact split 只能是 train、dev 或 test")
+    source_root = Path(source_path)
+    corpus_path = _find_scifact_file(source_root, "corpus.jsonl")
+    claims_path = _find_scifact_file(source_root, f"claims_{split}.jsonl")
+    if not corpus_path or not claims_path:
+        raise FileNotFoundError(
+            f"SciFact 路径缺少 corpus.jsonl 或 claims_{split}.jsonl：{source_path}"
+        )
+
+    raw_corpus = _read_jsonl(corpus_path)
+    if max_corpus_docs > 0:
+        raw_corpus = raw_corpus[:max_corpus_docs]
+    corpus_by_id = {
+        str(item["doc_id"]): item
+        for item in raw_corpus
+        if isinstance(item, dict) and item.get("doc_id") is not None
+    }
+    claim_rows = [
+        item
+        for item in _read_jsonl(claims_path)
+        if isinstance(item, dict) and item.get("claim") and isinstance(item.get("evidence"), dict) and item.get("evidence")
+    ][:sample_size]
+    if not claim_rows:
+        raise ValueError(f"claims_{split}.jsonl 中没有可评估的带 evidence 样本")
+
+    selected_doc_ids: set[str] = set()
+    per_query_candidates: dict[str, list[str]] = {}
+    rationale_by_doc: dict[str, set[int]] = {}
+    labels_by_claim: dict[str, dict[str, str]] = {}
+    rationale_text_by_claim: dict[str, dict[str, list[str]]] = {}
+
+    for claim in claim_rows:
+        claim_id = str(claim["id"])
+        evidence_doc_ids = [str(doc_id) for doc_id in claim.get("evidence", {}).keys()]
+        cited_doc_ids = [str(doc_id) for doc_id in claim.get("cited_doc_ids", [])]
+        candidate_doc_ids = _unique_existing_doc_ids([*evidence_doc_ids, *cited_doc_ids], corpus_by_id)
+        candidate_doc_ids.extend(
+            _select_scifact_negative_docs(
+                claim_text=str(claim["claim"]),
+                corpus_by_id=corpus_by_id,
+                excluded=set(candidate_doc_ids),
+                limit=negative_docs_per_query,
+            )
+        )
+        candidate_doc_ids = list(dict.fromkeys(candidate_doc_ids))
+        selected_doc_ids.update(candidate_doc_ids)
+        query_id = f"scifact_claim_{claim_id}"
+        per_query_candidates[query_id] = [f"scifact_doc_{doc_id}" for doc_id in candidate_doc_ids]
+        labels_by_claim[query_id] = {}
+        rationale_text_by_claim[query_id] = {}
+        for doc_id, rationales in claim.get("evidence", {}).items():
+            raw_doc_id = str(doc_id)
+            if raw_doc_id not in corpus_by_id:
+                continue
+            labels = []
+            sentence_indices: list[int] = []
+            for rationale in rationales if isinstance(rationales, list) else []:
+                if not isinstance(rationale, dict):
+                    continue
+                labels.append(str(rationale.get("label", "")))
+                sentence_indices.extend(int(index) for index in rationale.get("sentences", []) if isinstance(index, int))
+            rationale_by_doc.setdefault(raw_doc_id, set()).update(sentence_indices)
+            labels_by_claim[query_id][f"scifact_doc_{raw_doc_id}"] = labels[0] if labels else ""
+            rationale_text_by_claim[query_id][f"scifact_doc_{raw_doc_id}"] = _scifact_rationale_texts(
+                corpus_by_id[raw_doc_id],
+                sentence_indices,
+            )
+
+    documents = [
+        _scifact_document(raw_doc_id, corpus_by_id[raw_doc_id], sorted(rationale_by_doc.get(raw_doc_id, set())))
+        for raw_doc_id in sorted(selected_doc_ids, key=_natural_doc_sort_key)
+        if raw_doc_id in corpus_by_id
+    ]
+    queries: list[EvaluationQuery] = []
+    for claim in claim_rows:
+        claim_id = str(claim["id"])
+        query_id = f"scifact_claim_{claim_id}"
+        supporting_doc_ids = [
+            f"scifact_doc_{doc_id}"
+            for doc_id in claim.get("evidence", {}).keys()
+            if str(doc_id) in corpus_by_id
+        ]
+        candidate_doc_ids = per_query_candidates.get(query_id, [])
+        if not supporting_doc_ids or not candidate_doc_ids:
+            continue
+        evidence_labels = labels_by_claim.get(query_id, {})
+        label_summary = sorted({label for label in evidence_labels.values() if label})
+        queries.append(
+            EvaluationQuery(
+                id=query_id,
+                dataset="scifact",
+                question=str(claim["claim"]),
+                answer=";".join(label_summary),
+                supporting_doc_ids=supporting_doc_ids,
+                candidate_doc_ids=candidate_doc_ids,
+                metadata={
+                    "claim_id": int(claim["id"]),
+                    "split": split,
+                    "cited_doc_ids": [f"scifact_doc_{doc_id}" for doc_id in claim.get("cited_doc_ids", [])],
+                    "evidence_labels": evidence_labels,
+                    "rationale_text_by_doc": rationale_text_by_claim.get(query_id, {}),
+                    "retrieval_task": "scientific_claim_evidence_retrieval",
+                },
+            )
+        )
+
+    manifest = {
+        "dataset": DATASET_REFERENCES["scifact"],
+        "source_path": str(source_path),
+        "split": split,
+        "sample_size": len(queries),
+        "document_count": len(documents),
+        "negative_docs_per_query": negative_docs_per_query,
+        "max_corpus_docs": max_corpus_docs,
+        "selection_policy": "选择带 gold evidence 的 claim；候选集包含 evidence docs、cited docs 和词项重叠 hard negatives",
+    }
+    return documents, queries, manifest
 
 
 def load_hotpotqa_real_sample(
@@ -723,3 +886,128 @@ def _best_evidence_chunk(evidence_text: str, chunk_by_doc_id: dict[str, str]) ->
             best_score = score
             best_doc_id = doc_id
     return best_doc_id if best_score >= 0.35 else None
+
+
+def _read_jsonl(path: Path) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if not line.strip():
+            continue
+        rows.append(json.loads(line))
+    return rows
+
+
+def _find_scifact_file(source_root: Path, filename: str) -> Path | None:
+    if source_root.is_file() and source_root.name == filename:
+        return source_root
+    if source_root.is_dir():
+        direct = source_root / filename
+        if direct.exists():
+            return direct
+        matches = sorted(source_root.rglob(filename))
+        return matches[0] if matches else None
+    return None
+
+
+def _extract_tar_safely(archive_path: Path, target_root: Path) -> None:
+    target_root = target_root.resolve()
+    with tarfile.open(archive_path, "r:gz") as archive:
+        for member in archive.getmembers():
+            member_target = (target_root / member.name).resolve()
+            if os.path.commonpath([str(target_root), str(member_target)]) != str(target_root):
+                raise ValueError(f"压缩包包含非法路径：{member.name}")
+        archive.extractall(target_root)
+
+
+def _unique_existing_doc_ids(doc_ids: list[str], corpus_by_id: dict[str, dict[str, Any]]) -> list[str]:
+    result: list[str] = []
+    for doc_id in doc_ids:
+        normalized = str(doc_id)
+        if normalized in corpus_by_id and normalized not in result:
+            result.append(normalized)
+    return result
+
+
+def _select_scifact_negative_docs(
+    *,
+    claim_text: str,
+    corpus_by_id: dict[str, dict[str, Any]],
+    excluded: set[str],
+    limit: int,
+) -> list[str]:
+    if limit <= 0:
+        return []
+    claim_terms = set(extract_keywords(claim_text, limit=32))
+    scored: list[tuple[float, str]] = []
+    fallback: list[str] = []
+    for doc_id, item in corpus_by_id.items():
+        if doc_id in excluded:
+            continue
+        fallback.append(doc_id)
+        document_text = _scifact_document_text(item)
+        document_terms = set(extract_keywords(f"{item.get('title', '')} {document_text}", limit=64))
+        overlap = len(claim_terms & document_terms)
+        if overlap:
+            score = overlap / max(1, len(claim_terms))
+            scored.append((score, doc_id))
+    scored.sort(key=lambda item: (-item[0], _natural_doc_sort_key(item[1])))
+    negatives = [doc_id for _score, doc_id in scored[:limit]]
+    if len(negatives) >= limit:
+        return negatives
+    for doc_id in sorted(fallback, key=_natural_doc_sort_key):
+        if doc_id not in negatives:
+            negatives.append(doc_id)
+        if len(negatives) >= limit:
+            break
+    return negatives
+
+
+def _scifact_document(raw_doc_id: str, item: dict[str, Any], rationale_sentence_indices: list[int]) -> DatasetDocument:
+    title = str(item.get("title") or f"SciFact document {raw_doc_id}")
+    text = _scifact_document_text(item)
+    rationale_text = " ".join(_scifact_rationale_texts(item, rationale_sentence_indices))
+    return DatasetDocument(
+        id=f"scifact_doc_{raw_doc_id}",
+        dataset="scifact",
+        title=title,
+        text=text,
+        source="SciFact",
+        tags=["scifact", "scientific_claim_verification", "paper_abstract"],
+        keywords=extract_keywords(f"{title} {text}", limit=16),
+        metadata={
+            "doc_id": raw_doc_id,
+            "source_id": f"scifact_doc_{raw_doc_id}",
+            "section": "abstract",
+            "title": title,
+            "structured": bool(item.get("structured", False)),
+            "sentence_count": len(item.get("abstract") or []),
+            "rationale_sentence_indices": rationale_sentence_indices,
+            "rationale_text": rationale_text,
+            "dataset_reference": DATASET_REFERENCES["scifact"],
+        },
+    )
+
+
+def _scifact_document_text(item: dict[str, Any]) -> str:
+    abstract = item.get("abstract") or []
+    if isinstance(abstract, list):
+        return " ".join(str(sentence) for sentence in abstract if str(sentence).strip())
+    return str(abstract)
+
+
+def _scifact_rationale_texts(item: dict[str, Any], sentence_indices: list[int]) -> list[str]:
+    abstract = item.get("abstract") or []
+    if not isinstance(abstract, list):
+        return []
+    texts: list[str] = []
+    for index in sorted(set(sentence_indices)):
+        if 0 <= index < len(abstract):
+            texts.append(str(abstract[index]))
+    return texts
+
+
+def _natural_doc_sort_key(value: str) -> tuple[int, str]:
+    try:
+        return (int(value), value)
+    except ValueError:
+        return (0, value)

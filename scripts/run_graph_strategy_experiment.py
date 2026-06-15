@@ -194,6 +194,12 @@ def main() -> None:
         "document_count": len(documents),
         "query_count": len(queries),
         "limit_queries": args.limit_queries,
+        "supporting_evidence_count": sum(len(query.supporting_doc_ids) for query in queries),
+        "average_candidate_docs_per_query": (
+            round(sum(len(query.candidate_doc_ids) for query in queries) / len(queries), 4)
+            if queries
+            else 0.0
+        ),
     }
     json_path, markdown_path = write_graph_strategy_report(report, args.output_dir)
     if args.alpha_sweep:
@@ -295,7 +301,7 @@ def _intrinsic_context_path(node: object) -> list[str]:
             path.append(f"chunk_block:{chunk_index // 10}")
             path.append(f"chunk:{chunk_index}")
         return path
-    if metadata.get("source_id"):
+    if metadata.get("source_id") and not _source_id_is_document_identity(metadata):
         path = [f"source:{_safe_segment(metadata.get('source_id'))}"]
         if metadata.get("section") is not None:
             path.append(f"section:{_safe_segment(metadata.get('section'))}")
@@ -341,6 +347,18 @@ def _safe_int(value: object) -> int:
 def _path_contains_any(path: list[str], values: set[str]) -> bool:
     path_text = "/".join(path)
     return any(value and value in path_text for value in values)
+
+
+def _source_id_is_document_identity(metadata: dict[str, object]) -> bool:
+    source_id = str(metadata.get("source_id") or "")
+    if not source_id:
+        return False
+    identity_values = {
+        str(metadata.get("original_doc_id") or ""),
+        str(metadata.get("doc_id") or ""),
+        str(metadata.get("id") or ""),
+    }
+    return source_id in {value for value in identity_values if value}
 
 
 if __name__ == "__main__":

@@ -4,6 +4,7 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 import json
+import math
 from collections import deque
 
 from sam.embedding import EmbeddingProvider
@@ -273,6 +274,12 @@ def evaluate_strategy(
                 "supporting_evidence_count": 0,
                 "support_hits": 0,
                 "evidence_recall": 0.0,
+                "precision_at_k": 0.0,
+                "mrr": 0.0,
+                "ndcg_at_k": 0.0,
+                "graph_path_support_hits": 0,
+                "graph_path_evidence_recall": 0.0,
+                "graph_rescue_rate": 0.0,
                 "average_path_length": 0.0,
                 "average_expanded_node_count": 0.0,
             },
@@ -287,6 +294,10 @@ def evaluate_strategy(
     adjacency = _adjacency(edges)
     support_hits = 0
     support_total = 0
+    total_returned = 0
+    reciprocal_ranks: list[float] = []
+    ndcgs: list[float] = []
+    graph_path_support_hits = 0
     path_lengths: list[int] = []
     expanded_counts: list[int] = []
     cases: list[dict[str, object]] = []
@@ -315,7 +326,16 @@ def evaluate_strategy(
         )
         hit_ids = {hit.node.id for hit in hits}
         query_support_hits = len(hit_ids & support_node_ids)
+        query_graph_path_support_hits = sum(
+            1
+            for hit in hits
+            if hit.node.id in support_node_ids and len(hit.path) > 1
+        )
         support_hits += query_support_hits
+        graph_path_support_hits += query_graph_path_support_hits
+        total_returned += len(hits)
+        reciprocal_ranks.append(_reciprocal_rank(hits, support_node_ids))
+        ndcgs.append(_ndcg_at_k(hits, support_node_ids, top_k=top_k))
         path_lengths.extend(max(0, len(hit.path) - 1) for hit in hits)
         expanded_counts.append(len({node_id for hit in hits for node_id in hit.path}))
         cases.append(
@@ -325,6 +345,10 @@ def evaluate_strategy(
                 "support_node_ids": sorted(support_node_ids),
                 "hit_node_ids": [hit.node.id for hit in hits],
                 "support_hits": query_support_hits,
+                "precision_at_k": query_support_hits / len(hits) if hits else 0.0,
+                "first_support_rank": _first_support_rank(hits, support_node_ids),
+                "ndcg_at_k": _ndcg_at_k(hits, support_node_ids, top_k=top_k),
+                "graph_path_support_hits": query_graph_path_support_hits,
                 "query_embedding_source": "provided" if supplied_query_embedding is not None else "fallback",
                 "hits": [
                     {
@@ -342,10 +366,45 @@ def evaluate_strategy(
         "supporting_evidence_count": support_total,
         "support_hits": support_hits,
         "evidence_recall": support_hits / support_total if support_total else 0.0,
+        "precision_at_k": support_hits / total_returned if total_returned else 0.0,
+        "mrr": sum(reciprocal_ranks) / len(reciprocal_ranks) if reciprocal_ranks else 0.0,
+        "ndcg_at_k": sum(ndcgs) / len(ndcgs) if ndcgs else 0.0,
+        "graph_path_support_hits": graph_path_support_hits,
+        "graph_path_evidence_recall": graph_path_support_hits / support_total if support_total else 0.0,
+        "graph_rescue_rate": graph_path_support_hits / support_hits if support_hits else 0.0,
         "average_path_length": sum(path_lengths) / len(path_lengths) if path_lengths else 0.0,
         "average_expanded_node_count": sum(expanded_counts) / len(expanded_counts) if expanded_counts else 0.0,
     }
     return metrics, cases
+
+
+def _first_support_rank(hits: list[RetrievalHit], support_node_ids: set[str]) -> int | None:
+    for index, hit in enumerate(hits, start=1):
+        if hit.node.id in support_node_ids:
+            return index
+    return None
+
+
+def _reciprocal_rank(hits: list[RetrievalHit], support_node_ids: set[str]) -> float:
+    rank = _first_support_rank(hits, support_node_ids)
+    return 1.0 / rank if rank else 0.0
+
+
+def _ndcg_at_k(hits: list[RetrievalHit], support_node_ids: set[str], *, top_k: int) -> float:
+    if not support_node_ids or top_k <= 0:
+        return 0.0
+    dcg = 0.0
+    for index, hit in enumerate(hits[:top_k], start=1):
+        relevance = 1.0 if hit.node.id in support_node_ids else 0.0
+        if relevance:
+            dcg += relevance / _log2(index + 1)
+    ideal_relevant = min(len(support_node_ids), top_k)
+    idcg = sum(1.0 / _log2(index + 1) for index in range(1, ideal_relevant + 1))
+    return dcg / idcg if idcg else 0.0
+
+
+def _log2(value: int) -> float:
+    return math.log2(value)
 
 
 def write_graph_strategy_report(report: dict[str, object], output_dir: str | Path) -> tuple[Path, Path]:
@@ -736,6 +795,8 @@ def _markdown_report(report: dict[str, object]) -> str:
                 f"- 数据文件：`{dataset.get('dataset_file', '')}`",
                 f"- 文档数：{dataset.get('document_count', 0)}",
                 f"- Query 数：{dataset.get('query_count', 0)}",
+                f"- Gold evidence 数：{dataset.get('supporting_evidence_count', 0)}",
+                f"- 平均候选文档数/Query：{dataset.get('average_candidate_docs_per_query', 0)}",
                 "",
             ]
         )
@@ -767,8 +828,8 @@ def _markdown_report(report: dict[str, object]) -> str:
         [
         "## 策略对比",
         "",
-        "| 策略 | Evidence Recall | 相对 no_graph 召回增益 | 边数 | 候选对数 | 保边率 | 建图耗时(s) | 检索耗时(s) | 总耗时(s) | 平均路径长度 | 平均扩展节点数 | Recall / 100 edges | Recall/s | 成本指数 | 综合性价比分 | 是否用 LLM |",
-        "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |",
+        "| 策略 | Evidence Recall | Precision@k | MRR | nDCG@k | 图路径命中 | 相对 no_graph 召回增益 | 边数 | 候选对数 | 保边率 | 建图耗时(s) | 检索耗时(s) | 总耗时(s) | 平均路径长度 | 平均扩展节点数 | Recall / 100 edges | Recall/s | 成本指数 | 综合性价比分 | 是否用 LLM |",
+        "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |",
         ]
     )
     strategies = report.get("strategies", {})
@@ -785,6 +846,10 @@ def _markdown_report(report: dict[str, object]) -> str:
                 "| "
                 f"{strategy} | "
                 f"{float(metrics.get('evidence_recall', 0.0)):.3f} | "
+                f"{float(metrics.get('precision_at_k', 0.0)):.3f} | "
+                f"{float(metrics.get('mrr', 0.0)):.3f} | "
+                f"{float(metrics.get('ndcg_at_k', 0.0)):.3f} | "
+                f"{int(metrics.get('graph_path_support_hits', 0))} | "
                 f"{float(cost_effectiveness.get('recall_gain_vs_no_graph', 0.0)):.3f} | "
                 f"{int(cost.get('edge_count', 0))} | "
                 f"{int(cost.get('candidate_pair_count', 0))} | "
@@ -802,6 +867,8 @@ def _markdown_report(report: dict[str, object]) -> str:
             )
     lines.extend(
         [
+            "",
+            "效果指标中，Evidence Recall 衡量 gold evidence 被找回的比例，Precision@k 衡量返回结果中 gold evidence 的占比，MRR 和 nDCG@k 衡量排序质量，图路径命中表示通过多跳图路径命中的 gold evidence 数量。",
             "",
             "成本指数由归一化边规模、归一化候选比较次数和归一化建图耗时加权得到。综合性价比分使用 `Evidence Recall / (1 + 成本指数)`，数值越高表示单位建图代价下的召回表现越好。",
             "",

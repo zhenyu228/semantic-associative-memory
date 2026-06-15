@@ -16,7 +16,7 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from sam.datasets import documents_to_nodes, load_builtin_benchmark_sample, load_novelqa_sample
+from sam.datasets import documents_to_nodes, load_builtin_benchmark_sample, load_novelqa_sample, load_scifact_sample
 from sam.dataset_format import load_sam_dataset, save_sam_dataset, summarize_sam_dataset
 from sam import agent_workflow
 from sam.agent_workflow import MultiAgentResearchWorkflow, write_agent_workflow_reports
@@ -721,6 +721,11 @@ class SamCoreTest(unittest.TestCase):
         self.assertEqual(report["config"]["alpha"], 0.55)
         self.assertIn("sam_context", report["strategies"])
         self.assertIn("evidence_recall", report["strategies"]["sam_context"]["metrics"])
+        self.assertIn("precision_at_k", report["strategies"]["sam_context"]["metrics"])
+        self.assertIn("mrr", report["strategies"]["sam_context"]["metrics"])
+        self.assertIn("ndcg_at_k", report["strategies"]["sam_context"]["metrics"])
+        self.assertIn("graph_path_support_hits", report["strategies"]["sam_context"]["metrics"])
+        self.assertIn("graph_rescue_rate", report["strategies"]["sam_context"]["metrics"])
         self.assertIn("build_time_seconds", report["strategies"]["sam_context"]["cost"])
         self.assertIn("cost_effectiveness", report["strategies"]["sam_context"])
         self.assertIn("retrieval_time_seconds", report["strategies"]["sam_context"]["cost"])
@@ -806,6 +811,10 @@ class SamCoreTest(unittest.TestCase):
         self.assertIn("相对 no_graph 召回增益", markdown)
         self.assertIn("平均路径长度", markdown)
         self.assertIn("平均扩展节点数", markdown)
+        self.assertIn("Precision@k", markdown)
+        self.assertIn("MRR", markdown)
+        self.assertIn("nDCG@k", markdown)
+        self.assertIn("图路径命中", markdown)
         self.assertIn("检索耗时", markdown)
         self.assertIn("总耗时", markdown)
         self.assertIn("保边率", markdown)
@@ -870,6 +879,36 @@ class SamCoreTest(unittest.TestCase):
         self.assertEqual(audit["context_paths_containing_query_ids"], 0)
         self.assertNotIn("hotpotqa_case", path)
         self.assertNotIn("case", path)
+
+    def test_graph_strategy_script_intrinsic_context_path_excludes_original_doc_id_source(self) -> None:
+        node = MemoryNode(
+            id="mem_scifact_doc_1001",
+            text="Scientific abstract evidence",
+            summary="Scientific abstract evidence",
+            keywords=["scientific"],
+            tags=[],
+            source="unit",
+            created_at=utc_now_iso(),
+            last_accessed_at=None,
+            usage_count=0,
+            confidence=0.9,
+            embedding=[1.0, 0.0],
+            metadata={
+                "dataset": "scifact",
+                "original_doc_id": "scifact_doc_1001",
+                "source_id": "scifact_doc_1001",
+                "section": "abstract",
+                "title": "Cancer Immunotherapy Response",
+            },
+        )
+
+        audit = graph_strategy_script._attach_context_metadata([node], policy="intrinsic")
+
+        path = node.metadata["context_path"]
+        self.assertEqual(path, ["section:abstract", "title:cancer_immunotherapy_response"])
+        self.assertTrue(audit["is_leak_safe"])
+        self.assertEqual(audit["context_paths_containing_query_ids"], 0)
+        self.assertNotIn("scifact_doc_1001", "/".join(path))
 
     def test_no_graph_strategy_uses_embedding_top_k_not_seed_k_only(self) -> None:
         nodes = self._strategy_nodes()
@@ -6230,6 +6269,85 @@ class SamCoreTest(unittest.TestCase):
         self.assertEqual(queries[0].answer, "The creature")
         self.assertEqual(len(queries[0].supporting_doc_ids), 1)
         self.assertEqual(manifest["split"], "demonstration")
+
+    def test_scifact_adapter_reads_official_jsonl_directory(self) -> None:
+        source_root = Path(self.temp_dir.name) / "scifact"
+        source_root.mkdir(parents=True)
+        (source_root / "corpus.jsonl").write_text(
+            "\n".join(
+                [
+                    json.dumps(
+                        {
+                            "doc_id": 1001,
+                            "title": "Cancer immunotherapy response",
+                            "abstract": [
+                                "T cell activation is associated with durable immunotherapy response.",
+                                "The cohort included patients with melanoma.",
+                            ],
+                            "structured": False,
+                        }
+                    ),
+                    json.dumps(
+                        {
+                            "doc_id": 1002,
+                            "title": "Unrelated enzyme study",
+                            "abstract": ["The enzyme regulates metabolic flux in yeast cells."],
+                            "structured": False,
+                        }
+                    ),
+                    json.dumps(
+                        {
+                            "doc_id": 1003,
+                            "title": "Melanoma checkpoint blockade",
+                            "abstract": ["Checkpoint blockade improves survival in selected melanoma patients."],
+                            "structured": False,
+                        }
+                    ),
+                ]
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        (source_root / "claims_dev.jsonl").write_text(
+            json.dumps(
+                {
+                    "id": 7,
+                    "claim": "T cell activation is linked to durable response in melanoma immunotherapy.",
+                    "evidence": {
+                        "1001": [
+                            {
+                                "label": "SUPPORT",
+                                "sentences": [0],
+                            }
+                        ]
+                    },
+                    "cited_doc_ids": [1001, 1003],
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+
+        documents, queries, manifest = load_scifact_sample(
+            source_root,
+            split="dev",
+            sample_size=1,
+            negative_docs_per_query=1,
+            max_corpus_docs=3,
+        )
+
+        self.assertEqual(len(queries), 1)
+        self.assertGreaterEqual(len(documents), 2)
+        self.assertEqual(queries[0].id, "scifact_claim_7")
+        self.assertEqual(queries[0].supporting_doc_ids, ["scifact_doc_1001"])
+        self.assertIn("scifact_doc_1003", queries[0].candidate_doc_ids)
+        self.assertEqual(queries[0].metadata["claim_id"], 7)
+        self.assertEqual(queries[0].metadata["evidence_labels"]["scifact_doc_1001"], "SUPPORT")
+        support_doc = [document for document in documents if document.id == "scifact_doc_1001"][0]
+        self.assertEqual(support_doc.metadata["source_id"], "scifact_doc_1001")
+        self.assertEqual(support_doc.metadata["rationale_sentence_indices"], [0])
+        self.assertIn("T cell activation", support_doc.metadata["rationale_text"])
+        self.assertEqual(manifest["split"], "dev")
 
 
 if __name__ == "__main__":
