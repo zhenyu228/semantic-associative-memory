@@ -53,6 +53,20 @@ DATASET_REFERENCES = {
         "paper": "https://aclanthology.org/2020.emnlp-main.609/",
         "note": "科学事实核验数据集，包含 claim、科学论文摘要语料、gold evidence abstract 和 rationale sentence，适合评估跨论文证据检索效果。",
     },
+    "litsearch": {
+        "name": "LitSearch",
+        "homepage": "https://github.com/princeton-nlp/LitSearch",
+        "huggingface": "https://huggingface.co/datasets/princeton-nlp/LitSearch",
+        "paper": "https://arxiv.org/abs/2407.18940",
+        "note": "科研文献检索数据集，包含真实科研检索 query、gold corpus IDs 和论文 title/abstract/citation，适合评估跨论文检索效果与建图成本。",
+    },
+    "qasper": {
+        "name": "QASPER",
+        "homepage": "https://allenai.org/data/qasper",
+        "huggingface": "https://huggingface.co/datasets/allenai/qasper",
+        "paper": "https://aclanthology.org/2021.naacl-main.365/",
+        "note": "科研论文全文问答数据集，包含论文全文段落、问题、答案和 evidence，适合评估长文阅读中的局部证据图。",
+    },
 }
 
 
@@ -222,6 +236,193 @@ def load_scifact_sample(
         "negative_docs_per_query": negative_docs_per_query,
         "max_corpus_docs": max_corpus_docs,
         "selection_policy": "选择带 gold evidence 的 claim；候选集包含 evidence docs、cited docs 和词项重叠 hard negatives",
+    }
+    return documents, queries, manifest
+
+
+def load_litsearch_sample(
+    source_path: str | Path | None = None,
+    sample_size: int = 30,
+    negative_docs_per_query: int = 20,
+    max_corpus_docs: int = 0,
+) -> tuple[list[DatasetDocument], list[EvaluationQuery], dict[str, Any]]:
+    """把 LitSearch 转换为 SAM 统一格式。
+
+    LitSearch 的评测单位是科研检索 query，gold evidence 是官方
+    `corpusids` 字段给出的相关论文。候选文档包含 gold papers 和按
+    query/title/abstract 词项重叠选出的 hard negatives。
+    """
+
+    query_rows = _load_litsearch_query_rows(source_path)
+    eligible_queries = [
+        row
+        for row in query_rows
+        if row.get("query") and _normalize_id_list(row.get("corpusids"))
+    ]
+    if not eligible_queries:
+        raise ValueError("LitSearch 中没有可评估的 query")
+
+    query_pool = eligible_queries if max_corpus_docs > 0 else eligible_queries[:sample_size]
+    required_gold_ids = set() if max_corpus_docs > 0 else {
+        raw_id
+        for row in query_pool
+        for raw_id in _normalize_id_list(row.get("corpusids"))
+    }
+    corpus_rows = _load_litsearch_corpus_rows(
+        source_path,
+        required_ids=required_gold_ids,
+        max_corpus_docs=max_corpus_docs,
+    )
+    corpus_by_id = {
+        str(row["corpusid"]): row
+        for row in corpus_rows
+        if isinstance(row, dict) and row.get("corpusid") is not None
+    }
+
+    selected_doc_ids: set[str] = set()
+    queries: list[EvaluationQuery] = []
+    skipped_queries = 0
+    for index, row in enumerate(query_pool):
+        if len(queries) >= sample_size:
+            break
+        gold_raw_ids = [raw_id for raw_id in _normalize_id_list(row.get("corpusids")) if raw_id in corpus_by_id]
+        if not gold_raw_ids:
+            skipped_queries += 1
+            continue
+        candidate_raw_ids = list(gold_raw_ids)
+        candidate_raw_ids.extend(
+            _select_litsearch_negative_docs(
+                query_text=str(row["query"]),
+                corpus_by_id=corpus_by_id,
+                excluded=set(candidate_raw_ids),
+                limit=negative_docs_per_query,
+            )
+        )
+        candidate_raw_ids = list(dict.fromkeys(candidate_raw_ids))
+        selected_doc_ids.update(candidate_raw_ids)
+        query_id = f"litsearch_query_{index:04d}"
+        queries.append(
+            EvaluationQuery(
+                id=query_id,
+                dataset="litsearch",
+                question=str(row["query"]),
+                answer=";".join(gold_raw_ids),
+                supporting_doc_ids=[f"litsearch_doc_{raw_id}" for raw_id in gold_raw_ids],
+                candidate_doc_ids=[f"litsearch_doc_{raw_id}" for raw_id in candidate_raw_ids],
+                metadata={
+                    "query_set": row.get("query_set"),
+                    "specificity": row.get("specificity"),
+                    "quality": row.get("quality"),
+                    "gold_corpusids": [int(raw_id) if str(raw_id).isdigit() else raw_id for raw_id in gold_raw_ids],
+                    "retrieval_task": "scientific_literature_search",
+                },
+            )
+        )
+
+    if not queries:
+        raise ValueError("LitSearch 选中 query 的 gold corpusids 未在 corpus 中找到，请增大 max_corpus_docs 或使用完整 corpus")
+
+    documents = [
+        _litsearch_document(raw_id, corpus_by_id[raw_id])
+        for raw_id in sorted(selected_doc_ids, key=_natural_doc_sort_key)
+        if raw_id in corpus_by_id
+    ]
+    manifest = {
+        "dataset": DATASET_REFERENCES["litsearch"],
+        "source_path": str(source_path or "huggingface"),
+        "sample_size": len(queries),
+        "document_count": len(documents),
+        "negative_docs_per_query": negative_docs_per_query,
+        "max_corpus_docs": max_corpus_docs,
+        "skipped_queries_without_gold_doc": skipped_queries,
+        "selection_policy": "选择带 gold corpusids 且 gold paper 已加载的 query；候选集包含 gold papers 和词项重叠 hard negatives",
+    }
+    return documents, queries, manifest
+
+
+def load_qasper_sample(
+    source_path: str | Path | None = None,
+    split: str = "validation",
+    sample_size: int = 30,
+    max_papers: int = 20,
+    max_paragraphs_per_paper: int = 120,
+) -> tuple[list[DatasetDocument], list[EvaluationQuery], dict[str, Any]]:
+    """把 QASPER 论文全文问答转换为 SAM 统一格式。
+
+    转换粒度是论文段落。每篇论文内部的 `paper/section/paragraph`
+    形成天然 context path，适合验证长文阅读中的局部证据图。
+    """
+
+    if split not in {"train", "validation", "test"}:
+        raise ValueError("QASPER split 只能是 train、validation 或 test")
+    rows = _load_qasper_rows(source_path, split=split)
+    documents: list[DatasetDocument] = []
+    queries: list[EvaluationQuery] = []
+    selected_papers = 0
+    skipped_questions = 0
+
+    for row in rows:
+        if selected_papers >= max_papers or len(queries) >= sample_size:
+            break
+        paper_id = str(row.get("id") or f"paper_{selected_papers}")
+        paragraph_docs = _qasper_paragraph_documents(row, max_paragraphs=max_paragraphs_per_paper)
+        if not paragraph_docs:
+            continue
+        documents.extend(paragraph_docs)
+        candidate_doc_ids = [document.id for document in paragraph_docs]
+        paragraph_text_by_doc_id = {document.id: document.text for document in paragraph_docs}
+        added_for_paper = 0
+        for qa in _normalize_qasper_qas(row.get("qas")):
+            if len(queries) >= sample_size:
+                break
+            question = str(qa.get("question") or "")
+            if not question:
+                continue
+            answer_items = _normalize_qasper_answers(qa.get("answers"))
+            answer_text = _qasper_answer_text(answer_items)
+            evidence_texts = _qasper_evidence_texts(answer_items)
+            supporting_doc_ids = _match_text_evidence_to_docs(evidence_texts, paragraph_text_by_doc_id)
+            if not supporting_doc_ids:
+                skipped_questions += 1
+                continue
+            question_id = str(qa.get("question_id") or f"q{len(queries):04d}")
+            queries.append(
+                EvaluationQuery(
+                    id=f"qasper_{paper_id}_{question_id}",
+                    dataset="qasper",
+                    question=question,
+                    answer=answer_text,
+                    supporting_doc_ids=supporting_doc_ids,
+                    candidate_doc_ids=list(candidate_doc_ids),
+                    metadata={
+                        "paper_id": paper_id,
+                        "paper_title": row.get("title"),
+                        "question_id": question_id,
+                        "search_query": qa.get("search_query"),
+                        "evidence_texts": evidence_texts,
+                        "retrieval_task": "scientific_paper_full_text_evidence_retrieval",
+                    },
+                )
+            )
+            added_for_paper += 1
+        if added_for_paper:
+            selected_papers += 1
+
+    if not queries:
+        raise ValueError("QASPER 未能转换出带 evidence 的 query，请增大 max_papers 或检查数据格式")
+
+    used_doc_ids = {doc_id for query in queries for doc_id in query.candidate_doc_ids}
+    documents = [document for document in documents if document.id in used_doc_ids]
+    manifest = {
+        "dataset": DATASET_REFERENCES["qasper"],
+        "source_path": str(source_path or "huggingface"),
+        "split": split,
+        "sample_size": len(queries),
+        "document_count": len(documents),
+        "selected_papers": selected_papers,
+        "max_paragraphs_per_paper": max_paragraphs_per_paper,
+        "skipped_questions_without_matched_evidence": skipped_questions,
+        "selection_policy": "论文段落作为 MemoryItem；QA evidence 文本匹配到段落作为 gold supporting docs",
     }
     return documents, queries, manifest
 
@@ -886,6 +1087,314 @@ def _best_evidence_chunk(evidence_text: str, chunk_by_doc_id: dict[str, str]) ->
             best_score = score
             best_doc_id = doc_id
     return best_doc_id if best_score >= 0.35 else None
+
+
+def _load_litsearch_query_rows(source_path: str | Path | None) -> list[dict[str, Any]]:
+    if source_path:
+        source = Path(source_path)
+        query_path = _find_dataset_file(source, ["query.jsonl", "queries.jsonl", "litsearch_query.jsonl"])
+        if query_path:
+            return _read_jsonl(query_path)
+        if source.is_file() and source.suffix.lower() == ".json":
+            payload = json.loads(source.read_text(encoding="utf-8"))
+            if isinstance(payload, dict) and isinstance(payload.get("queries"), list):
+                return [row for row in payload["queries"] if isinstance(row, dict)]
+    return _load_hf_rows("princeton-nlp/LitSearch", "query", "full")
+
+
+def _load_litsearch_corpus_rows(
+    source_path: str | Path | None,
+    *,
+    required_ids: set[str],
+    max_corpus_docs: int,
+) -> list[dict[str, Any]]:
+    if source_path:
+        source = Path(source_path)
+        corpus_path = _find_dataset_file(source, ["corpus_clean.jsonl", "corpus.jsonl", "litsearch_corpus.jsonl"])
+        if corpus_path:
+            rows = _read_jsonl(corpus_path)
+            return rows[:max_corpus_docs] if max_corpus_docs > 0 else rows
+        if source.is_file() and source.suffix.lower() == ".json":
+            payload = json.loads(source.read_text(encoding="utf-8"))
+            if isinstance(payload, dict) and isinstance(payload.get("corpus"), list):
+                rows = [row for row in payload["corpus"] if isinstance(row, dict)]
+                return rows[:max_corpus_docs] if max_corpus_docs > 0 else rows
+
+    rows: list[dict[str, Any]] = []
+    found_required: set[str] = set()
+    for row in _iter_hf_rows("princeton-nlp/LitSearch", "corpus_clean", "full"):
+        corpus_id = str(row.get("corpusid"))
+        rows.append(_litsearch_compact_row(row))
+        if corpus_id in required_ids:
+            found_required.add(corpus_id)
+        if required_ids and found_required >= required_ids:
+            break
+        if max_corpus_docs > 0 and len(rows) >= max_corpus_docs:
+            break
+    return rows
+
+
+def _load_qasper_rows(source_path: str | Path | None, *, split: str) -> list[dict[str, Any]]:
+    if source_path:
+        source = Path(source_path)
+        qasper_path = _find_dataset_file(source, [f"{split}.jsonl", f"qasper_{split}.jsonl", "qasper.jsonl"])
+        if qasper_path:
+            return _read_jsonl(qasper_path)
+        if source.is_file() and source.suffix.lower() == ".json":
+            payload = json.loads(source.read_text(encoding="utf-8"))
+            if isinstance(payload, list):
+                return [row for row in payload if isinstance(row, dict)]
+            if isinstance(payload, dict):
+                rows = payload.get(split) or payload.get("data") or payload.get("papers")
+                if isinstance(rows, list):
+                    return [row for row in rows if isinstance(row, dict)]
+    return _load_hf_rows("allenai/qasper", "qasper", split)
+
+
+def _load_hf_rows(dataset_name: str, config: str, split: str) -> list[dict[str, Any]]:
+    try:
+        from datasets import load_dataset
+    except ImportError as exc:
+        raise RuntimeError("读取 Hugging Face 数据集需要安装 datasets 包：conda run -n sam python -m pip install datasets") from exc
+    dataset = load_dataset(dataset_name, config, split=split)
+    return [dict(row) for row in dataset]
+
+
+def _iter_hf_rows(dataset_name: str, config: str, split: str):
+    try:
+        from datasets import load_dataset
+    except ImportError as exc:
+        raise RuntimeError("读取 Hugging Face 数据集需要安装 datasets 包：conda run -n sam python -m pip install datasets") from exc
+    dataset = load_dataset(dataset_name, config, split=split, streaming=True)
+    for row in dataset:
+        yield dict(row)
+
+
+def _litsearch_compact_row(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "corpusid": row.get("corpusid"),
+        "title": row.get("title"),
+        "abstract": row.get("abstract"),
+        "citations": row.get("citations") or [],
+    }
+
+
+def _normalize_id_list(value: Any) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, list):
+        return [str(item) for item in value if str(item)]
+    if isinstance(value, tuple):
+        return [str(item) for item in value if str(item)]
+    return [str(value)] if str(value) else []
+
+
+def _select_litsearch_negative_docs(
+    *,
+    query_text: str,
+    corpus_by_id: dict[str, dict[str, Any]],
+    excluded: set[str],
+    limit: int,
+) -> list[str]:
+    if limit <= 0:
+        return []
+    query_terms = set(extract_keywords(query_text, limit=48))
+    scored: list[tuple[float, str]] = []
+    fallback: list[str] = []
+    for doc_id, item in corpus_by_id.items():
+        if doc_id in excluded:
+            continue
+        fallback.append(doc_id)
+        document_text = f"{item.get('title', '')} {item.get('abstract', '')}"
+        document_terms = set(extract_keywords(document_text, limit=96))
+        overlap = len(query_terms & document_terms)
+        if overlap:
+            scored.append((overlap / max(1, len(query_terms)), doc_id))
+    scored.sort(key=lambda item: (-item[0], _natural_doc_sort_key(item[1])))
+    negatives = [doc_id for _score, doc_id in scored[:limit]]
+    if len(negatives) >= limit:
+        return negatives
+    for doc_id in sorted(fallback, key=_natural_doc_sort_key):
+        if doc_id not in negatives:
+            negatives.append(doc_id)
+        if len(negatives) >= limit:
+            break
+    return negatives
+
+
+def _litsearch_document(raw_doc_id: str, item: dict[str, Any]) -> DatasetDocument:
+    title = str(item.get("title") or f"LitSearch paper {raw_doc_id}")
+    abstract = str(item.get("abstract") or "")
+    citations = [f"litsearch_doc_{doc_id}" for doc_id in _normalize_id_list(item.get("citations"))]
+    text = f"{title}\n\n{abstract}".strip()
+    return DatasetDocument(
+        id=f"litsearch_doc_{raw_doc_id}",
+        dataset="litsearch",
+        title=title,
+        text=text,
+        source="LitSearch",
+        tags=["litsearch", "scientific_literature_search", "paper_abstract"],
+        keywords=extract_keywords(text, limit=16),
+        metadata={
+            "corpusid": int(raw_doc_id) if str(raw_doc_id).isdigit() else raw_doc_id,
+            "source_id": f"litsearch_doc_{raw_doc_id}",
+            "section": "abstract",
+            "title": title,
+            "citations": citations,
+            "dataset_reference": DATASET_REFERENCES["litsearch"],
+        },
+    )
+
+
+def _qasper_paragraph_documents(row: dict[str, Any], *, max_paragraphs: int) -> list[DatasetDocument]:
+    paper_id = str(row.get("id") or "unknown_paper")
+    paper_title = str(row.get("title") or paper_id)
+    full_text = row.get("full_text") or {}
+    sections = _normalize_qasper_sections(full_text)
+    documents: list[DatasetDocument] = []
+    paragraph_index = 0
+    for section_name, paragraphs in sections:
+        for paragraph in paragraphs:
+            if paragraph_index >= max_paragraphs:
+                return documents
+            text = str(paragraph).strip()
+            if not text:
+                continue
+            doc_id = f"qasper_{paper_id}_para_{paragraph_index:04d}"
+            title = f"{paper_title} / {section_name} / paragraph {paragraph_index}"
+            documents.append(
+                DatasetDocument(
+                    id=doc_id,
+                    dataset="qasper",
+                    title=title,
+                    text=text,
+                    source="QASPER",
+                    tags=["qasper", "scientific_paper_full_text", "paragraph"],
+                    keywords=extract_keywords(f"{title} {text}", limit=16),
+                    metadata={
+                        "paper_id": paper_id,
+                        "source_id": f"qasper_paper_{paper_id}",
+                        "paper_title": paper_title,
+                        "section": str(section_name),
+                        "paragraph_index": paragraph_index,
+                        "context_path": [f"paper:{paper_id}", f"section:{section_name}", f"paragraph:{paragraph_index}"],
+                        "title": title,
+                        "dataset_reference": DATASET_REFERENCES["qasper"],
+                    },
+                )
+            )
+            paragraph_index += 1
+    return documents
+
+
+def _normalize_qasper_sections(full_text: Any) -> list[tuple[str, list[str]]]:
+    if isinstance(full_text, dict):
+        section_names = full_text.get("section_name") or []
+        paragraphs_by_section = full_text.get("paragraphs") or []
+        return [
+            (str(section_name), [str(paragraph) for paragraph in paragraphs if str(paragraph).strip()])
+            for section_name, paragraphs in zip(section_names, paragraphs_by_section, strict=False)
+            if isinstance(paragraphs, list)
+        ]
+    if isinstance(full_text, list):
+        sections: list[tuple[str, list[str]]] = []
+        for item in full_text:
+            if not isinstance(item, dict):
+                continue
+            section_name = str(item.get("section_name") or item.get("section") or "section")
+            paragraphs = item.get("paragraphs") or []
+            if isinstance(paragraphs, list):
+                sections.append((section_name, [str(paragraph) for paragraph in paragraphs if str(paragraph).strip()]))
+        return sections
+    return []
+
+
+def _normalize_qasper_qas(qas: Any) -> list[dict[str, Any]]:
+    if isinstance(qas, list):
+        return [item for item in qas if isinstance(item, dict)]
+    if isinstance(qas, dict):
+        keys = qas.keys()
+        length = max((len(value) for value in qas.values() if isinstance(value, list)), default=0)
+        rows: list[dict[str, Any]] = []
+        for index in range(length):
+            row: dict[str, Any] = {}
+            for key in keys:
+                value = qas[key]
+                row[key] = value[index] if isinstance(value, list) and index < len(value) else value
+            rows.append(row)
+        return rows
+    return []
+
+
+def _normalize_qasper_answers(answers: Any) -> list[dict[str, Any]]:
+    if isinstance(answers, list):
+        return [item.get("answer", item) if isinstance(item, dict) else {} for item in answers]
+    if isinstance(answers, dict):
+        answer_field = answers.get("answer")
+        if isinstance(answer_field, list):
+            return [item for item in answer_field if isinstance(item, dict)]
+        if isinstance(answer_field, dict):
+            return _dict_of_lists_to_rows(answer_field)
+    return []
+
+
+def _dict_of_lists_to_rows(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    length = max((len(value) for value in payload.values() if isinstance(value, list)), default=1)
+    rows: list[dict[str, Any]] = []
+    for index in range(length):
+        row: dict[str, Any] = {}
+        for key, value in payload.items():
+            row[key] = value[index] if isinstance(value, list) and index < len(value) else value
+        rows.append(row)
+    return rows
+
+
+def _qasper_answer_text(answer_items: list[dict[str, Any]]) -> str:
+    for item in answer_items:
+        if item.get("free_form_answer"):
+            return str(item["free_form_answer"])
+        spans = item.get("extractive_spans")
+        if isinstance(spans, list) and spans:
+            return "; ".join(str(span) for span in spans if str(span))
+        if item.get("yes_no") is not None:
+            return str(item.get("yes_no"))
+    return ""
+
+
+def _qasper_evidence_texts(answer_items: list[dict[str, Any]]) -> list[str]:
+    evidence: list[str] = []
+    for item in answer_items:
+        for key in ["evidence", "highlighted_evidence"]:
+            value = item.get(key)
+            if isinstance(value, list):
+                evidence.extend(str(text) for text in value if str(text).strip())
+            elif isinstance(value, str) and value.strip():
+                evidence.append(value)
+    return list(dict.fromkeys(evidence))
+
+
+def _match_text_evidence_to_docs(evidence_texts: list[str], doc_text_by_id: dict[str, str]) -> list[str]:
+    matched: list[str] = []
+    for evidence_text in evidence_texts:
+        doc_id = _best_evidence_chunk(evidence_text, doc_text_by_id)
+        if doc_id and doc_id not in matched:
+            matched.append(doc_id)
+    return matched
+
+
+def _find_dataset_file(source_root: Path, filenames: list[str]) -> Path | None:
+    if source_root.is_file() and source_root.name in filenames:
+        return source_root
+    if not source_root.is_dir():
+        return None
+    for filename in filenames:
+        direct = source_root / filename
+        if direct.exists():
+            return direct
+        matches = sorted(source_root.rglob(filename))
+        if matches:
+            return matches[0]
+    return None
 
 
 def _read_jsonl(path: Path) -> list[dict[str, Any]]:

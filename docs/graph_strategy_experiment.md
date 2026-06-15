@@ -121,6 +121,31 @@ conda run -n sam python scripts/prepare_scifact.py \
 
 如果已经手动下载并解压 SciFact，则去掉 `--download`，把 `--source` 指向包含 `corpus.jsonl` 的目录。
 
+## LitSearch 和 QASPER 数据准备
+
+LitSearch 用于跨论文科研检索。官方数据包含 `query` 和 `corpus_clean` 两个配置：`query` 中的 `corpusids` 是 gold relevant papers，`corpus_clean` 中包含论文 `title`、`abstract` 和 `citations`。SAM 转换脚本把每篇论文摘要转成一个 MemoryItem，把每个科研检索问题转成 EvaluationQuery。
+
+```bash
+conda run --no-capture-output -n sam python -u scripts/prepare_litsearch.py \
+  --sample-size 30 \
+  --negative-docs-per-query 20 \
+  --max-corpus-docs 0 \
+  --output data/processed/litsearch_query30_sam_sample.json
+```
+
+`--max-corpus-docs 0` 表示围绕目标 query 扫描到 gold papers 齐全为止。LitSearch corpus 较大，首次运行可能需要较长时间；如果只做 smoke，可以先设置 `--sample-size 2 --max-corpus-docs 10000`，脚本会在已扫描 corpus 中选择 gold paper 已加载的 query。
+
+QASPER 用于论文全文长文阅读。官方数据包含论文 `full_text` 和 QA evidence。SAM 转换脚本把每个论文段落转成 MemoryItem，并用 `paper/section/paragraph` 作为天然 `context_path`。
+
+```bash
+conda run --no-capture-output -n sam python -u scripts/prepare_qasper.py \
+  --split validation \
+  --sample-size 30 \
+  --max-papers 20 \
+  --max-paragraphs-per-paper 120 \
+  --output data/processed/qasper_validation30_sam_sample.json
+```
+
 ## 运行方式
 
 使用本地哈希 embedding 的 smoke 实验：
@@ -177,6 +202,54 @@ conda run -n sam python scripts/run_graph_strategy_experiment.py \
   --output-dir outputs/graph_strategy_experiment_scifact50
 ```
 
+使用 QASPER 论文全文证据检索的正式实验。QASPER 已经在数据转换阶段写入 `paper/section/paragraph` 路径，因此这里使用 `--context-path-policy metadata`：
+
+```bash
+SAM_EMBEDDING_CACHE_WRITE_BATCH_SIZE=200 \
+conda run --no-capture-output -n sam python -u scripts/run_graph_strategy_experiment.py \
+  --dataset-file data/processed/qasper_validation30_sam_sample.json \
+  --limit-queries 30 \
+  --embedding-provider azure_openai_sdk \
+  --embedding-concurrency 20 \
+  --embedding-input-mode single \
+  --embedding-cache \
+  --embedding-cache-path outputs/graph_strategy_experiment_qasper30/embedding_cache.sqlite \
+  --top-k 5 \
+  --seed-k 2 \
+  --hops 2 \
+  --pair-scope query_candidates \
+  --top-k-edges 6 \
+  --threshold 0.18 \
+  --alpha 0.55 \
+  --context-path-policy metadata \
+  --alpha-sweep 0,0.25,0.5,0.75,1 \
+  --output-dir outputs/graph_strategy_experiment_qasper30
+```
+
+使用 LitSearch 跨论文科研检索的正式实验：
+
+```bash
+SAM_EMBEDDING_CACHE_WRITE_BATCH_SIZE=200 \
+conda run --no-capture-output -n sam python -u scripts/run_graph_strategy_experiment.py \
+  --dataset-file data/processed/litsearch_query30_sam_sample.json \
+  --limit-queries 30 \
+  --embedding-provider azure_openai_sdk \
+  --embedding-concurrency 20 \
+  --embedding-input-mode single \
+  --embedding-cache \
+  --embedding-cache-path outputs/graph_strategy_experiment_litsearch30/embedding_cache.sqlite \
+  --top-k 5 \
+  --seed-k 2 \
+  --hops 1 \
+  --pair-scope query_candidates \
+  --top-k-edges 6 \
+  --threshold 0.18 \
+  --alpha 0.55 \
+  --context-path-policy intrinsic \
+  --alpha-sweep 0,0.25,0.5,0.75,1 \
+  --output-dir outputs/graph_strategy_experiment_litsearch30
+```
+
 `--pair-scope global` 表示在当前数据文件的所有 MemoryItem 之间做全局两两比较，适合小规模完整建图成本分析。`--pair-scope query_candidates` 表示只在每个 query 的候选文档集合内建边，并对重复节点对去重，适合 SciFact 这类跨论文检索实验。报告会同时输出实际候选对数、理论全量候选对数和候选覆盖率，因此可以直接看到成本节省。
 
 `azure_openai_sdk` 底层使用异步请求。`--embedding-concurrency` 对应在线 embedding 的最大并发数；`--embedding-input-mode single` 表示每条文本单独发起一次异步 embedding 请求，和当前可用的公司网关调用方式一致。如果网关后续确认支持批量输入，可以切换为：
@@ -202,6 +275,8 @@ conda run -n sam python scripts/audit_graph_strategy_report.py \
   --expected-pair-scope query_candidates \
   --require-real-embedding
 ```
+
+QASPER 和 LitSearch 结果也使用同一审计脚本，只需要替换 `--report` 路径。
 
 审计会检查 dataset 摘要、真实 embedding、context path 泄漏、策略完整性、效果指标、成本指标、性价比字段和 pair scope。审计失败时脚本返回非 0 退出码，避免把 smoke 或字段缺失的结果误当正式实验。
 

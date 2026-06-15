@@ -16,7 +16,14 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from sam.datasets import documents_to_nodes, load_builtin_benchmark_sample, load_novelqa_sample, load_scifact_sample
+from sam.datasets import (
+    documents_to_nodes,
+    load_builtin_benchmark_sample,
+    load_litsearch_sample,
+    load_novelqa_sample,
+    load_qasper_sample,
+    load_scifact_sample,
+)
 from sam.dataset_format import load_sam_dataset, save_sam_dataset, summarize_sam_dataset
 from sam import agent_workflow
 from sam.agent_workflow import MultiAgentResearchWorkflow, write_agent_workflow_reports
@@ -224,6 +231,120 @@ class SamCoreTest(unittest.TestCase):
         nodes = self.store.get_nodes()
         self.assertEqual(len(nodes), len(self.nodes))
         self.assertTrue(nodes[0].embedding)
+
+    def test_litsearch_sample_converts_queries_and_gold_papers(self) -> None:
+        source = Path(self.temp_dir.name) / "litsearch"
+        source.mkdir()
+        (source / "query.jsonl").write_text(
+            "\n".join(
+                [
+                    json.dumps(
+                        {
+                            "query_set": "unit",
+                            "query": "Find papers about sparse graph retrieval for scientific memory.",
+                            "specificity": 1,
+                            "quality": 2,
+                            "corpusids": [1001],
+                        }
+                    )
+                ]
+            ),
+            encoding="utf-8",
+        )
+        (source / "corpus_clean.jsonl").write_text(
+            "\n".join(
+                json.dumps(row)
+                for row in [
+                    {
+                        "corpusid": 1001,
+                        "title": "Sparse Graph Retrieval",
+                        "abstract": "Sparse graph retrieval connects only high value scientific memory evidence.",
+                        "citations": [1002],
+                    },
+                    {
+                        "corpusid": 1002,
+                        "title": "Dense Retrieval",
+                        "abstract": "Dense vector retrieval is a strong scientific paper search baseline.",
+                        "citations": [],
+                    },
+                    {
+                        "corpusid": 1003,
+                        "title": "Irrelevant Vision Model",
+                        "abstract": "This paper studies image generation and rendering.",
+                        "citations": [],
+                    },
+                ]
+            ),
+            encoding="utf-8",
+        )
+
+        documents, queries, manifest = load_litsearch_sample(
+            source_path=source,
+            sample_size=1,
+            negative_docs_per_query=2,
+        )
+
+        self.assertEqual(manifest["dataset"]["name"], "LitSearch")
+        self.assertEqual(len(queries), 1)
+        self.assertEqual(queries[0].supporting_doc_ids, ["litsearch_doc_1001"])
+        self.assertIn("litsearch_doc_1001", queries[0].candidate_doc_ids)
+        self.assertEqual(len(queries[0].candidate_doc_ids), 3)
+        self.assertEqual({document.id for document in documents}, set(queries[0].candidate_doc_ids))
+        gold = next(document for document in documents if document.id == "litsearch_doc_1001")
+        self.assertEqual(gold.metadata["corpusid"], 1001)
+        self.assertEqual(gold.metadata["citations"], ["litsearch_doc_1002"])
+
+    def test_qasper_sample_converts_full_text_paragraphs_and_evidence(self) -> None:
+        source = Path(self.temp_dir.name) / "qasper"
+        source.mkdir()
+        row = {
+            "id": "paper_1",
+            "title": "Graph Memory for Scientific Reading",
+            "abstract": "A paper about graph memory.",
+            "full_text": {
+                "section_name": ["Introduction", "Method"],
+                "paragraphs": [
+                    ["Graph memory keeps retrieval paths for long documents."],
+                    ["The method builds sparse context edges between paragraphs."],
+                ],
+            },
+            "qas": [
+                {
+                    "question": "What keeps retrieval paths?",
+                    "question_id": "q1",
+                    "answers": [
+                        {
+                            "answer": {
+                                "free_form_answer": "Graph memory.",
+                                "extractive_spans": ["Graph memory"],
+                                "evidence": ["Graph memory keeps retrieval paths for long documents."],
+                                "highlighted_evidence": [],
+                                "unanswerable": False,
+                                "yes_no": False,
+                            }
+                        }
+                    ],
+                }
+            ],
+        }
+        (source / "validation.jsonl").write_text(json.dumps(row) + "\n", encoding="utf-8")
+
+        documents, queries, manifest = load_qasper_sample(
+            source_path=source,
+            split="validation",
+            sample_size=1,
+            max_papers=1,
+        )
+
+        self.assertEqual(manifest["dataset"]["name"], "QASPER")
+        self.assertEqual(len(documents), 2)
+        self.assertEqual(len(queries), 1)
+        self.assertEqual(queries[0].supporting_doc_ids, ["qasper_paper_1_para_0000"])
+        self.assertEqual(len(queries[0].candidate_doc_ids), 2)
+        support = documents[0]
+        self.assertEqual(support.metadata["paper_id"], "paper_1")
+        self.assertEqual(support.metadata["section"], "Introduction")
+        self.assertEqual(support.metadata["context_path"], ["paper:paper_1", "section:Introduction", "paragraph:0"])
 
     def test_query_summary_nodes_are_created(self) -> None:
         summary_nodes = [
