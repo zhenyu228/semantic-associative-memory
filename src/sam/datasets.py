@@ -8,6 +8,7 @@ from typing import Any
 
 from sam.embedding import EmbeddingProvider
 from sam.models import DatasetDocument, EvaluationQuery, MemoryNode, utc_now_iso
+from sam.progress import progress_iter
 from sam.text import extract_keywords, stable_id
 
 
@@ -478,7 +479,11 @@ def documents_to_nodes(
     nodes: list[MemoryNode] = []
     texts = [f"{document.title}\n{document.text}" for document in documents]
     embeddings = embedding_provider.embed_many(texts)
-    for document, text, embedding in zip(documents, texts, embeddings, strict=True):
+    for document, text, embedding in progress_iter(
+        zip(documents, texts, embeddings, strict=True),
+        total=len(documents),
+        desc="构建MemoryNode",
+    ):
         keywords = document.keywords or extract_keywords(text)
         node_id = stable_id("mem", document.id)
         nodes.append(

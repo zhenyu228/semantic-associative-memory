@@ -17,6 +17,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from sam.env import apply_provider_env_aliases, load_default_env_file
+from sam.progress import progress_iter
 from sam.text import tokenize
 
 
@@ -107,7 +108,7 @@ class SentenceTransformerEmbeddingProvider(EmbeddingProvider):
             batch_size=max(1, self.batch_size),
             normalize_embeddings=self.normalize,
             convert_to_numpy=False,
-            show_progress_bar=False,
+            show_progress_bar=len(texts) > 1,
         )
         return [_to_float_list(vector) for vector in encoded]
 
@@ -305,25 +306,45 @@ class AzureOpenAISDKEmbeddingProvider(EmbeddingProvider):
         ]
         semaphore = asyncio.Semaphore(max(1, self.max_concurrency))
 
-        async def embed_batch(batch: list[str]) -> list[list[float]]:
+        async def embed_batch(index: int, batch: list[str]) -> tuple[int, list[list[float]]]:
             async with semaphore:
-                return await self._embed_batch_async(batch)
+                return index, await self._embed_batch_async(batch)
 
-        batch_results = await asyncio.gather(*(embed_batch(batch) for batch in batches))
+        tasks = [
+            asyncio.create_task(embed_batch(index, batch))
+            for index, batch in enumerate(batches)
+        ]
+        batch_results_by_index: list[list[list[float]] | None] = [None] * len(batches)
+        for completed in progress_iter(asyncio.as_completed(tasks), total=len(tasks), desc="请求embedding批次"):
+            index, embeddings = await completed
+            batch_results_by_index[index] = embeddings
+        if any(batch_result is None for batch_result in batch_results_by_index):
+            raise RuntimeError("embedding 批次结果不完整")
         return [
             embedding
-            for batch in batch_results
+            for batch in batch_results_by_index
+            if batch is not None
             for embedding in batch
         ]
 
     async def _embed_many_single_async(self, texts: list[str]) -> list[list[float]]:
         semaphore = asyncio.Semaphore(max(1, self.max_concurrency))
 
-        async def embed_one(text: str) -> list[float]:
+        async def embed_one(index: int, text: str) -> tuple[int, list[float]]:
             async with semaphore:
-                return await self._embed_one_async(text)
+                return index, await self._embed_one_async(text)
 
-        return await asyncio.gather(*(embed_one(text) for text in texts))
+        tasks = [
+            asyncio.create_task(embed_one(index, text))
+            for index, text in enumerate(texts)
+        ]
+        results: list[list[float] | None] = [None] * len(texts)
+        for completed in progress_iter(asyncio.as_completed(tasks), total=len(tasks), desc="请求embedding"):
+            index, embedding = await completed
+            results[index] = embedding
+        if any(embedding is None for embedding in results):
+            raise RuntimeError("embedding 结果不完整")
+        return [embedding for embedding in results if embedding is not None]
 
     async def _embed_one_async(self, text: str) -> list[float]:
         payload: dict[str, object] = {
@@ -411,7 +432,7 @@ class CachedEmbeddingProvider(EmbeddingProvider):
     def embed_many(self, texts: list[str]) -> list[list[float]]:
         results: list[list[float] | None] = [None] * len(texts)
         missing_positions_by_text: dict[str, list[int]] = {}
-        for index, text in enumerate(texts):
+        for index, text in progress_iter(enumerate(texts), total=len(texts), desc="检查embedding缓存"):
             cached = self._get(text)
             if cached is None:
                 missing_positions_by_text.setdefault(text, []).append(index)
@@ -420,8 +441,11 @@ class CachedEmbeddingProvider(EmbeddingProvider):
         missing_texts = list(missing_positions_by_text)
         if missing_texts:
             write_batch_size = max(1, int(os.environ.get("SAM_EMBEDDING_CACHE_WRITE_BATCH_SIZE", "1")))
-            for start in range(0, len(missing_texts), write_batch_size):
-                batch_texts = missing_texts[start : start + write_batch_size]
+            missing_batches = [
+                missing_texts[start : start + write_batch_size]
+                for start in range(0, len(missing_texts), write_batch_size)
+            ]
+            for batch_texts in progress_iter(missing_batches, total=len(missing_batches), desc="生成缺失embedding"):
                 embeddings = self.inner.embed_many(batch_texts)
                 for text, embedding in zip(batch_texts, embeddings, strict=True):
                     self._put(text, embedding)
@@ -692,10 +716,22 @@ def _parallel_embed_batches(
         for index in range(0, len(texts), safe_batch_size)
     ]
     if max_concurrency <= 1 or len(batches) <= 1:
-        batch_results = [embed_batch_fn(batch) for batch in batches]
+        batch_results = list(
+            progress_iter(
+                (embed_batch_fn(batch) for batch in batches),
+                total=len(batches),
+                desc="请求embedding批次",
+            )
+        )
     else:
         with ThreadPoolExecutor(max_workers=max_concurrency) as executor:
-            batch_results = list(executor.map(embed_batch_fn, batches))
+            batch_results = list(
+                progress_iter(
+                    executor.map(embed_batch_fn, batches),
+                    total=len(batches),
+                    desc="请求embedding批次",
+                )
+            )
     return [
         embedding
         for batch in batch_results

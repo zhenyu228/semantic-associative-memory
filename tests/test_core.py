@@ -16,7 +16,7 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from sam.datasets import load_builtin_benchmark_sample, load_novelqa_sample
+from sam.datasets import documents_to_nodes, load_builtin_benchmark_sample, load_novelqa_sample
 from sam.dataset_format import load_sam_dataset, save_sam_dataset, summarize_sam_dataset
 from sam import agent_workflow
 from sam.agent_workflow import MultiAgentResearchWorkflow, write_agent_workflow_reports
@@ -3766,7 +3766,7 @@ class SamCoreTest(unittest.TestCase):
         self.assertTrue(captured["trust_remote_code"])
         self.assertEqual(captured["encode"]["batch_size"], 2)
         self.assertTrue(captured["encode"]["normalize_embeddings"])
-        self.assertFalse(captured["encode"]["show_progress_bar"])
+        self.assertTrue(captured["encode"]["show_progress_bar"])
         self.assertEqual(embeddings, [[0.0, 5.0], [1.0, 4.0]])
 
     def test_create_embedding_provider_supports_sentence_transformers(self) -> None:
@@ -4138,6 +4138,80 @@ class SamCoreTest(unittest.TestCase):
         self.assertEqual(first[0], first[2])
         self.assertEqual(first[:2], second)
         self.assertEqual(inner.calls, 2)
+
+    def test_cached_embedding_provider_reports_embedding_progress(self) -> None:
+        class BatchEmbeddingProvider(EmbeddingProvider):
+            @property
+            def cache_namespace(self) -> str:
+                return "batch-progress"
+
+            def __init__(self) -> None:
+                self.batches: list[list[str]] = []
+
+            def embed(self, text: str) -> list[float]:
+                return self.embed_many([text])[0]
+
+            def embed_many(self, texts: list[str]) -> list[list[float]]:
+                self.batches.append(list(texts))
+                return [[float(len(text))] for text in texts]
+
+        events: list[tuple[str, int | None]] = []
+
+        def fake_progress(iterable, total=None, desc="", enabled=True, progress_factory=None):
+            events.append((desc, total))
+            return iterable
+
+        inner = BatchEmbeddingProvider()
+        provider = CachedEmbeddingProvider(inner, Path(self.temp_dir.name) / "embedding_cache.sqlite")
+        with patch("sam.embedding.progress_iter", side_effect=fake_progress):
+            with patch.dict("os.environ", {"SAM_EMBEDDING_CACHE_WRITE_BATCH_SIZE": "2"}, clear=False):
+                embeddings = provider.embed_many(["alpha", "beta", "alpha", "gamma"])
+        provider.close()
+
+        self.assertEqual(embeddings[0], embeddings[2])
+        self.assertEqual(inner.batches, [["alpha", "beta"], ["gamma"]])
+        self.assertIn(("检查embedding缓存", 4), events)
+        self.assertIn(("生成缺失embedding", 2), events)
+
+    def test_documents_to_nodes_reports_node_build_progress(self) -> None:
+        class FixedEmbeddingProvider(EmbeddingProvider):
+            def embed(self, text: str) -> list[float]:
+                return [0.0]
+
+            def embed_many(self, texts: list[str]) -> list[list[float]]:
+                return [[float(index)] for index, _text in enumerate(texts)]
+
+        events: list[tuple[str, int | None]] = []
+
+        def fake_progress(iterable, total=None, desc="", enabled=True, progress_factory=None):
+            events.append((desc, total))
+            return iterable
+
+        documents = [
+            DatasetDocument(
+                id="doc1",
+                dataset="unit",
+                title="第一段",
+                text="alpha text",
+                source="test",
+                tags=[],
+                keywords=[],
+            ),
+            DatasetDocument(
+                id="doc2",
+                dataset="unit",
+                title="第二段",
+                text="beta text",
+                source="test",
+                tags=[],
+                keywords=[],
+            ),
+        ]
+        with patch("sam.datasets.progress_iter", side_effect=fake_progress):
+            nodes = documents_to_nodes(documents, FixedEmbeddingProvider())
+
+        self.assertEqual(len(nodes), 2)
+        self.assertIn(("构建MemoryNode", 2), events)
 
     def test_cached_embedding_provider_flushes_successes_before_later_failure(self) -> None:
         class FailingEmbeddingProvider(EmbeddingProvider):
