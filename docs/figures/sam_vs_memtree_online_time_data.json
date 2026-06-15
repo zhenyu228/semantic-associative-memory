@@ -1,0 +1,142 @@
+[
+  {
+    "method": "GraphRAG (Offline, CAM)",
+    "batch_size": 100,
+    "time_hours": 1.8,
+    "time_minutes": 108.0,
+    "source": "CAM Figure 3(a) reference"
+  },
+  {
+    "method": "GraphRAG (Offline, CAM)",
+    "batch_size": 200,
+    "time_hours": 1.8,
+    "time_minutes": 108.0,
+    "source": "CAM Figure 3(a) reference"
+  },
+  {
+    "method": "GraphRAG (Offline, CAM)",
+    "batch_size": 300,
+    "time_hours": 1.8,
+    "time_minutes": 108.0,
+    "source": "CAM Figure 3(a) reference"
+  },
+  {
+    "method": "GraphRAG (Offline, CAM)",
+    "batch_size": 400,
+    "time_hours": 1.8,
+    "time_minutes": 108.0,
+    "source": "CAM Figure 3(a) reference"
+  },
+  {
+    "method": "GraphRAG (Offline, CAM)",
+    "batch_size": 500,
+    "time_hours": 1.8,
+    "time_minutes": 108.0,
+    "source": "CAM Figure 3(a) reference"
+  },
+  {
+    "method": "RAPTOR (Offline, CAM)",
+    "batch_size": 100,
+    "time_hours": 1.2,
+    "time_minutes": 72.0,
+    "source": "CAM Figure 3(a) reference"
+  },
+  {
+    "method": "RAPTOR (Offline, CAM)",
+    "batch_size": 200,
+    "time_hours": 1.2,
+    "time_minutes": 72.0,
+    "source": "CAM Figure 3(a) reference"
+  },
+  {
+    "method": "RAPTOR (Offline, CAM)",
+    "batch_size": 300,
+    "time_hours": 1.2,
+    "time_minutes": 72.0,
+    "source": "CAM Figure 3(a) reference"
+  },
+  {
+    "method": "RAPTOR (Offline, CAM)",
+    "batch_size": 400,
+    "time_hours": 1.2,
+    "time_minutes": 72.0,
+    "source": "CAM Figure 3(a) reference"
+  },
+  {
+    "method": "RAPTOR (Offline, CAM)",
+    "batch_size": 500,
+    "time_hours": 1.2,
+    "time_minutes": 72.0,
+    "source": "CAM Figure 3(a) reference"
+  },
+  {
+    "method": "MemTree (Online, CAM)",
+    "batch_size": 100,
+    "time_hours": 0.5,
+    "time_minutes": 30.0,
+    "source": "CAM Figure 3(a) approximate read"
+  },
+  {
+    "method": "MemTree (Online, CAM)",
+    "batch_size": 200,
+    "time_hours": 1.0,
+    "time_minutes": 60.0,
+    "source": "CAM Figure 3(a) approximate read"
+  },
+  {
+    "method": "MemTree (Online, CAM)",
+    "batch_size": 300,
+    "time_hours": 1.5,
+    "time_minutes": 90.0,
+    "source": "CAM Figure 3(a) approximate read"
+  },
+  {
+    "method": "MemTree (Online, CAM)",
+    "batch_size": 400,
+    "time_hours": 2.0,
+    "time_minutes": 120.0,
+    "source": "CAM Figure 3(a) approximate read"
+  },
+  {
+    "method": "MemTree (Online, CAM)",
+    "batch_size": 500,
+    "time_hours": 2.5,
+    "time_minutes": 150.0,
+    "source": "CAM Figure 3(a) approximate read"
+  },
+  {
+    "method": "SAM (Online, measured)",
+    "batch_size": 100,
+    "time_hours": 0.06666666666666667,
+    "time_minutes": 4,
+    "source": "user measured run"
+  },
+  {
+    "method": "SAM (Online, measured)",
+    "batch_size": 200,
+    "time_hours": 0.11666666666666667,
+    "time_minutes": 7,
+    "source": "user measured run"
+  },
+  {
+    "method": "SAM (Online, measured)",
+    "batch_size": 300,
+    "time_hours": 0.2,
+    "time_minutes": 12,
+    "source": "user measured run"
+  },
+  {
+    "method": "SAM (Online, measured)",
+    "batch_size": 400,
+    "time_hours": 0.2833333333333333,
+    "time_minutes": 17,
+    "source": "user measured run"
+  },
+  {
+    "method": "SAM (Online, measured)",
+    "batch_size": 500,
+    "time_hours": 0.35,
+    "time_minutes": 21,
+    "source": "user measured run"
+  }
+]
