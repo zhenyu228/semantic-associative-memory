@@ -8,7 +8,7 @@ from pathlib import Path
 from sam.badcase import BadCaseAnalyzer, write_bad_case_reports
 from sam.datasets import build_query_summary_nodes, documents_to_nodes
 from sam.embedding import EmbeddingProvider
-from sam.consolidation import MemoryConsolidator
+from sam.consolidation import InsightMemoryBuilder, MemoryConsolidator
 from sam.graph import GraphBuilder
 from sam.models import DatasetDocument, EvaluationQuery, MemoryNode, RetrievalHit
 from sam.query_planner import QueryPlanner
@@ -100,6 +100,8 @@ class Evaluator:
         method_candidate_path_counts = {method: [] for method in active_methods}
         method_path_support_scores = {method: [] for method in active_methods}
         method_edge_memory_scores = {method: [] for method in active_methods}
+        method_insight_counts = {method: 0 for method in active_methods}
+        method_insight_evidence_counts = {method: 0 for method in active_methods}
         cases: list[dict[str, object]] = []
 
         original_to_node = {
@@ -194,6 +196,21 @@ class Evaluator:
                         seed_k=seed_k,
                         hops=hops,
                     )
+                    if _feedback_enabled(method):
+                        insight_records = []
+                        insight_builder = InsightMemoryBuilder(method_store, self.embedding_provider)
+                        for dataset in sorted({query.dataset for query in queries}):
+                            insight_records.extend(
+                                insight_builder.build_from_consolidated_memories(
+                                    dataset=dataset,
+                                    min_consolidated_count=2,
+                                )
+                            )
+                        method_insight_counts[method] = len(insight_records)
+                        method_insight_evidence_counts[method] = sum(
+                            len(record.evidence_node_ids)
+                            for record in insight_records
+                        )
                     if method == display_method:
                         method_store.connection.backup(self.store.connection)
                         self.graph_builder.edge_creation_log = method_graph_builder.edge_creation_log
@@ -249,6 +266,8 @@ class Evaluator:
                 "average_candidate_path_count": _average(method_candidate_path_counts[method]),
                 "average_path_support_score": _average(method_path_support_scores[method]),
                 "average_edge_memory_score": _average(method_edge_memory_scores[method]),
+                "insight_memory_count": method_insight_counts[method],
+                "insight_evidence_count": method_insight_evidence_counts[method],
             }
             for method in active_methods
         }

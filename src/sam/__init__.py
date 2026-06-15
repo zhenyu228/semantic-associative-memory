@@ -1,7 +1,7 @@
 """SAM：语义联想记忆系统原型。"""
 
 from sam.embedding import AzureOpenAISDKEmbeddingProvider, LocalHashEmbeddingProvider, SentenceTransformerEmbeddingProvider
-from sam.consolidation import MemoryConsolidator
+from sam.consolidation import InsightMemoryBuilder, MemoryConsolidator
 from sam.graph import GraphBuilder
 from sam.models import MemoryEdge, MemoryNode, RetrievalHit
 from sam.object_graph import (
@@ -29,6 +29,7 @@ __all__ = [
     "LocalHashEmbeddingProvider",
     "LocalEvidenceGraph",
     "LocalEvidenceUnit",
+    "InsightMemoryBuilder",
     "SentenceTransformerEmbeddingProvider",
     "MemoryConsolidator",
     "MemoryEdge",

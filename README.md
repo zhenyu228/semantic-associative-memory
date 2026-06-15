@@ -90,7 +90,7 @@ SAM/
 │   ├── agents.py          # 多智能体共享记忆与定向 handoff
 │   ├── analogy.py         # 类比推理案例检索、关系路径匹配与提示生成
 │   ├── badcase.py         # 失败案例诊断和改进建议
-│   ├── consolidation.py   # 成功检索后的长期记忆巩固与证据回写
+│   ├── consolidation.py   # 单次长期记忆巩固、高层洞察生成与证据回写
 │   ├── embedding.py       # embedding 抽象、本地哈希实现、OpenAI/Azure 兼容实现
 │   ├── evaluator.py       # 多方法实验评测与报告生成
 │   ├── generation.py      # 基于检索上下文的答案生成评测

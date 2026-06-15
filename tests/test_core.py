@@ -43,7 +43,7 @@ from sam.badcase import (
     write_generation_bad_case_reports,
 )
 from sam.answer_judge import AnswerJudgment, RuleBasedAnswerJudge
-from sam.consolidation import MemoryConsolidator
+from sam.consolidation import InsightMemoryBuilder, MemoryConsolidator
 from sam.embedding import (
     AzureOpenAISDKEmbeddingProvider,
     AzureOpenAIEmbeddingProvider,
@@ -3525,6 +3525,108 @@ class SamCoreTest(unittest.TestCase):
         assert consolidated is not None
         self.assertEqual(consolidated.metadata["embedding_source"], "evidence_centroid")
         self.assertEqual(len(consolidated.embedding), len(support_node.embedding))
+
+    def test_insight_memory_groups_consolidated_memories_and_traces_evidence(self) -> None:
+        consolidator = MemoryConsolidator(self.store, self.embedding)
+        records = []
+        query = self.queries[0]
+        for mode in ["sam_full", "sam_no_graph"]:
+            support_hits = [
+                RetrievalHit(
+                    node=node,
+                    score=0.8,
+                    similarity_score=0.7,
+                    graph_score=0.4,
+                    usage_score=0.0,
+                    confidence_score=node.confidence,
+                    path=[node.id],
+                    reason="单元测试支持证据",
+                    metadata={"candidate_path_count": 2},
+                )
+                for node in self.store.get_nodes()
+                if node.metadata.get("original_doc_id") in query.supporting_doc_ids
+            ]
+            self.assertTrue(support_hits)
+            record = consolidator.consolidate_query(
+                query=query,
+                mode=mode,
+                hits=support_hits,
+                support_node_ids={hit.node.id for hit in support_hits},
+                answer_status="found_in_retrieved_context",
+            )
+            self.assertIsNotNone(record)
+            records.append(record)
+
+        insight_records = InsightMemoryBuilder(
+            self.store,
+            self.embedding,
+        ).build_from_consolidated_memories(
+            dataset=self.queries[0].dataset,
+            min_consolidated_count=2,
+        )
+
+        self.assertEqual(len(insight_records), 1)
+        insight = self.store.get_node(insight_records[0].node_id)
+        self.assertIsNotNone(insight)
+        assert insight is not None
+        self.assertEqual(insight.metadata["node_type"], "insight_memory")
+        self.assertEqual(insight.metadata["dataset"], self.queries[0].dataset)
+        self.assertGreaterEqual(len(insight.metadata["source_consolidated_node_ids"]), 2)
+        self.assertGreaterEqual(len(insight.metadata["evidence_node_ids"]), 2)
+        self.assertEqual(insight.metadata["insight_source"], "consolidated_memory_cluster")
+        self.assertIn("高层洞察", insight.text)
+        self.assertIn("insight_memory", insight.tags)
+
+        edges = self.store.get_edges_for([insight.id])
+        relation_types = {edge.relation_type for edge in edges}
+        self.assertIn("insight_summarizes_memory", relation_types)
+        self.assertIn("insight_traces_evidence", relation_types)
+        self.assertTrue(
+            any(edge.target_id == records[0].node_id for edge in edges)
+        )
+        self.assertTrue(
+            any(edge.metadata.get("insight_node_id") == insight.id for edge in edges)
+        )
+        event_types = {
+            event["event_type"]
+            for event in self.store.get_memory_events(limit=200)
+        }
+        self.assertIn("insight_memory_created", event_types)
+
+    def test_evaluator_reports_insight_memory_reconstruction_count(self) -> None:
+        query = self.queries[0]
+        followup_query = EvaluationQuery(
+            id=f"{query.id}_followup",
+            dataset=query.dataset,
+            question=f"{query.question} Please verify the same evidence chain again.",
+            answer=query.answer,
+            supporting_doc_ids=query.supporting_doc_ids,
+            candidate_doc_ids=query.candidate_doc_ids,
+            metadata=query.metadata,
+        )
+
+        result = self.evaluator.evaluate(
+            [query, followup_query],
+            top_k=4,
+            seed_k=1,
+            hops=1,
+            methods=["sam_full"],
+        )
+
+        self.assertGreaterEqual(
+            result.method_metrics["sam_full"]["insight_memory_count"],
+            1,
+        )
+        insight_nodes = [
+            node
+            for node in self.store.get_nodes()
+            if node.metadata.get("node_type") == "insight_memory"
+        ]
+        self.assertTrue(insight_nodes)
+        self.assertGreaterEqual(
+            len(insight_nodes[0].metadata["source_consolidated_node_ids"]),
+            2,
+        )
 
     def test_graph_export_nodes_include_consolidated_memory(self) -> None:
         self.evaluator.evaluate(
