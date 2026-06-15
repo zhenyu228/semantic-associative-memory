@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 from pathlib import Path
 
@@ -31,13 +32,46 @@ DEFAULT_STRATEGIES = [
 ]
 
 
-def _create_embedding_provider(provider_name: str):
+def _create_embedding_provider(
+    provider_name: str,
+    *,
+    embedding_concurrency: int | None = None,
+    embedding_batch_size: int | None = None,
+    embedding_input_mode: str | None = None,
+):
     """创建 embedding provider；远端 provider 先加载本地环境变量。"""
 
     if provider_name == "local_hash":
         return LocalHashEmbeddingProvider()
     load_default_env_file()
+    _apply_embedding_runtime_options(
+        embedding_concurrency=embedding_concurrency,
+        embedding_batch_size=embedding_batch_size,
+        embedding_input_mode=embedding_input_mode,
+    )
     return create_embedding_provider(provider_name)
+
+
+def _apply_embedding_runtime_options(
+    *,
+    embedding_concurrency: int | None,
+    embedding_batch_size: int | None,
+    embedding_input_mode: str | None,
+) -> None:
+    """把脚本参数转为 provider 使用的环境变量。
+
+    provider 构造函数统一从环境变量读取配置；这里让命令行参数覆盖
+    `.env.local`，避免真实实验时还要手动 export 多个变量。
+    """
+
+    if embedding_concurrency is not None and embedding_concurrency > 0:
+        os.environ["SAM_AZURE_EMBEDDING_CONCURRENCY"] = str(embedding_concurrency)
+        os.environ["SAM_OPENAI_EMBEDDING_CONCURRENCY"] = str(embedding_concurrency)
+    if embedding_batch_size is not None and embedding_batch_size > 0:
+        os.environ["SAM_AZURE_EMBEDDING_BATCH_SIZE"] = str(embedding_batch_size)
+        os.environ["SAM_OPENAI_EMBEDDING_BATCH_SIZE"] = str(embedding_batch_size)
+    if embedding_input_mode:
+        os.environ["SAM_AZURE_EMBEDDING_INPUT_MODE"] = embedding_input_mode
 
 
 def main() -> None:
@@ -59,6 +93,14 @@ def main() -> None:
         default="local_hash",
         help="embedding provider；正式实验可换成 azure_openai_sdk",
     )
+    parser.add_argument("--embedding-concurrency", type=int, default=None, help="在线 embedding 最大并发数")
+    parser.add_argument("--embedding-batch-size", type=int, default=None, help="在线 embedding 批大小；batch 模式下更重要")
+    parser.add_argument(
+        "--embedding-input-mode",
+        choices=["single", "batch"],
+        default=None,
+        help="azure_openai_sdk 输入模式；single 表示每条文本一个异步请求，batch 表示按批发送列表",
+    )
     args = parser.parse_args()
 
     documents, queries, _payload = load_sam_dataset(args.dataset_file)
@@ -71,7 +113,12 @@ def main() -> None:
         }
         documents = [document for document in documents if document.id in candidate_doc_ids]
 
-    embedding = _create_embedding_provider(args.embedding_provider)
+    embedding = _create_embedding_provider(
+        args.embedding_provider,
+        embedding_concurrency=args.embedding_concurrency,
+        embedding_batch_size=args.embedding_batch_size,
+        embedding_input_mode=args.embedding_input_mode,
+    )
     nodes = documents_to_nodes(documents, embedding)
     _attach_context_metadata(nodes)
     experiment = GraphStrategyExperiment(

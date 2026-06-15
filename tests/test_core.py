@@ -156,6 +156,47 @@ class SamCoreTest(unittest.TestCase):
         self.assertEqual(order, ["load", "create:azure_openai_sdk"])
         self.assertIsInstance(provider, DummyProvider)
 
+    def test_graph_strategy_script_overrides_embedding_parallel_env_before_provider(self) -> None:
+        order: list[str] = []
+
+        class DummyProvider(EmbeddingProvider):
+            def embed(self, text: str) -> list[float]:
+                return [0.0]
+
+        def fake_load_env() -> None:
+            order.append("load")
+            os.environ["SAM_AZURE_EMBEDDING_CONCURRENCY"] = "1"
+            os.environ["SAM_OPENAI_EMBEDDING_CONCURRENCY"] = "1"
+            os.environ["SAM_AZURE_EMBEDDING_BATCH_SIZE"] = "4"
+            os.environ["SAM_OPENAI_EMBEDDING_BATCH_SIZE"] = "4"
+            os.environ["SAM_AZURE_EMBEDDING_INPUT_MODE"] = "batch"
+
+        def fake_create_provider(name: str) -> EmbeddingProvider:
+            order.append(f"create:{name}")
+            self.assertEqual(os.environ["SAM_AZURE_EMBEDDING_CONCURRENCY"], "12")
+            self.assertEqual(os.environ["SAM_OPENAI_EMBEDDING_CONCURRENCY"], "12")
+            self.assertEqual(os.environ["SAM_AZURE_EMBEDDING_BATCH_SIZE"], "16")
+            self.assertEqual(os.environ["SAM_OPENAI_EMBEDDING_BATCH_SIZE"], "16")
+            self.assertEqual(os.environ["SAM_AZURE_EMBEDDING_INPUT_MODE"], "single")
+            return DummyProvider()
+
+        with patch.dict("os.environ", {}, clear=True):
+            with patch.object(graph_strategy_script, "load_default_env_file", side_effect=fake_load_env):
+                with patch.object(
+                    graph_strategy_script,
+                    "create_embedding_provider",
+                    side_effect=fake_create_provider,
+                ):
+                    provider = graph_strategy_script._create_embedding_provider(
+                        "azure_openai_sdk",
+                        embedding_concurrency=12,
+                        embedding_batch_size=16,
+                        embedding_input_mode="single",
+                    )
+
+        self.assertEqual(order, ["load", "create:azure_openai_sdk"])
+        self.assertIsInstance(provider, DummyProvider)
+
     def test_progress_iter_uses_tqdm_factory_when_enabled(self) -> None:
         calls: list[dict[str, object]] = []
 

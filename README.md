@@ -244,7 +244,7 @@ conda run -n sam python scripts/run_end_to_end_experiment.py \
   --run-name e2e_hotpotqa300_embedding
 ```
 
-`scripts/run_reranker_profile_experiment.py` 和 `scripts/run_memory_reuse_experiment.py` 也支持同样的 `--env-file`、`--embedding-cache-path` 和 `--embedding-concurrency` 参数，方便用同一套正式 embedding 配置重跑 profile 对比和连续记忆复用实验。
+`scripts/run_reranker_profile_experiment.py`、`scripts/run_memory_reuse_experiment.py` 和 `scripts/run_graph_strategy_experiment.py` 也支持同样的在线 embedding 并发配置，方便用同一套正式 embedding 配置重跑 profile 对比、连续记忆复用实验和建图策略性价比实验。
 
 正式发送 embedding 请求前，先用规划脚本估算唯一文本数、缓存命中数和预计 batch 数。该命令只读取本地数据集和缓存，不调用在线 API：
 

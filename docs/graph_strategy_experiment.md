@@ -67,7 +67,15 @@ conda run -n sam python scripts/run_graph_strategy_experiment.py \
   --dataset-file data/processed/hotpotqa_midterm300_sam_sample.json \
   --limit-queries 300 \
   --embedding-provider azure_openai_sdk \
+  --embedding-concurrency 10 \
+  --embedding-input-mode single \
   --output-dir outputs/graph_strategy_experiment_hotpotqa300
+```
+
+`azure_openai_sdk` 底层使用异步请求。`--embedding-concurrency` 对应在线 embedding 的最大并发数；`--embedding-input-mode single` 表示每条文本单独发起一次异步 embedding 请求，和当前可用的公司网关调用方式一致。如果网关后续确认支持批量输入，可以切换为：
+
+```bash
+--embedding-input-mode batch --embedding-batch-size 16 --embedding-concurrency 10
 ```
 
 输出文件：
