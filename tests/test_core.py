@@ -70,6 +70,7 @@ from sam.graph_strategy_experiment import (
     progress_iter,
     run_alpha_sweep,
     position_proximity,
+    score_pair,
     write_graph_strategy_report,
 )
 from sam.graph_strategy_audit import audit_graph_strategy_report
@@ -1055,6 +1056,50 @@ class SamCoreTest(unittest.TestCase):
         self.assertTrue(audit["is_leak_safe"])
         self.assertEqual(audit["context_paths_containing_query_ids"], 0)
         self.assertNotIn("scifact_doc_1001", "/".join(path))
+
+    def test_graph_strategy_core_context_path_fallback_does_not_use_query_id(self) -> None:
+        now = utc_now_iso()
+        left = MemoryNode(
+            id="left",
+            text="left evidence",
+            summary="left evidence",
+            keywords=["left"],
+            tags=[],
+            source="unit",
+            created_at=now,
+            last_accessed_at=None,
+            usage_count=0,
+            confidence=0.9,
+            embedding=[1.0, 0.0],
+            metadata={
+                "dataset": "unit",
+                "query_id": "shared_query",
+                "title": "Left Evidence",
+            },
+        )
+        right = MemoryNode(
+            id="right",
+            text="right evidence",
+            summary="right evidence",
+            keywords=["right"],
+            tags=[],
+            source="unit",
+            created_at=now,
+            last_accessed_at=None,
+            usage_count=0,
+            confidence=0.9,
+            embedding=[0.0, 1.0],
+            metadata={
+                "dataset": "unit",
+                "query_id": "shared_query",
+                "title": "Right Evidence",
+            },
+        )
+
+        score, breakdown = score_pair(left, right, GraphStrategyConfig("context_path_only"))
+
+        self.assertEqual(score, 0.0)
+        self.assertEqual(breakdown["context_path_proximity"], 0.0)
 
     def test_no_graph_strategy_uses_embedding_top_k_not_seed_k_only(self) -> None:
         nodes = self._strategy_nodes()

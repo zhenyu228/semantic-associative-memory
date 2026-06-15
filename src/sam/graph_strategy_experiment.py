@@ -590,12 +590,13 @@ def _context_path(node: MemoryNode) -> list[str]:
         return [str(item) for item in value]
     if isinstance(value, str):
         return [part for part in value.split("/") if part]
-    fallback = [
-        node.metadata.get("dataset"),
-        node.metadata.get("query_id"),
-        node.metadata.get("title"),
-    ]
-    return [str(item) for item in fallback if item]
+    title = node.metadata.get("title")
+    if title:
+        return [f"title:{title}"]
+    source_id = node.metadata.get("source_id") or node.metadata.get("book_id")
+    if source_id:
+        return [f"source:{source_id}", f"node:{node.id}"]
+    return [f"node:{node.id}"]
 
 
 def _adjacency(edges: list[MemoryEdge]) -> dict[str, list[MemoryEdge]]:
