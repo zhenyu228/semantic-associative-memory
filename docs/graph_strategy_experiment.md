@@ -175,6 +175,17 @@ graph_strategy_alpha_sweep.json
 graph_strategy_alpha_sweep.md
 ```
 
+跑完正式实验后，使用审计脚本检查结果是否具备答辩可检查性：
+
+```bash
+conda run -n sam python scripts/audit_graph_strategy_report.py \
+  --report outputs/graph_strategy_experiment_scifact50/graph_strategy_results.json \
+  --expected-pair-scope query_candidates \
+  --require-real-embedding
+```
+
+审计会检查 dataset 摘要、真实 embedding、context path 泄漏、策略完整性、效果指标、成本指标、性价比字段和 pair scope。审计失败时脚本返回非 0 退出码，避免把 smoke 或字段缺失的结果误当正式实验。
+
 ## 预期答辩表述
 
 本实验不是比较复杂关系类型的堆叠，而是比较不同非生成式建边公式在效果、耗时和边规模之间的平衡。若实验结果支持 `sam_context`，可以表述为：

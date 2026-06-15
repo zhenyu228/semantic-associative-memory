@@ -748,6 +748,17 @@ conda run -n sam python scripts/run_graph_strategy_experiment.py \
   --output-dir outputs/graph_strategy_experiment_scifact50
 ```
 
+跑完后用审计脚本确认这份结果能作为正式实验使用：
+
+```bash
+conda run -n sam python scripts/audit_graph_strategy_report.py \
+  --report outputs/graph_strategy_experiment_scifact50/graph_strategy_results.json \
+  --expected-pair-scope query_candidates \
+  --require-real-embedding
+```
+
+审计通过才说明该实验同时具备真实 embedding、无 context path 泄漏、完整效果指标、完整成本指标和完整策略对比。
+
 ### NovelQA
 
 NovelQA 是面向超长小说文本问答的公开基准，Hugging Face 页面需要用户登录并同意访问条件。本仓库不会自动下载或提交 NovelQA 原始小说文本；你需要先把 zip 或解压目录放到本地，例如：

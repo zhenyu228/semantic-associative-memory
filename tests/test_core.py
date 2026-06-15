@@ -72,6 +72,7 @@ from sam.graph_strategy_experiment import (
     position_proximity,
     write_graph_strategy_report,
 )
+from sam.graph_strategy_audit import audit_graph_strategy_report
 from sam.llm import (
     AzureOpenAIChatClient,
     AzureOpenAISDKChatClient,
@@ -795,6 +796,103 @@ class SamCoreTest(unittest.TestCase):
         self.assertEqual(query_scope_cost["candidate_pair_count"], 4)
         self.assertEqual(query_scope_cost["theoretical_full_pair_count"], 6)
         self.assertLess(query_scope_cost["candidate_pair_coverage"], 1.0)
+
+    def test_graph_strategy_audit_accepts_complete_query_scope_report(self) -> None:
+        nodes = self._strategy_nodes()
+        queries = [
+            EvaluationQuery(
+                id="q1",
+                dataset="unit",
+                question="Which evidence explains graph retrieval?",
+                answer="Graph retrieval improves evidence.",
+                supporting_doc_ids=["doc_b"],
+                candidate_doc_ids=["doc_a", "doc_b"],
+            )
+        ]
+        report = GraphStrategyExperiment(
+            nodes=nodes,
+            queries=queries,
+            top_k_edges=2,
+            threshold=0.0,
+            pair_scope="query_candidates",
+        ).run(
+            strategies=["no_graph", "semantic_only", "position_only", "cam_style", "context_path_only", "sam_context"],
+            top_k=2,
+            seed_k=1,
+            hops=1,
+        )
+        report["dataset"] = {
+            "dataset_file": "data/processed/scifact_dev1_sam_sample.json",
+            "document_count": 2,
+            "query_count": 1,
+            "supporting_evidence_count": 1,
+            "average_candidate_docs_per_query": 2.0,
+        }
+        report["embedding"] = {
+            "provider": "azure_openai_sdk",
+            "document_embedding_count": 2,
+            "query_embedding_count": 1,
+        }
+        report["context_path"] = {
+            "policy": "intrinsic",
+            "is_leak_safe": True,
+            "context_paths_containing_query_ids": 0,
+        }
+
+        audit = audit_graph_strategy_report(
+            report,
+            expected_pair_scope="query_candidates",
+            require_real_embedding=True,
+        )
+
+        self.assertTrue(audit["passed"])
+        self.assertEqual(audit["summary"]["failed_checks"], 0)
+        self.assertEqual(audit["summary"]["warning_checks"], 0)
+
+    def test_graph_strategy_audit_rejects_leakage_missing_metrics_and_local_embedding(self) -> None:
+        nodes = self._strategy_nodes()
+        query = EvaluationQuery(
+            id="q1",
+            dataset="unit",
+            question="Which evidence explains graph retrieval?",
+            answer="Graph retrieval improves evidence.",
+            supporting_doc_ids=["doc_b"],
+            candidate_doc_ids=["doc_a", "doc_b"],
+        )
+        report = GraphStrategyExperiment(
+            nodes=nodes,
+            queries=[query],
+            top_k_edges=2,
+            threshold=0.0,
+            pair_scope="query_candidates",
+        ).run(strategies=["no_graph", "semantic_only"], top_k=2, seed_k=1, hops=1)
+        report["dataset"] = {
+            "dataset_file": "data/processed/scifact_dev1_sam_sample.json",
+            "document_count": 2,
+            "query_count": 1,
+            "supporting_evidence_count": 1,
+            "average_candidate_docs_per_query": 2.0,
+        }
+        report["embedding"] = {"provider": "local_hash"}
+        report["context_path"] = {
+            "policy": "intrinsic",
+            "is_leak_safe": False,
+            "context_paths_containing_query_ids": 1,
+        }
+        del report["strategies"]["semantic_only"]["metrics"]["precision_at_k"]
+
+        audit = audit_graph_strategy_report(
+            report,
+            expected_pair_scope="query_candidates",
+            require_real_embedding=True,
+        )
+
+        failed_ids = {check["id"] for check in audit["checks"] if check["status"] == "fail"}
+        self.assertFalse(audit["passed"])
+        self.assertIn("context_path_no_leakage", failed_ids)
+        self.assertIn("embedding_provider_real", failed_ids)
+        self.assertIn("strategy_semantic_only_metrics_complete", failed_ids)
+        self.assertIn("strategies_complete", failed_ids)
 
     def test_graph_strategy_experiment_uses_supplied_query_embeddings(self) -> None:
         nodes = self._strategy_nodes()
