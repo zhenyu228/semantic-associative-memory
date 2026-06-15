@@ -67,6 +67,7 @@ from sam.graph_strategy_experiment import (
     GraphStrategyConfig,
     GraphStrategyExperiment,
     context_path_proximity,
+    progress_iter,
     run_alpha_sweep,
     position_proximity,
 )
@@ -113,6 +114,7 @@ from sam.reuse_experiment import (
     write_memory_reuse_reports,
 )
 from sam.store import MemoryStore
+from scripts import run_graph_strategy_experiment as graph_strategy_script
 from scripts.run_demo import _nodes_for_graph_export
 from scripts.check_embedding_provider import build_embedding_status
 from scripts.check_model_providers import build_provider_status
@@ -135,6 +137,44 @@ class SamCoreTest(unittest.TestCase):
     def tearDown(self) -> None:
         self.store.close()
         self.temp_dir.cleanup()
+
+    def test_graph_strategy_script_loads_env_before_explicit_provider(self) -> None:
+        order: list[str] = []
+
+        class DummyProvider(EmbeddingProvider):
+            def embed(self, text: str) -> list[float]:
+                return [0.0]
+
+        with patch.object(graph_strategy_script, "load_default_env_file", side_effect=lambda: order.append("load")):
+            with patch.object(
+                graph_strategy_script,
+                "create_embedding_provider",
+                side_effect=lambda name: order.append(f"create:{name}") or DummyProvider(),
+            ):
+                provider = graph_strategy_script._create_embedding_provider("azure_openai_sdk")
+
+        self.assertEqual(order, ["load", "create:azure_openai_sdk"])
+        self.assertIsInstance(provider, DummyProvider)
+
+    def test_progress_iter_uses_tqdm_factory_when_enabled(self) -> None:
+        calls: list[dict[str, object]] = []
+
+        def fake_tqdm(iterable, total=None, desc=None):
+            calls.append({"total": total, "desc": desc})
+            return iterable
+
+        values = list(progress_iter([1, 2], total=2, desc="测试进度", progress_factory=fake_tqdm))
+
+        self.assertEqual(values, [1, 2])
+        self.assertEqual(calls, [{"total": 2, "desc": "测试进度"}])
+
+    def test_progress_iter_can_be_disabled(self) -> None:
+        def fake_tqdm(iterable, total=None, desc=None):
+            raise AssertionError("禁用进度时不应调用 tqdm")
+
+        values = list(progress_iter([1, 2], total=2, desc="测试进度", enabled=False, progress_factory=fake_tqdm))
+
+        self.assertEqual(values, [1, 2])
 
     def test_nodes_are_persisted(self) -> None:
         nodes = self.store.get_nodes()

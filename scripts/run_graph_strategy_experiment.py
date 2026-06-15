@@ -12,6 +12,7 @@ if str(SRC) not in sys.path:
 from sam.dataset_format import load_sam_dataset
 from sam.datasets import documents_to_nodes
 from sam.embedding import LocalHashEmbeddingProvider, create_embedding_provider
+from sam.env import load_default_env_file
 from sam.graph_strategy_experiment import (
     GraphStrategyExperiment,
     run_alpha_sweep,
@@ -28,6 +29,15 @@ DEFAULT_STRATEGIES = [
     "context_path_only",
     "sam_context",
 ]
+
+
+def _create_embedding_provider(provider_name: str):
+    """创建 embedding provider；远端 provider 先加载本地环境变量。"""
+
+    if provider_name == "local_hash":
+        return LocalHashEmbeddingProvider()
+    load_default_env_file()
+    return create_embedding_provider(provider_name)
 
 
 def main() -> None:
@@ -61,11 +71,7 @@ def main() -> None:
         }
         documents = [document for document in documents if document.id in candidate_doc_ids]
 
-    embedding = (
-        LocalHashEmbeddingProvider()
-        if args.embedding_provider == "local_hash"
-        else create_embedding_provider(args.embedding_provider)
-    )
+    embedding = _create_embedding_provider(args.embedding_provider)
     nodes = documents_to_nodes(documents, embedding)
     _attach_context_metadata(nodes)
     experiment = GraphStrategyExperiment(

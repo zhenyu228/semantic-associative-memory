@@ -8,6 +8,7 @@ from collections import deque
 
 from sam.embedding import EmbeddingProvider
 from sam.models import EvaluationQuery, MemoryEdge, MemoryNode, RetrievalHit, utc_now_iso
+from sam.progress import progress_iter
 from sam.text import cosine_similarity
 
 
@@ -95,8 +96,9 @@ class GraphStrategyExperiment:
         self,
         strategies: list[str],
     ) -> dict[str, GraphBuildResult]:
-        return {
-            strategy: build_graph_for_strategy(
+        results: dict[str, GraphBuildResult] = {}
+        for strategy in progress_iter(strategies, total=len(strategies), desc="建图策略"):
+            results[strategy] = build_graph_for_strategy(
                 self.nodes,
                 GraphStrategyConfig(
                     strategy=strategy,
@@ -105,8 +107,7 @@ class GraphStrategyExperiment:
                     threshold=self.threshold,
                 ),
             )
-            for strategy in strategies
-        }
+        return results
 
     def run(
         self,
@@ -164,7 +165,7 @@ def build_graph_for_strategy(
 
     edge_by_key: dict[tuple[str, str, str], MemoryEdge] = {}
     candidate_pair_count = 0
-    for source in nodes:
+    for source in progress_iter(nodes, total=len(nodes), desc=f"建边:{config.strategy}"):
         scored: list[tuple[float, MemoryNode, dict[str, object]]] = []
         for target in nodes:
             if source.id == target.id:
@@ -274,7 +275,7 @@ def evaluate_strategy(
     path_lengths: list[int] = []
     expanded_counts: list[int] = []
     cases: list[dict[str, object]] = []
-    for query in queries:
+    for query in progress_iter(queries, total=len(queries), desc="评估查询"):
         query_embedding = _query_embedding_from_nodes(query.question, nodes)
         candidate_ids = [
             node_by_original[doc_id]
@@ -354,7 +355,7 @@ def run_alpha_sweep(
     rows: list[dict[str, object]] = []
     best_row: dict[str, object] | None = None
     best_score = -1.0
-    for alpha in alphas:
+    for alpha in progress_iter(alphas, total=len(alphas), desc="alpha扫描"):
         report = GraphStrategyExperiment(
             nodes=nodes,
             queries=queries,
