@@ -82,12 +82,14 @@ class GraphStrategyExperiment:
         self,
         nodes: list[MemoryNode],
         queries: list[EvaluationQuery],
+        query_embeddings: dict[str, list[float]] | None = None,
         alpha: float = 0.55,
         top_k_edges: int = 4,
         threshold: float = 0.18,
     ) -> None:
         self.nodes = nodes
         self.queries = queries
+        self.query_embeddings = query_embeddings or {}
         self.alpha = alpha
         self.top_k_edges = top_k_edges
         self.threshold = threshold
@@ -123,6 +125,7 @@ class GraphStrategyExperiment:
                 nodes=self.nodes,
                 edges=build_result.edges,
                 queries=self.queries,
+                query_embeddings=self.query_embeddings,
                 top_k=top_k,
                 seed_k=seed_k,
                 hops=hops,
@@ -134,6 +137,7 @@ class GraphStrategyExperiment:
                 "cost_effectiveness": _cost_effectiveness(metrics, build_result),
                 "cases": cases,
             }
+        _attach_comparative_cost_effectiveness(strategy_payload)
         return {
             "config": {
                 "alpha": self.alpha,
@@ -247,6 +251,7 @@ def evaluate_strategy(
     nodes: list[MemoryNode],
     edges: list[MemoryEdge],
     queries: list[EvaluationQuery],
+    query_embeddings: dict[str, list[float]] | None = None,
     top_k: int,
     seed_k: int,
     hops: int,
@@ -276,7 +281,8 @@ def evaluate_strategy(
     expanded_counts: list[int] = []
     cases: list[dict[str, object]] = []
     for query in progress_iter(queries, total=len(queries), desc="评估查询"):
-        query_embedding = _query_embedding_from_nodes(query.question, nodes)
+        supplied_query_embedding = query_embeddings.get(query.id) if query_embeddings else None
+        query_embedding = supplied_query_embedding or _query_embedding_from_nodes(query.question, nodes)
         candidate_ids = [
             node_by_original[doc_id]
             for doc_id in query.candidate_doc_ids
@@ -309,6 +315,7 @@ def evaluate_strategy(
                 "support_node_ids": sorted(support_node_ids),
                 "hit_node_ids": [hit.node.id for hit in hits],
                 "support_hits": query_support_hits,
+                "query_embedding_source": "provided" if supplied_query_embedding is not None else "fallback",
                 "hits": [
                     {
                         "node_id": hit.node.id,
@@ -345,6 +352,7 @@ def run_alpha_sweep(
     *,
     nodes: list[MemoryNode],
     queries: list[EvaluationQuery],
+    query_embeddings: dict[str, list[float]] | None = None,
     alphas: list[float],
     top_k_edges: int,
     threshold: float,
@@ -359,6 +367,7 @@ def run_alpha_sweep(
         report = GraphStrategyExperiment(
             nodes=nodes,
             queries=queries,
+            query_embeddings=query_embeddings,
             alpha=alpha,
             top_k_edges=top_k_edges,
             threshold=threshold,
@@ -378,16 +387,19 @@ def run_alpha_sweep(
             "candidate_pair_count": cost["candidate_pair_count"],
             "build_time_seconds": cost["build_time_seconds"],
             "recall_per_100_edges": payload["cost_effectiveness"]["recall_per_100_edges"],
+            "recall_per_second": payload["cost_effectiveness"]["recall_per_second"],
         }
         rows.append(row)
-        score = float(row["evidence_recall"]) - 0.0005 * float(row["edge_count"])
+    _attach_alpha_cost_effectiveness(rows)
+    for row in rows:
+        score = float(row["cost_effectiveness_score"])
         if score > best_score:
             best_row = row
             best_score = score
     return {
         "strategy": "sam_context",
         "best_alpha": best_row["alpha"] if best_row else None,
-        "selection_rule": "优先 evidence_recall，同时轻微惩罚边规模。",
+        "selection_rule": "按综合性价比分选择：Evidence Recall / (1 + 成本指数)。",
         "rows": rows,
     }
 
@@ -547,47 +559,156 @@ def _retrieve_with_edges(
 
 def _cost_effectiveness(metrics: dict[str, object], build_result: GraphBuildResult) -> dict[str, object]:
     recall = float(metrics.get("evidence_recall", 0.0))
-    edge_count = max(1, build_result.edge_count)
+    edge_count = build_result.edge_count
     build_time = max(0.000001, build_result.build_time_seconds)
     return {
-        "recall_per_100_edges": round(recall * 100.0 / edge_count, 6),
+        "recall_per_100_edges": round(recall * 100.0 / edge_count, 6) if edge_count else 0.0,
         "recall_per_second": round(recall / build_time, 6),
         "llm_call_count": 0,
         "uses_llm": False,
     }
 
 
+def _attach_comparative_cost_effectiveness(strategy_payload: dict[str, object]) -> None:
+    payloads = [
+        payload
+        for payload in strategy_payload.values()
+        if isinstance(payload, dict)
+        and isinstance(payload.get("metrics"), dict)
+        and isinstance(payload.get("cost"), dict)
+        and isinstance(payload.get("cost_effectiveness"), dict)
+    ]
+    if not payloads:
+        return
+    max_edges = max(float(payload["cost"].get("edge_count", 0.0)) for payload in payloads) or 1.0
+    max_pairs = max(float(payload["cost"].get("candidate_pair_count", 0.0)) for payload in payloads) or 1.0
+    max_time = max(float(payload["cost"].get("build_time_seconds", 0.0)) for payload in payloads) or 0.000001
+    no_graph_payload = strategy_payload.get("no_graph")
+    if isinstance(no_graph_payload, dict) and isinstance(no_graph_payload.get("metrics"), dict) and isinstance(no_graph_payload.get("cost"), dict):
+        baseline_recall = float(no_graph_payload["metrics"].get("evidence_recall", 0.0))
+        baseline_edges = float(no_graph_payload["cost"].get("edge_count", 0.0))
+        baseline_time = float(no_graph_payload["cost"].get("build_time_seconds", 0.0))
+    else:
+        baseline_recall = 0.0
+        baseline_edges = 0.0
+        baseline_time = 0.0
+    for payload in payloads:
+        metrics = payload["metrics"]
+        cost = payload["cost"]
+        cost_effectiveness = payload["cost_effectiveness"]
+        recall = float(metrics.get("evidence_recall", 0.0))
+        edge_count = float(cost.get("edge_count", 0.0))
+        candidate_pairs = float(cost.get("candidate_pair_count", 0.0))
+        build_time = float(cost.get("build_time_seconds", 0.0))
+        normalized_edge_cost = edge_count / max_edges if max_edges else 0.0
+        normalized_candidate_pair_cost = candidate_pairs / max_pairs if max_pairs else 0.0
+        normalized_build_time_cost = build_time / max_time if max_time else 0.0
+        cost_index = (
+            0.40 * normalized_edge_cost
+            + 0.30 * normalized_candidate_pair_cost
+            + 0.30 * normalized_build_time_cost
+        )
+        recall_gain = recall - baseline_recall
+        extra_edges = max(0.0, edge_count - baseline_edges)
+        extra_time = max(0.0, build_time - baseline_time)
+        cost_effectiveness.update(
+            {
+                "normalized_edge_cost": round(normalized_edge_cost, 6),
+                "normalized_candidate_pair_cost": round(normalized_candidate_pair_cost, 6),
+                "normalized_build_time_cost": round(normalized_build_time_cost, 6),
+                "cost_index": round(cost_index, 6),
+                "cost_effectiveness_score": round(recall / (1.0 + cost_index), 6),
+                "balanced_score": round(recall - 0.15 * cost_index, 6),
+                "recall_gain_vs_no_graph": round(recall_gain, 6),
+                "gain_per_100_extra_edges": round(recall_gain * 100.0 / extra_edges, 6) if extra_edges else 0.0,
+                "gain_per_extra_second": round(recall_gain / extra_time, 6) if extra_time > 0.0 else 0.0,
+            }
+        )
+
+
+def _attach_alpha_cost_effectiveness(rows: list[dict[str, object]]) -> None:
+    if not rows:
+        return
+    max_edges = max(float(row.get("edge_count", 0.0)) for row in rows) or 1.0
+    max_pairs = max(float(row.get("candidate_pair_count", 0.0)) for row in rows) or 1.0
+    max_time = max(float(row.get("build_time_seconds", 0.0)) for row in rows) or 0.000001
+    for row in rows:
+        recall = float(row.get("evidence_recall", 0.0))
+        normalized_edge_cost = float(row.get("edge_count", 0.0)) / max_edges
+        normalized_candidate_pair_cost = float(row.get("candidate_pair_count", 0.0)) / max_pairs
+        normalized_build_time_cost = float(row.get("build_time_seconds", 0.0)) / max_time
+        cost_index = (
+            0.40 * normalized_edge_cost
+            + 0.30 * normalized_candidate_pair_cost
+            + 0.30 * normalized_build_time_cost
+        )
+        row["cost_index"] = round(cost_index, 6)
+        row["cost_effectiveness_score"] = round(recall / (1.0 + cost_index), 6)
+
+
 def _summary(strategy_payload: dict[str, object]) -> dict[str, object]:
-    best_strategy = ""
-    best_score = -1.0
+    best_balanced_strategy = ""
+    best_cost_effectiveness_strategy = ""
+    best_recall_strategy = ""
+    best_balanced_score = -1.0
+    best_cost_effectiveness_score = -1.0
+    best_recall = -1.0
+    ranking: list[dict[str, object]] = []
     for strategy, payload in strategy_payload.items():
         if not isinstance(payload, dict):
             continue
         metrics = payload.get("metrics", {})
-        cost = payload.get("cost", {})
-        if not isinstance(metrics, dict) or not isinstance(cost, dict):
+        cost_effectiveness = payload.get("cost_effectiveness", {})
+        if not isinstance(metrics, dict) or not isinstance(cost_effectiveness, dict):
             continue
         recall = float(metrics.get("evidence_recall", 0.0))
-        edge_count = float(cost.get("edge_count", 0.0))
-        build_time = float(cost.get("build_time_seconds", 0.0))
-        score = recall - 0.0005 * edge_count - 0.01 * build_time
-        if score > best_score:
-            best_strategy = strategy
-            best_score = score
+        cost_effectiveness_score = float(cost_effectiveness.get("cost_effectiveness_score", 0.0))
+        balanced_score = float(cost_effectiveness.get("balanced_score", 0.0))
+        ranking.append(
+            {
+                "strategy": strategy,
+                "evidence_recall": round(recall, 6),
+                "cost_effectiveness_score": round(cost_effectiveness_score, 6),
+                "balanced_score": round(balanced_score, 6),
+                "cost_index": cost_effectiveness.get("cost_index", 0.0),
+            }
+        )
+        if recall > best_recall:
+            best_recall = recall
+            best_recall_strategy = strategy
+        can_recommend = strategy != "no_graph" or len(strategy_payload) == 1
+        if can_recommend and cost_effectiveness_score > best_cost_effectiveness_score:
+            best_cost_effectiveness_score = cost_effectiveness_score
+            best_cost_effectiveness_strategy = strategy
+        if can_recommend and balanced_score > best_balanced_score:
+            best_balanced_score = balanced_score
+            best_balanced_strategy = strategy
+    ranking.sort(key=lambda row: (float(row["balanced_score"]), float(row["evidence_recall"])), reverse=True)
     return {
-        "recommended_strategy": best_strategy,
-        "selection_rule": "优先 evidence_recall，同时轻微惩罚边规模和建图耗时；所有策略均不使用 LLM 建图。",
+        "recommended_strategy": best_balanced_strategy,
+        "best_recall_strategy": best_recall_strategy,
+        "best_cost_effectiveness_strategy": best_cost_effectiveness_strategy,
+        "best_balanced_strategy": best_balanced_strategy,
+        "selection_rule": "推荐策略按 balanced_score 选择：优先证据召回，同时惩罚归一化边规模、候选比较次数和建图耗时；所有策略均不使用 LLM 建图。",
+        "ranking": ranking,
     }
 
 
 def _markdown_report(report: dict[str, object]) -> str:
+    summary = report.get("summary", {})
+    if not isinstance(summary, dict):
+        summary = {}
     lines = [
         "# 非 LLM 建图策略性价比实验",
         "",
-        f"推荐策略：{report.get('summary', {}).get('recommended_strategy', '')}",
+        f"推荐策略：{summary.get('recommended_strategy', '')}",
+        f"最高召回策略：{summary.get('best_recall_strategy', '')}",
+        f"最高性价比策略：{summary.get('best_cost_effectiveness_strategy', '')}",
         "",
-        "| 策略 | Evidence Recall | 边数 | 候选对数 | 建图耗时(s) | 是否用 LLM |",
-        "| --- | ---: | ---: | ---: | ---: | --- |",
+        str(summary.get("selection_rule", "")),
+        "",
+        "| 策略 | Evidence Recall | 相对 no_graph 召回增益 | 边数 | 候选对数 | 建图耗时(s) | 平均路径长度 | 平均扩展节点数 | Recall / 100 edges | Recall/s | 成本指数 | 综合性价比分 | 是否用 LLM |",
+        "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |",
     ]
     strategies = report.get("strategies", {})
     if isinstance(strategies, dict):
@@ -596,19 +717,29 @@ def _markdown_report(report: dict[str, object]) -> str:
                 continue
             metrics = payload.get("metrics", {})
             cost = payload.get("cost", {})
-            if not isinstance(metrics, dict) or not isinstance(cost, dict):
+            cost_effectiveness = payload.get("cost_effectiveness", {})
+            if not isinstance(metrics, dict) or not isinstance(cost, dict) or not isinstance(cost_effectiveness, dict):
                 continue
             lines.append(
                 "| "
                 f"{strategy} | "
                 f"{float(metrics.get('evidence_recall', 0.0)):.3f} | "
+                f"{float(cost_effectiveness.get('recall_gain_vs_no_graph', 0.0)):.3f} | "
                 f"{int(cost.get('edge_count', 0))} | "
                 f"{int(cost.get('candidate_pair_count', 0))} | "
                 f"{float(cost.get('build_time_seconds', 0.0)):.6f} | "
+                f"{float(metrics.get('average_path_length', 0.0)):.3f} | "
+                f"{float(metrics.get('average_expanded_node_count', 0.0)):.3f} | "
+                f"{float(cost_effectiveness.get('recall_per_100_edges', 0.0)):.6f} | "
+                f"{float(cost_effectiveness.get('recall_per_second', 0.0)):.6f} | "
+                f"{float(cost_effectiveness.get('cost_index', 0.0)):.6f} | "
+                f"{float(cost_effectiveness.get('cost_effectiveness_score', 0.0)):.6f} | "
                 f"{'是' if cost.get('uses_llm') else '否'} |"
             )
     lines.extend(
         [
+            "",
+            "成本指数由归一化边规模、归一化候选比较次数和归一化建图耗时加权得到。综合性价比分使用 `Evidence Recall / (1 + 成本指数)`，数值越高表示单位建图代价下的召回表现越好。",
             "",
             "本实验只比较非生成式建图公式。主线假设是：简洁的 `semantic similarity + context path proximity` "
             "比单独语义、单独位置或线性位置版本更适合作为通用 SAM 建图策略。",
@@ -622,9 +753,10 @@ def _alpha_sweep_markdown(sweep: dict[str, object]) -> str:
         "# SAM-style alpha 扫描",
         "",
         f"最佳 alpha：{sweep.get('best_alpha')}",
+        f"选择规则：{sweep.get('selection_rule')}",
         "",
-        "| alpha | Evidence Recall | 边数 | 候选对数 | 建图耗时(s) | Recall / 100 edges |",
-        "| ---: | ---: | ---: | ---: | ---: | ---: |",
+        "| alpha | Evidence Recall | 边数 | 候选对数 | 建图耗时(s) | Recall / 100 edges | Recall/s | 成本指数 | 综合性价比分 |",
+        "| ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
     ]
     for row in sweep.get("rows", []):
         if not isinstance(row, dict):
@@ -636,7 +768,10 @@ def _alpha_sweep_markdown(sweep: dict[str, object]) -> str:
             f"{int(row.get('edge_count', 0))} | "
             f"{int(row.get('candidate_pair_count', 0))} | "
             f"{float(row.get('build_time_seconds', 0.0)):.6f} | "
-            f"{float(row.get('recall_per_100_edges', 0.0)):.6f} |"
+            f"{float(row.get('recall_per_100_edges', 0.0)):.6f} | "
+            f"{float(row.get('recall_per_second', 0.0)):.6f} | "
+            f"{float(row.get('cost_index', 0.0)):.6f} | "
+            f"{float(row.get('cost_effectiveness_score', 0.0)):.6f} |"
         )
     lines.append("")
     lines.append("alpha 越接近 1.0，越偏向语义相似；越接近 0.0，越偏向上下文路径邻近。")

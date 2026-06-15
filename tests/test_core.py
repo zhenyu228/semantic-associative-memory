@@ -70,6 +70,7 @@ from sam.graph_strategy_experiment import (
     progress_iter,
     run_alpha_sweep,
     position_proximity,
+    write_graph_strategy_report,
 )
 from sam.llm import (
     AzureOpenAIChatClient,
@@ -722,8 +723,84 @@ class SamCoreTest(unittest.TestCase):
         self.assertIn("evidence_recall", report["strategies"]["sam_context"]["metrics"])
         self.assertIn("build_time_seconds", report["strategies"]["sam_context"]["cost"])
         self.assertIn("cost_effectiveness", report["strategies"]["sam_context"])
+        cost_effectiveness = report["strategies"]["sam_context"]["cost_effectiveness"]
+        self.assertIn("cost_index", cost_effectiveness)
+        self.assertIn("cost_effectiveness_score", cost_effectiveness)
+        self.assertIn("normalized_edge_cost", cost_effectiveness)
+        self.assertIn("normalized_candidate_pair_cost", cost_effectiveness)
+        self.assertIn("normalized_build_time_cost", cost_effectiveness)
+        self.assertIn("recall_gain_vs_no_graph", cost_effectiveness)
+        self.assertIn("gain_per_100_extra_edges", cost_effectiveness)
+        self.assertIn("gain_per_extra_second", cost_effectiveness)
+        self.assertIn("recommended_strategy", report["summary"])
+        self.assertIn("best_recall_strategy", report["summary"])
+        self.assertIn("best_cost_effectiveness_strategy", report["summary"])
+        self.assertIn("best_balanced_strategy", report["summary"])
+        self.assertIn("ranking", report["summary"])
+        self.assertGreaterEqual(cost_effectiveness["cost_effectiveness_score"], 0.0)
         self.assertIn("recommended_strategy", report["summary"])
         self.assertFalse(report["strategies"]["sam_context"]["cost"]["uses_llm"])
+
+    def test_graph_strategy_experiment_uses_supplied_query_embeddings(self) -> None:
+        nodes = self._strategy_nodes()
+        query = EvaluationQuery(
+            id="q1",
+            dataset="unit",
+            question="Which document is the unrelated table extraction baseline?",
+            answer="Unrelated preprocessing baseline.",
+            supporting_doc_ids=["doc_c"],
+            candidate_doc_ids=["doc_a", "doc_b", "doc_c"],
+        )
+
+        report = GraphStrategyExperiment(
+            nodes=nodes,
+            queries=[query],
+            query_embeddings={"q1": nodes[2].embedding},
+        ).run(
+            strategies=["no_graph"],
+            top_k=1,
+            seed_k=1,
+            hops=1,
+        )
+
+        case = report["strategies"]["no_graph"]["cases"][0]
+        self.assertEqual(case["hit_node_ids"], ["node_c"])
+        self.assertEqual(report["strategies"]["no_graph"]["metrics"]["support_hits"], 1)
+
+    def test_graph_strategy_markdown_report_includes_full_cost_effectiveness(self) -> None:
+        nodes = self._strategy_nodes()
+        queries = [
+            EvaluationQuery(
+                id="q1",
+                dataset="unit",
+                question="Which evidence explains graph retrieval for long context?",
+                answer="Graph retrieval improves long context evidence.",
+                supporting_doc_ids=["doc_b"],
+                candidate_doc_ids=["doc_a", "doc_b", "doc_c"],
+            )
+        ]
+        report = GraphStrategyExperiment(
+            nodes=nodes,
+            queries=queries,
+            alpha=0.55,
+            top_k_edges=2,
+            threshold=0.08,
+        ).run(
+            strategies=["no_graph", "semantic_only", "cam_style", "sam_context"],
+            top_k=2,
+            seed_k=1,
+            hops=1,
+        )
+
+        _json_path, markdown_path = write_graph_strategy_report(report, Path(self.temp_dir.name) / "strategy_report")
+        markdown = markdown_path.read_text(encoding="utf-8")
+
+        self.assertIn("综合性价比分", markdown)
+        self.assertIn("成本指数", markdown)
+        self.assertIn("Recall/s", markdown)
+        self.assertIn("相对 no_graph 召回增益", markdown)
+        self.assertIn("平均路径长度", markdown)
+        self.assertIn("平均扩展节点数", markdown)
 
     def test_no_graph_strategy_uses_embedding_top_k_not_seed_k_only(self) -> None:
         nodes = self._strategy_nodes()

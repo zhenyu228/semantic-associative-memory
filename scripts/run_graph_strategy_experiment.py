@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import os
 import sys
+import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -38,6 +39,8 @@ def _create_embedding_provider(
     embedding_concurrency: int | None = None,
     embedding_batch_size: int | None = None,
     embedding_input_mode: str | None = None,
+    embedding_cache: bool = False,
+    embedding_cache_path: str | None = None,
 ):
     """创建 embedding provider；远端 provider 先加载本地环境变量。"""
 
@@ -48,6 +51,8 @@ def _create_embedding_provider(
         embedding_concurrency=embedding_concurrency,
         embedding_batch_size=embedding_batch_size,
         embedding_input_mode=embedding_input_mode,
+        embedding_cache=embedding_cache,
+        embedding_cache_path=embedding_cache_path,
     )
     return create_embedding_provider(provider_name)
 
@@ -57,6 +62,8 @@ def _apply_embedding_runtime_options(
     embedding_concurrency: int | None,
     embedding_batch_size: int | None,
     embedding_input_mode: str | None,
+    embedding_cache: bool,
+    embedding_cache_path: str | None,
 ) -> None:
     """把脚本参数转为 provider 使用的环境变量。
 
@@ -72,6 +79,25 @@ def _apply_embedding_runtime_options(
         os.environ["SAM_OPENAI_EMBEDDING_BATCH_SIZE"] = str(embedding_batch_size)
     if embedding_input_mode:
         os.environ["SAM_AZURE_EMBEDDING_INPUT_MODE"] = embedding_input_mode
+    if embedding_cache:
+        os.environ["SAM_EMBEDDING_CACHE"] = "1"
+    if embedding_cache_path:
+        cache_path = Path(embedding_cache_path)
+        if not cache_path.is_absolute():
+            cache_path = ROOT / cache_path
+        os.environ["SAM_EMBEDDING_CACHE_PATH"] = str(cache_path)
+
+
+def _embed_queries(queries: list[object], embedding_provider) -> tuple[dict[str, list[float]], float]:
+    """为 query 生成真实 embedding，保证检索评测和文档向量在同一空间。"""
+
+    start = time.perf_counter()
+    texts = [str(query.question) for query in queries]
+    embeddings = embedding_provider.embed_many(texts)
+    return {
+        str(query.id): embedding
+        for query, embedding in zip(queries, embeddings, strict=True)
+    }, time.perf_counter() - start
 
 
 def main() -> None:
@@ -95,6 +121,8 @@ def main() -> None:
     )
     parser.add_argument("--embedding-concurrency", type=int, default=None, help="在线 embedding 最大并发数")
     parser.add_argument("--embedding-batch-size", type=int, default=None, help="在线 embedding 批大小；batch 模式下更重要")
+    parser.add_argument("--embedding-cache", action="store_true", help="启用 SQLite embedding 缓存")
+    parser.add_argument("--embedding-cache-path", default=None, help="自定义 embedding 缓存 SQLite 路径")
     parser.add_argument(
         "--embedding-input-mode",
         choices=["single", "batch"],
@@ -118,12 +146,18 @@ def main() -> None:
         embedding_concurrency=args.embedding_concurrency,
         embedding_batch_size=args.embedding_batch_size,
         embedding_input_mode=args.embedding_input_mode,
+        embedding_cache=args.embedding_cache,
+        embedding_cache_path=args.embedding_cache_path,
     )
+    document_embedding_start = time.perf_counter()
     nodes = documents_to_nodes(documents, embedding)
+    document_embedding_time = time.perf_counter() - document_embedding_start
+    query_embeddings, query_embedding_time = _embed_queries(queries, embedding)
     _attach_context_metadata(nodes)
     experiment = GraphStrategyExperiment(
         nodes=nodes,
         queries=queries,
+        query_embeddings=query_embeddings,
         alpha=args.alpha,
         top_k_edges=args.top_k_edges,
         threshold=args.threshold,
@@ -134,11 +168,24 @@ def main() -> None:
         seed_k=args.seed_k,
         hops=args.hops,
     )
+    report["embedding"] = {
+        "provider": args.embedding_provider,
+        "document_embedding_count": len(documents),
+        "query_embedding_count": len(queries),
+        "document_embedding_time_seconds": round(document_embedding_time, 6),
+        "query_embedding_time_seconds": round(query_embedding_time, 6),
+        "embedding_concurrency": args.embedding_concurrency,
+        "embedding_batch_size": args.embedding_batch_size,
+        "embedding_input_mode": args.embedding_input_mode,
+        "embedding_cache": args.embedding_cache,
+        "embedding_cache_path": args.embedding_cache_path,
+    }
     json_path, markdown_path = write_graph_strategy_report(report, args.output_dir)
     if args.alpha_sweep:
         sweep = run_alpha_sweep(
             nodes=nodes,
             queries=queries,
+            query_embeddings=query_embeddings,
             alphas=[float(value.strip()) for value in args.alpha_sweep.split(",") if value.strip()],
             top_k_edges=args.top_k_edges,
             threshold=args.threshold,

@@ -244,7 +244,7 @@ conda run -n sam python scripts/run_end_to_end_experiment.py \
   --run-name e2e_hotpotqa300_embedding
 ```
 
-`scripts/run_reranker_profile_experiment.py`、`scripts/run_memory_reuse_experiment.py` 和 `scripts/run_graph_strategy_experiment.py` 也支持同样的在线 embedding 并发配置，方便用同一套正式 embedding 配置重跑 profile 对比、连续记忆复用实验和建图策略性价比实验。
+`scripts/run_reranker_profile_experiment.py`、`scripts/run_memory_reuse_experiment.py` 和 `scripts/run_graph_strategy_experiment.py` 也支持同样的在线 embedding 并发配置。建图策略实验会对文档和 query 都生成真实 embedding，并在结果中输出边规模、候选比较次数、建图耗时、单位边收益、单位时间收益、综合成本指数和综合性价比分，方便用同一套正式 embedding 配置重跑 profile 对比、连续记忆复用实验和建图策略性价比实验。
 
 正式发送 embedding 请求前，先用规划脚本估算唯一文本数、缓存命中数和预计 batch 数。该命令只读取本地数据集和缓存，不调用在线 API：
 
