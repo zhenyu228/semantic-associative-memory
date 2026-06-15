@@ -1,0 +1,428 @@
+[
+  {
+    "method": "graphrag_offline_reference",
+    "method_label": "GraphRAG (Offline, CAM)",
+    "batch_size": 1,
+    "time_seconds": 6480.0,
+    "time_hours": 1.8,
+    "candidate_pair_count": null,
+    "edge_count": null,
+    "compression_group_count": null,
+    "includes_llm_refinement": false,
+    "chunk_token_size": 512,
+    "source": "CAM Figure 3(a) reference"
+  },
+  {
+    "method": "raptor_offline_reference",
+    "method_label": "RAPTOR (Offline, CAM)",
+    "batch_size": 1,
+    "time_seconds": 4320.0,
+    "time_hours": 1.2,
+    "candidate_pair_count": null,
+    "edge_count": null,
+    "compression_group_count": null,
+    "includes_llm_refinement": false,
+    "chunk_token_size": 512,
+    "source": "CAM Figure 3(a) reference"
+  },
+  {
+    "method": "cam_offline_reference",
+    "method_label": "CAM (Offline, paper)",
+    "batch_size": 1,
+    "time_seconds": 1080.0,
+    "time_hours": 0.3,
+    "candidate_pair_count": null,
+    "edge_count": null,
+    "compression_group_count": null,
+    "includes_llm_refinement": true,
+    "chunk_token_size": 512,
+    "source": "CAM Figure 3(a) reference"
+  },
+  {
+    "method": "sam_online_no_llm",
+    "method_label": "SAM Online w/o LLM refinement",
+    "batch_size": 1,
+    "time_seconds": 0.00039,
+    "time_hours": 1.1e-07,
+    "candidate_pair_count": 0,
+    "edge_count": 0,
+    "compression_group_count": 0,
+    "includes_llm_refinement": false,
+    "chunk_token_size": 512,
+    "pair_scope": "query_candidates",
+    "repeat_times_seconds": [
+      0.00039
+    ]
+  },
+  {
+    "method": "sam_online_with_refinement",
+    "method_label": "SAM Online w/ semantic refinement",
+    "batch_size": 1,
+    "time_seconds": 5.357558,
+    "time_hours": 0.00148821,
+    "candidate_pair_count": 0,
+    "edge_count": 0,
+    "compression_group_count": 1,
+    "includes_llm_refinement": true,
+    "chunk_token_size": 512,
+    "pair_scope": "query_candidates",
+    "repeat_times_seconds": [
+      5.357558
+    ]
+  },
+  {
+    "method": "graphrag_offline_reference",
+    "method_label": "GraphRAG (Offline, CAM)",
+    "batch_size": 100,
+    "time_seconds": 6480.0,
+    "time_hours": 1.8,
+    "candidate_pair_count": null,
+    "edge_count": null,
+    "compression_group_count": null,
+    "includes_llm_refinement": false,
+    "chunk_token_size": 512,
+    "source": "CAM Figure 3(a) reference"
+  },
+  {
+    "method": "raptor_offline_reference",
+    "method_label": "RAPTOR (Offline, CAM)",
+    "batch_size": 100,
+    "time_seconds": 4320.0,
+    "time_hours": 1.2,
+    "candidate_pair_count": null,
+    "edge_count": null,
+    "compression_group_count": null,
+    "includes_llm_refinement": false,
+    "chunk_token_size": 512,
+    "source": "CAM Figure 3(a) reference"
+  },
+  {
+    "method": "cam_offline_reference",
+    "method_label": "CAM (Offline, paper)",
+    "batch_size": 100,
+    "time_seconds": 1080.0,
+    "time_hours": 0.3,
+    "candidate_pair_count": null,
+    "edge_count": null,
+    "compression_group_count": null,
+    "includes_llm_refinement": true,
+    "chunk_token_size": 512,
+    "source": "CAM Figure 3(a) reference"
+  },
+  {
+    "method": "sam_online_no_llm",
+    "method_label": "SAM Online w/o LLM refinement",
+    "batch_size": 100,
+    "time_seconds": 0.016272,
+    "time_hours": 4.52e-06,
+    "candidate_pair_count": 478,
+    "edge_count": 22,
+    "compression_group_count": 0,
+    "includes_llm_refinement": false,
+    "chunk_token_size": 512,
+    "pair_scope": "query_candidates",
+    "repeat_times_seconds": [
+      0.016272
+    ]
+  },
+  {
+    "method": "sam_online_with_refinement",
+    "method_label": "SAM Online w/ semantic refinement",
+    "batch_size": 100,
+    "time_seconds": 20.566737,
+    "time_hours": 0.00571298,
+    "candidate_pair_count": 478,
+    "edge_count": 22,
+    "compression_group_count": 5,
+    "includes_llm_refinement": true,
+    "chunk_token_size": 512,
+    "pair_scope": "query_candidates",
+    "repeat_times_seconds": [
+      20.566737
+    ]
+  },
+  {
+    "method": "graphrag_offline_reference",
+    "method_label": "GraphRAG (Offline, CAM)",
+    "batch_size": 200,
+    "time_seconds": 6480.0,
+    "time_hours": 1.8,
+    "candidate_pair_count": null,
+    "edge_count": null,
+    "compression_group_count": null,
+    "includes_llm_refinement": false,
+    "chunk_token_size": 512,
+    "source": "CAM Figure 3(a) reference"
+  },
+  {
+    "method": "raptor_offline_reference",
+    "method_label": "RAPTOR (Offline, CAM)",
+    "batch_size": 200,
+    "time_seconds": 4320.0,
+    "time_hours": 1.2,
+    "candidate_pair_count": null,
+    "edge_count": null,
+    "compression_group_count": null,
+    "includes_llm_refinement": false,
+    "chunk_token_size": 512,
+    "source": "CAM Figure 3(a) reference"
+  },
+  {
+    "method": "cam_offline_reference",
+    "method_label": "CAM (Offline, paper)",
+    "batch_size": 200,
+    "time_seconds": 1080.0,
+    "time_hours": 0.3,
+    "candidate_pair_count": null,
+    "edge_count": null,
+    "compression_group_count": null,
+    "includes_llm_refinement": true,
+    "chunk_token_size": 512,
+    "source": "CAM Figure 3(a) reference"
+  },
+  {
+    "method": "sam_online_no_llm",
+    "method_label": "SAM Online w/o LLM refinement",
+    "batch_size": 200,
+    "time_seconds": 0.0456,
+    "time_hours": 1.267e-05,
+    "candidate_pair_count": 1584,
+    "edge_count": 54,
+    "compression_group_count": 0,
+    "includes_llm_refinement": false,
+    "chunk_token_size": 512,
+    "pair_scope": "query_candidates",
+    "repeat_times_seconds": [
+      0.0456
+    ]
+  },
+  {
+    "method": "sam_online_with_refinement",
+    "method_label": "SAM Online w/ semantic refinement",
+    "batch_size": 200,
+    "time_seconds": 74.535409,
+    "time_hours": 0.02070428,
+    "candidate_pair_count": 1584,
+    "edge_count": 54,
+    "compression_group_count": 10,
+    "includes_llm_refinement": true,
+    "chunk_token_size": 512,
+    "pair_scope": "query_candidates",
+    "repeat_times_seconds": [
+      74.535409
+    ]
+  },
+  {
+    "method": "graphrag_offline_reference",
+    "method_label": "GraphRAG (Offline, CAM)",
+    "batch_size": 300,
+    "time_seconds": 6480.0,
+    "time_hours": 1.8,
+    "candidate_pair_count": null,
+    "edge_count": null,
+    "compression_group_count": null,
+    "includes_llm_refinement": false,
+    "chunk_token_size": 512,
+    "source": "CAM Figure 3(a) reference"
+  },
+  {
+    "method": "raptor_offline_reference",
+    "method_label": "RAPTOR (Offline, CAM)",
+    "batch_size": 300,
+    "time_seconds": 4320.0,
+    "time_hours": 1.2,
+    "candidate_pair_count": null,
+    "edge_count": null,
+    "compression_group_count": null,
+    "includes_llm_refinement": false,
+    "chunk_token_size": 512,
+    "source": "CAM Figure 3(a) reference"
+  },
+  {
+    "method": "cam_offline_reference",
+    "method_label": "CAM (Offline, paper)",
+    "batch_size": 300,
+    "time_seconds": 1080.0,
+    "time_hours": 0.3,
+    "candidate_pair_count": null,
+    "edge_count": null,
+    "compression_group_count": null,
+    "includes_llm_refinement": true,
+    "chunk_token_size": 512,
+    "source": "CAM Figure 3(a) reference"
+  },
+  {
+    "method": "sam_online_no_llm",
+    "method_label": "SAM Online w/o LLM refinement",
+    "batch_size": 300,
+    "time_seconds": 0.084599,
+    "time_hours": 2.35e-05,
+    "candidate_pair_count": 3622,
+    "edge_count": 138,
+    "compression_group_count": 0,
+    "includes_llm_refinement": false,
+    "chunk_token_size": 512,
+    "pair_scope": "query_candidates",
+    "repeat_times_seconds": [
+      0.084599
+    ]
+  },
+  {
+    "method": "sam_online_with_refinement",
+    "method_label": "SAM Online w/ semantic refinement",
+    "batch_size": 300,
+    "time_seconds": 65.78489,
+    "time_hours": 0.01827358,
+    "candidate_pair_count": 3622,
+    "edge_count": 138,
+    "compression_group_count": 15,
+    "includes_llm_refinement": true,
+    "chunk_token_size": 512,
+    "pair_scope": "query_candidates",
+    "repeat_times_seconds": [
+      65.78489
+    ]
+  },
+  {
+    "method": "graphrag_offline_reference",
+    "method_label": "GraphRAG (Offline, CAM)",
+    "batch_size": 400,
+    "time_seconds": 6480.0,
+    "time_hours": 1.8,
+    "candidate_pair_count": null,
+    "edge_count": null,
+    "compression_group_count": null,
+    "includes_llm_refinement": false,
+    "chunk_token_size": 512,
+    "source": "CAM Figure 3(a) reference"
+  },
+  {
+    "method": "raptor_offline_reference",
+    "method_label": "RAPTOR (Offline, CAM)",
+    "batch_size": 400,
+    "time_seconds": 4320.0,
+    "time_hours": 1.2,
+    "candidate_pair_count": null,
+    "edge_count": null,
+    "compression_group_count": null,
+    "includes_llm_refinement": false,
+    "chunk_token_size": 512,
+    "source": "CAM Figure 3(a) reference"
+  },
+  {
+    "method": "cam_offline_reference",
+    "method_label": "CAM (Offline, paper)",
+    "batch_size": 400,
+    "time_seconds": 1080.0,
+    "time_hours": 0.3,
+    "candidate_pair_count": null,
+    "edge_count": null,
+    "compression_group_count": null,
+    "includes_llm_refinement": true,
+    "chunk_token_size": 512,
+    "source": "CAM Figure 3(a) reference"
+  },
+  {
+    "method": "sam_online_no_llm",
+    "method_label": "SAM Online w/o LLM refinement",
+    "batch_size": 400,
+    "time_seconds": 0.125683,
+    "time_hours": 3.491e-05,
+    "candidate_pair_count": 6006,
+    "edge_count": 230,
+    "compression_group_count": 0,
+    "includes_llm_refinement": false,
+    "chunk_token_size": 512,
+    "pair_scope": "query_candidates",
+    "repeat_times_seconds": [
+      0.125683
+    ]
+  },
+  {
+    "method": "sam_online_with_refinement",
+    "method_label": "SAM Online w/ semantic refinement",
+    "batch_size": 400,
+    "time_seconds": 83.189666,
+    "time_hours": 0.02310824,
+    "candidate_pair_count": 6006,
+    "edge_count": 230,
+    "compression_group_count": 20,
+    "includes_llm_refinement": true,
+    "chunk_token_size": 512,
+    "pair_scope": "query_candidates",
+    "repeat_times_seconds": [
+      83.189666
+    ]
+  },
+  {
+    "method": "graphrag_offline_reference",
+    "method_label": "GraphRAG (Offline, CAM)",
+    "batch_size": 500,
+    "time_seconds": 6480.0,
+    "time_hours": 1.8,
+    "candidate_pair_count": null,
+    "edge_count": null,
+    "compression_group_count": null,
+    "includes_llm_refinement": false,
+    "chunk_token_size": 512,
+    "source": "CAM Figure 3(a) reference"
+  },
+  {
+    "method": "raptor_offline_reference",
+    "method_label": "RAPTOR (Offline, CAM)",
+    "batch_size": 500,
+    "time_seconds": 4320.0,
+    "time_hours": 1.2,
+    "candidate_pair_count": null,
+    "edge_count": null,
+    "compression_group_count": null,
+    "includes_llm_refinement": false,
+    "chunk_token_size": 512,
+    "source": "CAM Figure 3(a) reference"
+  },
+  {
+    "method": "cam_offline_reference",
+    "method_label": "CAM (Offline, paper)",
+    "batch_size": 500,
+    "time_seconds": 1080.0,
+    "time_hours": 0.3,
+    "candidate_pair_count": null,
+    "edge_count": null,
+    "compression_group_count": null,
+    "includes_llm_refinement": true,
+    "chunk_token_size": 512,
+    "source": "CAM Figure 3(a) reference"
+  },
+  {
+    "method": "sam_online_no_llm",
+    "method_label": "SAM Online w/o LLM refinement",
+    "batch_size": 500,
+    "time_seconds": 0.164273,
+    "time_hours": 4.563e-05,
+    "candidate_pair_count": 8588,
+    "edge_count": 336,
+    "compression_group_count": 0,
+    "includes_llm_refinement": false,
+    "chunk_token_size": 512,
+    "pair_scope": "query_candidates",
+    "repeat_times_seconds": [
+      0.164273
+    ]
+  },
+  {
+    "method": "sam_online_with_refinement",
+    "method_label": "SAM Online w/ semantic refinement",
+    "batch_size": 500,
+    "time_seconds": 110.125424,
+    "time_hours": 0.0305904,
+    "candidate_pair_count": 8588,
+    "edge_count": 336,
+    "compression_group_count": 25,
+    "includes_llm_refinement": true,
+    "chunk_token_size": 512,
+    "pair_scope": "query_candidates",
+    "repeat_times_seconds": [
+      110.125424
+    ]
+  }
+]

@@ -1381,6 +1381,175 @@ class SamCoreTest(unittest.TestCase):
         self.assertGreaterEqual(rows[("query_activated_local", 4)]["time_seconds"], 0.0)
         self.assertEqual(report["summary"]["max_batch_size"], 4)
 
+    def test_extractive_semantic_compressor_returns_summary_memory(self) -> None:
+        from sam.semantic_compressor import ExtractiveSemanticCompressor
+
+        now = utc_now_iso()
+        nodes = [
+            MemoryNode(
+                id="node_a",
+                text="Alpha method improves retrieval by linking related evidence across papers.",
+                summary="Alpha method improves retrieval.",
+                keywords=["alpha", "retrieval"],
+                tags=[],
+                source="unit",
+                created_at=now,
+                last_accessed_at=None,
+                usage_count=0,
+                confidence=0.9,
+                embedding=[1.0, 0.0],
+                metadata={"original_doc_id": "doc_a"},
+            ),
+            MemoryNode(
+                id="node_b",
+                text="Beta experiment reports stronger evidence recall on long document reading.",
+                summary="Beta improves evidence recall.",
+                keywords=["beta", "evidence"],
+                tags=[],
+                source="unit",
+                created_at=now,
+                last_accessed_at=None,
+                usage_count=0,
+                confidence=0.8,
+                embedding=[0.0, 1.0],
+                metadata={"original_doc_id": "doc_b"},
+            ),
+        ]
+
+        result = ExtractiveSemanticCompressor(max_sentences=2).compress(
+            nodes,
+            group_id="group_1",
+            chunk_token_size=512,
+        )
+        memory = result.to_memory_node(embedding=[0.1, 0.2])
+
+        self.assertEqual(result.group_id, "group_1")
+        self.assertEqual(result.source_node_ids, ["node_a", "node_b"])
+        self.assertIn("Alpha method improves retrieval", result.summary)
+        self.assertIn("Beta improves evidence recall", result.summary)
+        self.assertEqual(result.metadata["compressor"], "extractive")
+        self.assertEqual(result.metadata["chunk_token_size"], 512)
+        self.assertEqual(memory.metadata["node_type"], "summary_memory")
+        self.assertEqual(memory.metadata["source_node_ids"], ["node_a", "node_b"])
+        self.assertEqual(memory.embedding, [0.1, 0.2])
+
+    def test_llm_semantic_compressor_uses_chat_client_without_api_dependency(self) -> None:
+        from sam.semantic_compressor import LLMSemanticCompressor
+
+        class FakeChat(ChatClient):
+            def __init__(self) -> None:
+                self.messages: list[list[dict[str, object]]] = []
+
+            def complete(self, messages: list[dict[str, object]], max_tokens: int = 500) -> str:
+                self.messages.append(messages)
+                return "该组记忆说明 Alpha 方法通过跨论文证据联想提升长文检索。"
+
+        now = utc_now_iso()
+        nodes = [
+            MemoryNode(
+                id="node_a",
+                text="Alpha method connects evidence from paper A and paper B.",
+                summary="Alpha connects cross-paper evidence.",
+                keywords=["alpha"],
+                tags=[],
+                source="unit",
+                created_at=now,
+                last_accessed_at=None,
+                usage_count=0,
+                confidence=0.9,
+                embedding=[1.0],
+                metadata={"title": "Paper A"},
+            )
+        ]
+        fake = FakeChat()
+
+        result = LLMSemanticCompressor(fake, max_tokens=128).compress(
+            nodes,
+            group_id="research_topic_alpha",
+            chunk_token_size=512,
+        )
+
+        self.assertEqual(result.summary, "该组记忆说明 Alpha 方法通过跨论文证据联想提升长文检索。")
+        self.assertEqual(result.metadata["compressor"], "llm")
+        self.assertEqual(result.metadata["llm_max_tokens"], 128)
+        self.assertIn("research_topic_alpha", str(fake.messages[0]))
+        self.assertIn("Paper A", str(fake.messages[0]))
+
+    def test_cam_style_insertion_benchmark_reports_references_and_refinement(self) -> None:
+        from sam.insertion_time_experiment import run_cam_style_insertion_benchmark
+        from sam.semantic_compressor import ExtractiveSemanticCompressor
+
+        now = utc_now_iso()
+        nodes = [
+            MemoryNode(
+                id=f"node_{index}",
+                text=("token " * 512).strip(),
+                summary=f"summary {index}",
+                keywords=["memory", str(index)],
+                tags=[],
+                source="unit",
+                created_at=now,
+                last_accessed_at=None,
+                usage_count=0,
+                confidence=0.9,
+                embedding=[1.0, float(index)],
+                metadata={"original_doc_id": f"doc_{index}", "position": index},
+            )
+            for index in range(6)
+        ]
+        queries = [
+            EvaluationQuery(
+                id="q1",
+                dataset="unit",
+                question="first",
+                answer="",
+                supporting_doc_ids=["doc_0"],
+                candidate_doc_ids=["doc_0", "doc_1", "doc_2"],
+            ),
+            EvaluationQuery(
+                id="q2",
+                dataset="unit",
+                question="second",
+                answer="",
+                supporting_doc_ids=["doc_3"],
+                candidate_doc_ids=["doc_3", "doc_4", "doc_5"],
+            ),
+        ]
+
+        report = run_cam_style_insertion_benchmark(
+            nodes=nodes,
+            queries=queries,
+            batch_sizes=[1, 3, 6],
+            compressor=ExtractiveSemanticCompressor(max_sentences=1),
+            compression_group_size=3,
+            repeats=1,
+            chunk_token_size=512,
+            strategy="semantic_only",
+            top_k_edges=1,
+            threshold=0.0,
+        )
+        rows = {
+            (row["method"], row["batch_size"]): row
+            for row in report["rows"]
+        }
+
+        self.assertEqual(report["config"]["chunk_token_size"], 512)
+        self.assertEqual(report["summary"]["max_batch_size"], 6)
+        self.assertIn(("graphrag_offline_reference", 6), rows)
+        self.assertIn(("raptor_offline_reference", 6), rows)
+        self.assertIn(("cam_offline_reference", 6), rows)
+        self.assertEqual(rows[("graphrag_offline_reference", 6)]["time_hours"], 1.8)
+        self.assertEqual(rows[("raptor_offline_reference", 6)]["time_hours"], 1.2)
+        self.assertEqual(rows[("cam_offline_reference", 6)]["time_hours"], 0.3)
+        self.assertFalse(rows[("sam_online_no_llm", 6)]["includes_llm_refinement"])
+        self.assertTrue(rows[("sam_online_with_refinement", 6)]["includes_llm_refinement"])
+        self.assertEqual(rows[("sam_online_with_refinement", 6)]["compression_group_count"], 2)
+        self.assertEqual(rows[("sam_online_with_refinement", 6)]["chunk_token_size"], 512)
+        self.assertGreaterEqual(
+            rows[("sam_online_with_refinement", 6)]["time_seconds"],
+            rows[("sam_online_no_llm", 6)]["time_seconds"],
+        )
+
     def test_graph_strategy_script_intrinsic_context_path_excludes_query_id(self) -> None:
         node = MemoryNode(
             id="mem_hotpotqa_case_doc_1",
