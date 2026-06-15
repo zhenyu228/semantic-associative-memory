@@ -253,20 +253,26 @@ class InsightMemoryBuilder:
         consolidated_nodes = sorted(consolidated_nodes, key=lambda node: (node.created_at, node.id))
         if max_source_memories is not None:
             consolidated_nodes = consolidated_nodes[:max_source_memories]
-        if len(consolidated_nodes) < min_consolidated_count:
+        clusters = _cluster_consolidated_nodes(
+            consolidated_nodes,
+            min_count=min_consolidated_count,
+        )
+        if not clusters:
             return []
 
-        insight = self._build_insight_node(consolidated_nodes, dataset=dataset)
-        self.store.upsert_node(insight)
-        self._update_source_nodes(insight, consolidated_nodes)
-        edges = self._insight_edges(insight, consolidated_nodes)
-        self.store.upsert_edges(edges)
-        self.store.log_memory_events(
-            [
+        records: list[InsightRecord] = []
+        events: list[MemoryEvent] = []
+        for cluster_key, cluster_nodes in clusters:
+            insight = self._build_insight_node(cluster_nodes, dataset=dataset, cluster_key=cluster_key)
+            self.store.upsert_node(insight)
+            self._update_source_nodes(insight, cluster_nodes)
+            edges = self._insight_edges(insight, cluster_nodes)
+            self.store.upsert_edges(edges)
+            events.append(
                 MemoryEvent(
                     event_type="insight_memory_created",
                     query_id=None,
-                    query="; ".join(_source_questions(consolidated_nodes)[:3]),
+                    query="; ".join(_source_questions(cluster_nodes)[:3]),
                     mode="memory_reconstruction",
                     node_id=insight.id,
                     path=[
@@ -277,6 +283,7 @@ class InsightMemoryBuilder:
                     created_at=insight.created_at,
                     metadata={
                         "dataset": insight.metadata.get("dataset"),
+                        "cluster_key": insight.metadata["cluster_key"],
                         "source_consolidated_node_ids": insight.metadata[
                             "source_consolidated_node_ids"
                         ],
@@ -285,21 +292,23 @@ class InsightMemoryBuilder:
                         "insight_source": insight.metadata["insight_source"],
                     },
                 )
-            ]
-        )
-        return [
-            InsightRecord(
-                node_id=insight.id,
-                source_consolidated_node_ids=insight.metadata["source_consolidated_node_ids"],
-                evidence_node_ids=insight.metadata["evidence_node_ids"],
             )
-        ]
+            records.append(
+                InsightRecord(
+                    node_id=insight.id,
+                    source_consolidated_node_ids=insight.metadata["source_consolidated_node_ids"],
+                    evidence_node_ids=insight.metadata["evidence_node_ids"],
+                )
+            )
+        self.store.log_memory_events(events)
+        return records
 
     def _build_insight_node(
         self,
         consolidated_nodes: list[MemoryNode],
         *,
         dataset: str | None,
+        cluster_key: str,
     ) -> MemoryNode:
         now = utc_now_iso()
         source_ids = [node.id for node in consolidated_nodes]
@@ -323,7 +332,7 @@ class InsightMemoryBuilder:
         dataset_name = dataset or str(consolidated_nodes[0].metadata.get("dataset") or "unknown")
         node_id = stable_id(
             "insight",
-            f"{dataset_name}:{','.join(source_ids)}",
+            f"{dataset_name}:{cluster_key}:{','.join(source_ids)}",
         )
         existing = self.store.get_node(node_id)
         question_lines = [f"- {question}" for question in source_questions[:5]]
@@ -358,6 +367,7 @@ class InsightMemoryBuilder:
                 "node_type": "insight_memory",
                 "dataset": dataset_name,
                 "source_consolidated_node_ids": source_ids,
+                "cluster_key": cluster_key,
                 "source_query_ids": _unique_strings(
                     str(node.metadata.get("query_id"))
                     for node in consolidated_nodes
@@ -562,13 +572,62 @@ def _unique_strings(values: object) -> list[str]:
 def _top_keywords(nodes: list[MemoryNode], limit: int) -> list[str]:
     counts: dict[str, int] = {}
     for node in nodes:
-        for keyword in node.keywords:
-            text = str(keyword).strip()
-            if not text:
-                continue
+        for text in _meaningful_keywords(node):
             counts[text] = counts.get(text, 0) + 1
     ranked = sorted(counts.items(), key=lambda item: (-item[1], item[0]))
     return [keyword for keyword, _ in ranked[:limit]]
+
+
+def _cluster_consolidated_nodes(
+    nodes: list[MemoryNode],
+    *,
+    min_count: int,
+) -> list[tuple[str, list[MemoryNode]]]:
+    if len(nodes) < min_count:
+        return []
+    keyword_counts: dict[str, int] = {}
+    for node in nodes:
+        for keyword in _meaningful_keywords(node):
+            keyword_counts[keyword] = keyword_counts.get(keyword, 0) + 1
+
+    buckets: dict[str, list[MemoryNode]] = {}
+    for node in nodes:
+        cluster_key = _primary_cluster_keyword(node, keyword_counts, min_count=min_count)
+        buckets.setdefault(cluster_key, []).append(node)
+
+    clusters = [
+        (cluster_key, cluster_nodes)
+        for cluster_key, cluster_nodes in buckets.items()
+        if cluster_key != "general" and len(cluster_nodes) >= min_count
+    ]
+    if not clusters and len(nodes) >= min_count:
+        clusters = [("general", nodes)]
+    return sorted(clusters, key=lambda item: (-len(item[1]), item[0]))
+
+
+def _primary_cluster_keyword(
+    node: MemoryNode,
+    keyword_counts: dict[str, int],
+    *,
+    min_count: int,
+) -> str:
+    keywords = _meaningful_keywords(node)
+    for keyword in keywords:
+        if keyword_counts.get(keyword, 0) >= min_count:
+            return keyword
+    return keywords[0] if keywords else "general"
+
+
+def _meaningful_keywords(node: MemoryNode) -> list[str]:
+    keywords: list[str] = []
+    for keyword in node.keywords:
+        text = str(keyword).strip()
+        if not text:
+            continue
+        if text.lower() in _INSIGHT_STOP_KEYWORDS:
+            continue
+        keywords.append(text)
+    return keywords
 
 
 def _source_questions(consolidated_nodes: list[MemoryNode]) -> list[str]:
@@ -579,3 +638,30 @@ def _source_questions(consolidated_nodes: list[MemoryNode]) -> list[str]:
         if question:
             questions.append(question)
     return _unique_strings(questions)
+
+
+_INSIGHT_STOP_KEYWORDS = {
+    "问题",
+    "答案",
+    "检索方法",
+    "答案状态",
+    "支持证据",
+    "证据",
+    "sam",
+    "sam_full",
+    "sam_no_graph",
+    "sam_no_memory_state",
+    "sam_no_feedback",
+    "sam_static_graph",
+    "embedding_topk",
+    "found",
+    "found_in_retrieved_context",
+    "retrieved",
+    "context",
+    "support",
+    "evidence",
+    "question",
+    "answer",
+    "method",
+    "mode",
+}

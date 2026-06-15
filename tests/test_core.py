@@ -82,6 +82,7 @@ from sam.graph_strategy_experiment import (
     write_graph_strategy_report,
 )
 from sam.graph_strategy_audit import audit_graph_strategy_report
+from sam.insight_experiment import summarize_insight_memory_reconstruction, write_insight_memory_reports
 from sam.llm import (
     AzureOpenAIChatClient,
     AzureOpenAISDKChatClient,
@@ -207,6 +208,11 @@ class SamCoreTest(unittest.TestCase):
 
         self.assertEqual(order, ["load", "create:azure_openai_sdk"])
         self.assertIsInstance(provider, DummyProvider)
+
+    def test_embedding_provider_accepts_local_hash_alias(self) -> None:
+        provider = create_embedding_provider("local_hash")
+
+        self.assertIsInstance(provider, LocalHashEmbeddingProvider)
 
     def test_progress_iter_uses_tqdm_factory_when_enabled(self) -> None:
         calls: list[dict[str, object]] = []
@@ -3574,6 +3580,9 @@ class SamCoreTest(unittest.TestCase):
         self.assertGreaterEqual(len(insight.metadata["source_consolidated_node_ids"]), 2)
         self.assertGreaterEqual(len(insight.metadata["evidence_node_ids"]), 2)
         self.assertEqual(insight.metadata["insight_source"], "consolidated_memory_cluster")
+        self.assertNotIn("问题", insight.metadata["shared_keywords"])
+        self.assertNotIn("答案", insight.metadata["shared_keywords"])
+        self.assertNotIn("sam_full", insight.metadata["shared_keywords"])
         self.assertIn("高层洞察", insight.text)
         self.assertIn("insight_memory", insight.tags)
 
@@ -3627,6 +3636,169 @@ class SamCoreTest(unittest.TestCase):
             len(insight_nodes[0].metadata["source_consolidated_node_ids"]),
             2,
         )
+
+    def test_insight_memory_filters_process_keywords(self) -> None:
+        self.store.reset()
+        now = utc_now_iso()
+        evidence = MemoryNode(
+            id="evidence_film",
+            text="The film evidence connects the director and city.",
+            summary="film evidence",
+            keywords=["film", "director", "city"],
+            tags=[],
+            source="unit-test",
+            created_at=now,
+            last_accessed_at=None,
+            usage_count=0,
+            confidence=0.8,
+            embedding=[1.0, 0.0],
+            metadata={"original_doc_id": "doc_film", "title": "Film Evidence"},
+        )
+        self.store.upsert_node(evidence)
+        for index in range(2):
+            self.store.upsert_node(
+                MemoryNode(
+                    id=f"consolidated_film_{index}",
+                    text=f"问题：film question {index}\n答案：city\n检索方法：sam_full\n支持证据：film",
+                    summary=f"film question {index} -> city",
+                    keywords=["问题", "答案", "sam_full", "film", "city"],
+                    tags=["consolidated_memory", "sam_full", "unit"],
+                    source="unit-test",
+                    created_at=now,
+                    last_accessed_at=None,
+                    usage_count=0,
+                    confidence=0.8,
+                    embedding=[1.0, 0.0],
+                    metadata={
+                        "node_type": "consolidated_memory",
+                        "query_id": f"q{index}",
+                        "dataset": "unit",
+                        "answer": "city",
+                        "evidence_node_ids": [evidence.id],
+                    },
+                )
+            )
+
+        records = InsightMemoryBuilder(
+            self.store,
+            self.embedding,
+        ).build_from_consolidated_memories(dataset="unit", min_consolidated_count=2)
+
+        self.assertEqual(len(records), 1)
+        insight = self.store.get_node(records[0].node_id)
+        self.assertIsNotNone(insight)
+        assert insight is not None
+        self.assertIn("film", insight.metadata["shared_keywords"])
+        self.assertNotIn("问题", insight.metadata["shared_keywords"])
+        self.assertNotIn("答案", insight.metadata["shared_keywords"])
+        self.assertNotIn("sam_full", insight.metadata["shared_keywords"])
+
+    def test_insight_memory_clusters_by_meaningful_keywords(self) -> None:
+        self.store.reset()
+        now = utc_now_iso()
+        evidence_specs = {
+            "film": ["film", "director", "city"],
+            "soccer": ["soccer", "team", "season"],
+        }
+        for topic, keywords in evidence_specs.items():
+            self.store.upsert_node(
+                MemoryNode(
+                    id=f"evidence_{topic}",
+                    text=f"{topic} evidence",
+                    summary=f"{topic} evidence",
+                    keywords=keywords,
+                    tags=[],
+                    source="unit-test",
+                    created_at=now,
+                    last_accessed_at=None,
+                    usage_count=0,
+                    confidence=0.8,
+                    embedding=[1.0, 0.0] if topic == "film" else [0.0, 1.0],
+                    metadata={"original_doc_id": f"doc_{topic}", "title": f"{topic.title()} Evidence"},
+                )
+            )
+            for index in range(2):
+                self.store.upsert_node(
+                    MemoryNode(
+                        id=f"consolidated_{topic}_{index}",
+                        text=f"问题：{topic} question {index}\n答案：{topic}\n检索方法：sam_full",
+                        summary=f"{topic} question {index} -> {topic}",
+                        keywords=["问题", "答案", "sam_full", *keywords],
+                        tags=["consolidated_memory", "sam_full", "unit"],
+                        source="unit-test",
+                        created_at=now,
+                        last_accessed_at=None,
+                        usage_count=0,
+                        confidence=0.8,
+                        embedding=[1.0, 0.0] if topic == "film" else [0.0, 1.0],
+                        metadata={
+                            "node_type": "consolidated_memory",
+                            "query_id": f"{topic}_q{index}",
+                            "dataset": "unit",
+                            "answer": topic,
+                            "evidence_node_ids": [f"evidence_{topic}"],
+                        },
+                    )
+                )
+
+        records = InsightMemoryBuilder(
+            self.store,
+            self.embedding,
+        ).build_from_consolidated_memories(dataset="unit", min_consolidated_count=2)
+
+        self.assertEqual(len(records), 2)
+        insights = [self.store.get_node(record.node_id) for record in records]
+        self.assertTrue(all(insight is not None for insight in insights))
+        cluster_keys = {insight.metadata["cluster_key"] for insight in insights if insight is not None}
+        self.assertEqual(cluster_keys, {"film", "soccer"})
+
+    def test_insight_memory_reconstruction_summary_reports_traceability(self) -> None:
+        query = self.queries[0]
+        followup_query = EvaluationQuery(
+            id=f"{query.id}_followup",
+            dataset=query.dataset,
+            question=f"{query.question} Please verify the same evidence chain again.",
+            answer=query.answer,
+            supporting_doc_ids=query.supporting_doc_ids,
+            candidate_doc_ids=query.candidate_doc_ids,
+            metadata=query.metadata,
+        )
+        queries = [query, followup_query]
+
+        self.evaluator.evaluate(
+            queries,
+            top_k=4,
+            seed_k=1,
+            hops=1,
+            methods=["sam_full"],
+        )
+
+        summary = summarize_insight_memory_reconstruction(
+            store=self.store,
+            queries=queries,
+        )
+
+        self.assertEqual(summary["query_count"], 2)
+        self.assertGreaterEqual(summary["consolidated_memory_count"], 2)
+        self.assertGreaterEqual(summary["insight_memory_count"], 1)
+        self.assertGreaterEqual(summary["unique_insight_evidence_count"], 2)
+        self.assertEqual(summary["support_trace_rate"], 1.0)
+        self.assertEqual(summary["insight_evidence_coverage_rate"], 1.0)
+        self.assertTrue(summary["insight_cases"])
+        self.assertTrue(summary["query_trace_cases"])
+        self.assertIn("source_consolidated_count", summary["insight_cases"][0])
+        self.assertIn("traced_support_titles", summary["query_trace_cases"][0])
+
+        json_path, markdown_path = write_insight_memory_reports(
+            output_dir=Path(self.temp_dir.name) / "insight_report",
+            summary=summary,
+            warmup_metrics={"method_metrics": {"sam_full": {"insight_memory_count": 1}}},
+        )
+
+        self.assertTrue(json_path.exists())
+        markdown = markdown_path.read_text(encoding="utf-8")
+        self.assertIn("高层洞察记忆数", markdown)
+        self.assertIn("支持证据回溯率", markdown)
 
     def test_graph_export_nodes_include_consolidated_memory(self) -> None:
         self.evaluator.evaluate(

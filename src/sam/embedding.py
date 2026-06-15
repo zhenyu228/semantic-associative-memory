@@ -500,7 +500,7 @@ def create_embedding_provider(name: str | None = None) -> EmbeddingProvider:
         provider = AzureOpenAISDKEmbeddingProvider()
     elif provider_name in {"sentence_transformers", "sentence_transformer", "hf_local", "local_model"}:
         provider = SentenceTransformerEmbeddingProvider()
-    elif provider_name == "local":
+    elif provider_name in {"local", "local_hash", "hash"}:
         provider = LocalHashEmbeddingProvider()
     else:
         raise ValueError(f"未知 embedding provider: {provider_name}")
