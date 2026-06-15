@@ -72,6 +72,13 @@ from sam.llm import (
     inspect_chat_provider_config,
 )
 from sam.models import DatasetDocument, EvaluationQuery, MemoryEdge, MemoryNode, RetrievalHit, utc_now_iso
+from sam.object_graph import (
+    BridgeEntity,
+    CrossGraphRetriever,
+    LocalEvidenceGraph,
+    LocalEvidenceUnit,
+    ObjectGraphBuilder,
+)
 from sam.opening_audit import build_opening_plan_audit, write_opening_plan_audit
 from sam.query_planner import ChatQueryPlanner, HeuristicQueryPlanner, QueryPlan
 from sam.pipeline_experiment import run_retrieval_generation_pipeline
@@ -260,6 +267,294 @@ class SamCoreTest(unittest.TestCase):
         self.assertEqual(score.relation_type, None)
         self.assertEqual(score.score_breakdown["edge_quality"], "low_information_keyword_overlap")
         self.assertEqual(score.score_breakdown["keyword_overlap"], [])
+
+    def test_object_graph_builder_creates_local_evidence_graph(self) -> None:
+        self.store.reset()
+        graph = LocalEvidenceGraph(
+            object_id="paper_raptor",
+            object_type="paper",
+            title="RAPTOR",
+            source="unit-test",
+            units=[
+                LocalEvidenceUnit(
+                    id="method",
+                    node_type="method",
+                    title="Recursive tree retrieval",
+                    text="RAPTOR builds a recursive summary tree for long-context retrieval.",
+                    summary="RAPTOR 使用递归摘要树进行长上下文检索。",
+                    keywords=["raptor", "summary", "tree", "retrieval"],
+                    entities=[
+                        BridgeEntity(
+                            name="RAPTOR",
+                            canonical_name="raptor",
+                            entity_type="method",
+                        ),
+                        BridgeEntity(
+                            name="Long-context QA",
+                            canonical_name="long_context_qa",
+                            entity_type="task",
+                        ),
+                    ],
+                ),
+                LocalEvidenceUnit(
+                    id="result",
+                    node_type="result",
+                    title="Evidence recall result",
+                    text="The method improves retrieval on long documents.",
+                    summary="该方法提升长文检索效果。",
+                    keywords=["evidence", "recall", "long", "documents"],
+                    entities=[
+                        BridgeEntity(
+                            name="Long-context QA",
+                            canonical_name="long_context_qa",
+                            entity_type="task",
+                        )
+                    ],
+                ),
+            ],
+        )
+
+        delta = ObjectGraphBuilder(self.store, self.embedding).ingest(graph)
+
+        self.assertEqual(delta.object_id, "paper_raptor")
+        self.assertEqual(delta.added_node_count, 3)
+        self.assertGreaterEqual(delta.added_edge_count, 4)
+        root = self.store.get_node("paper_raptor::root")
+        method = self.store.get_node("paper_raptor::method")
+        self.assertIsNotNone(root)
+        self.assertIsNotNone(method)
+        self.assertEqual(method.metadata["object_id"], "paper_raptor")
+        self.assertEqual(method.metadata["object_type"], "paper")
+        self.assertEqual(method.metadata["node_type"], "method")
+        self.assertEqual(method.metadata["bridge_entities"][0]["canonical_name"], "raptor")
+        local_edges = [
+            edge
+            for edge in self.store.get_edges()
+            if edge.metadata.get("edge_scope") == "local"
+        ]
+        self.assertTrue(local_edges)
+
+    def test_object_graph_builder_connects_objects_through_entity_bridges(self) -> None:
+        self.store.reset()
+        builder = ObjectGraphBuilder(self.store, self.embedding)
+        builder.ingest(
+            LocalEvidenceGraph(
+                object_id="paper_a",
+                object_type="paper",
+                title="Paper A",
+                source="unit-test",
+                units=[
+                    LocalEvidenceUnit(
+                        id="method",
+                        node_type="method",
+                        title="GraphRAG method",
+                        text="GraphRAG retrieves evidence with an entity graph.",
+                        summary="GraphRAG 使用实体图检索证据。",
+                        keywords=["graphrag", "entity", "graph"],
+                        entities=[
+                            BridgeEntity(
+                                name="GraphRAG",
+                                canonical_name="graphrag",
+                                entity_type="method",
+                            )
+                        ],
+                    )
+                ],
+            )
+        )
+        delta = builder.ingest(
+            LocalEvidenceGraph(
+                object_id="paper_b",
+                object_type="paper",
+                title="Paper B",
+                source="unit-test",
+                units=[
+                    LocalEvidenceUnit(
+                        id="comparison",
+                        node_type="claim",
+                        title="GraphRAG comparison",
+                        text="This paper compares GraphRAG with hierarchical memory methods.",
+                        summary="该论文比较 GraphRAG 与层次记忆方法。",
+                        keywords=["graphrag", "comparison", "memory"],
+                        entities=[
+                            BridgeEntity(
+                                name="GraphRAG",
+                                canonical_name="graphrag",
+                                entity_type="method",
+                            )
+                        ],
+                    )
+                ],
+            )
+        )
+
+        self.assertEqual(delta.added_bridge_edge_count, 2)
+        bridge_edges = [
+            edge
+            for edge in self.store.get_edges()
+            if edge.relation_type == "cross_object_entity_bridge"
+        ]
+        self.assertEqual(len(bridge_edges), 2)
+        self.assertEqual(bridge_edges[0].metadata["bridge_entity"]["canonical_name"], "graphrag")
+        self.assertNotEqual(
+            self.store.get_node(bridge_edges[0].source_id).metadata["object_id"],
+            self.store.get_node(bridge_edges[0].target_id).metadata["object_id"],
+        )
+
+    def test_object_graph_incremental_delta_only_reports_changed_object(self) -> None:
+        self.store.reset()
+        builder = ObjectGraphBuilder(self.store, self.embedding)
+        first = builder.ingest(
+            LocalEvidenceGraph(
+                object_id="repo_auth",
+                object_type="code_repository",
+                title="Auth Repository",
+                source="unit-test",
+                units=[
+                    LocalEvidenceUnit(
+                        id="login",
+                        node_type="function",
+                        title="login_user",
+                        text="login_user validates credentials and creates a session.",
+                        summary="登录函数校验凭证并创建会话。",
+                        keywords=["login", "session", "credentials"],
+                        entities=[
+                            BridgeEntity(
+                                name="login_user",
+                                canonical_name="login_user",
+                                entity_type="symbol",
+                            )
+                        ],
+                    )
+                ],
+            )
+        )
+        second = builder.ingest(
+            LocalEvidenceGraph(
+                object_id="repo_auth",
+                object_type="code_repository",
+                title="Auth Repository",
+                source="unit-test",
+                units=[
+                    LocalEvidenceUnit(
+                        id="login",
+                        node_type="function",
+                        title="login_user",
+                        text="login_user validates credentials, creates a session, and emits audit events.",
+                        summary="登录函数新增审计事件。",
+                        keywords=["login", "session", "credentials", "audit"],
+                        entities=[
+                            BridgeEntity(
+                                name="login_user",
+                                canonical_name="login_user",
+                                entity_type="symbol",
+                            )
+                        ],
+                    ),
+                    LocalEvidenceUnit(
+                        id="test_login",
+                        node_type="test",
+                        title="test_login_user",
+                        text="test_login_user covers credential validation.",
+                        summary="登录测试覆盖凭证校验。",
+                        keywords=["login", "test", "credentials"],
+                        entities=[
+                            BridgeEntity(
+                                name="login_user",
+                                canonical_name="login_user",
+                                entity_type="symbol",
+                            )
+                        ],
+                    ),
+                ],
+            )
+        )
+
+        self.assertEqual(first.added_node_count, 2)
+        self.assertIn("repo_auth::test_login", second.added_node_ids)
+        self.assertIn("repo_auth::login", second.updated_node_ids)
+        self.assertNotIn("repo_auth::root", second.added_node_ids)
+        self.assertEqual(second.object_id, "repo_auth")
+
+    def test_cross_graph_retriever_returns_bridge_path_between_objects(self) -> None:
+        self.store.reset()
+        builder = ObjectGraphBuilder(self.store, self.embedding)
+        builder.ingest(
+            LocalEvidenceGraph(
+                object_id="paper_graphrag",
+                object_type="paper",
+                title="GraphRAG Paper",
+                source="unit-test",
+                units=[
+                    LocalEvidenceUnit(
+                        id="method",
+                        node_type="method",
+                        title="GraphRAG local search",
+                        text="GraphRAG uses community and entity graph search for question answering.",
+                        summary="GraphRAG 使用社区与实体图搜索。",
+                        keywords=["graphrag", "entity", "graph", "search"],
+                        entities=[
+                            BridgeEntity(
+                                name="GraphRAG",
+                                canonical_name="graphrag",
+                                entity_type="method",
+                            )
+                        ],
+                    )
+                ],
+            )
+        )
+        builder.ingest(
+            LocalEvidenceGraph(
+                object_id="paper_sam",
+                object_type="paper",
+                title="SAM Paper",
+                source="unit-test",
+                units=[
+                    LocalEvidenceUnit(
+                        id="related",
+                        node_type="claim",
+                        title="GraphRAG comparison in SAM",
+                        text="SAM compares its cross-paper memory with GraphRAG on entity bridge retrieval.",
+                        summary="SAM 将跨论文记忆与 GraphRAG 对比。",
+                        keywords=["sam", "graphrag", "entity", "bridge"],
+                        entities=[
+                            BridgeEntity(
+                                name="GraphRAG",
+                                canonical_name="graphrag",
+                                entity_type="method",
+                            )
+                        ],
+                    )
+                ],
+            )
+        )
+
+        hits = CrossGraphRetriever(self.store, self.embedding).retrieve(
+            query="How does GraphRAG use community entity graph search?",
+            top_k=4,
+            seed_k=1,
+            hops=2,
+        )
+
+        self.assertTrue(hits)
+        self.assertTrue(
+            any(
+                hit.node.metadata.get("object_id") == "paper_sam"
+                and "cross_object_entity_bridge" in hit.metadata.get("path_relation_types", [])
+                for hit in hits
+            )
+        )
+        bridged = [
+            hit
+            for hit in hits
+            if "cross_object_entity_bridge" in hit.metadata.get("path_relation_types", [])
+        ][0]
+        self.assertGreaterEqual(len(bridged.path), 2)
+        self.assertEqual(
+            bridged.metadata["bridge_entities"][0]["canonical_name"],
+            "graphrag",
+        )
 
     def test_relation_judge_can_reject_noisy_candidate_edge(self) -> None:
         class RejectingRelationJudge:

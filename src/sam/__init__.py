@@ -4,6 +4,15 @@ from sam.embedding import AzureOpenAISDKEmbeddingProvider, LocalHashEmbeddingPro
 from sam.consolidation import MemoryConsolidator
 from sam.graph import GraphBuilder
 from sam.models import MemoryEdge, MemoryNode, RetrievalHit
+from sam.object_graph import (
+    BridgeEntity,
+    CrossGraphRetriever,
+    EntityBridgeIndex,
+    GraphDelta,
+    LocalEvidenceGraph,
+    LocalEvidenceUnit,
+    ObjectGraphBuilder,
+)
 from sam.relation_judge import CachedRelationJudge, ChatRelationJudge, RelationJudgment
 from sam.retriever import Retriever
 from sam.store import MemoryStore
@@ -13,12 +22,19 @@ __all__ = [
     "CachedRelationJudge",
     "GraphBuilder",
     "AzureOpenAISDKEmbeddingProvider",
+    "BridgeEntity",
+    "CrossGraphRetriever",
+    "EntityBridgeIndex",
+    "GraphDelta",
     "LocalHashEmbeddingProvider",
+    "LocalEvidenceGraph",
+    "LocalEvidenceUnit",
     "SentenceTransformerEmbeddingProvider",
     "MemoryConsolidator",
     "MemoryEdge",
     "MemoryNode",
     "MemoryStore",
+    "ObjectGraphBuilder",
     "RelationJudgment",
     "RetrievalHit",
     "Retriever",
