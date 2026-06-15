@@ -751,6 +751,51 @@ class SamCoreTest(unittest.TestCase):
         self.assertIn("recommended_strategy", report["summary"])
         self.assertFalse(report["strategies"]["sam_context"]["cost"]["uses_llm"])
 
+    def test_graph_strategy_experiment_can_limit_build_pairs_to_query_candidates(self) -> None:
+        nodes = self._strategy_nodes()
+        queries = [
+            EvaluationQuery(
+                id="q1",
+                dataset="unit",
+                question="Which evidence explains graph retrieval?",
+                answer="Graph retrieval improves evidence.",
+                supporting_doc_ids=["doc_b"],
+                candidate_doc_ids=["doc_a", "doc_b"],
+            ),
+            EvaluationQuery(
+                id="q2",
+                dataset="unit",
+                question="Which document is unrelated?",
+                answer="Unrelated preprocessing baseline.",
+                supporting_doc_ids=["doc_c"],
+                candidate_doc_ids=["doc_b", "doc_c"],
+            ),
+        ]
+
+        global_report = GraphStrategyExperiment(
+            nodes=nodes,
+            queries=queries,
+            top_k_edges=3,
+            threshold=0.0,
+            pair_scope="global",
+        ).run(strategies=["semantic_only"], top_k=2, seed_k=1, hops=1)
+        query_scope_report = GraphStrategyExperiment(
+            nodes=nodes,
+            queries=queries,
+            top_k_edges=3,
+            threshold=0.0,
+            pair_scope="query_candidates",
+        ).run(strategies=["semantic_only"], top_k=2, seed_k=1, hops=1)
+
+        global_cost = global_report["strategies"]["semantic_only"]["cost"]
+        query_scope_cost = query_scope_report["strategies"]["semantic_only"]["cost"]
+        self.assertEqual(global_report["config"]["pair_scope"], "global")
+        self.assertEqual(query_scope_report["config"]["pair_scope"], "query_candidates")
+        self.assertEqual(global_cost["candidate_pair_count"], 6)
+        self.assertEqual(query_scope_cost["candidate_pair_count"], 4)
+        self.assertEqual(query_scope_cost["theoretical_full_pair_count"], 6)
+        self.assertLess(query_scope_cost["candidate_pair_coverage"], 1.0)
+
     def test_graph_strategy_experiment_uses_supplied_query_embeddings(self) -> None:
         nodes = self._strategy_nodes()
         query = EvaluationQuery(
@@ -815,6 +860,9 @@ class SamCoreTest(unittest.TestCase):
         self.assertIn("MRR", markdown)
         self.assertIn("nDCG@k", markdown)
         self.assertIn("图路径命中", markdown)
+        self.assertIn("建图候选空间", markdown)
+        self.assertIn("理论全量候选对数", markdown)
+        self.assertIn("候选覆盖率", markdown)
         self.assertIn("检索耗时", markdown)
         self.assertIn("总耗时", markdown)
         self.assertIn("保边率", markdown)

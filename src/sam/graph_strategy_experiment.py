@@ -22,6 +22,8 @@ SUPPORTED_GRAPH_STRATEGIES = {
     "sam_context",
 }
 
+SUPPORTED_PAIR_SCOPES = {"global", "query_candidates"}
+
 
 @dataclass(frozen=True, slots=True)
 class GraphStrategyConfig:
@@ -51,6 +53,8 @@ class GraphBuildResult:
     build_time_seconds: float
     average_edge_score: float
     config: GraphStrategyConfig
+    theoretical_full_pair_count: int = 0
+    pair_scope: str = "global"
 
     @property
     def edge_count(self) -> int:
@@ -68,8 +72,16 @@ class GraphBuildResult:
     def cost_payload(self) -> dict[str, object]:
         edge_keep_rate = self.edge_count / self.candidate_pair_count if self.candidate_pair_count else 0.0
         build_pairs_per_second = self.candidate_pair_count / self.build_time_seconds if self.build_time_seconds > 0 else 0.0
+        candidate_pair_coverage = (
+            self.candidate_pair_count / self.theoretical_full_pair_count
+            if self.theoretical_full_pair_count
+            else 0.0
+        )
         return {
+            "pair_scope": self.pair_scope,
             "candidate_pair_count": self.candidate_pair_count,
+            "theoretical_full_pair_count": self.theoretical_full_pair_count,
+            "candidate_pair_coverage": round(candidate_pair_coverage, 6),
             "edge_count": self.edge_count,
             "average_edges_per_node": round(self.average_edges_per_node, 4),
             "average_edge_score": round(self.average_edge_score, 4),
@@ -91,19 +103,28 @@ class GraphStrategyExperiment:
         alpha: float = 0.55,
         top_k_edges: int = 4,
         threshold: float = 0.18,
+        pair_scope: str = "global",
     ) -> None:
+        if pair_scope not in SUPPORTED_PAIR_SCOPES:
+            raise ValueError(f"未知建图 pair scope：{pair_scope}")
         self.nodes = nodes
         self.queries = queries
         self.query_embeddings = query_embeddings or {}
         self.alpha = alpha
         self.top_k_edges = top_k_edges
         self.threshold = threshold
+        self.pair_scope = pair_scope
 
     def compare_build_strategies(
         self,
         strategies: list[str],
     ) -> dict[str, GraphBuildResult]:
         results: dict[str, GraphBuildResult] = {}
+        allowed_pair_keys = _allowed_pair_keys_for_scope(
+            nodes=self.nodes,
+            queries=self.queries,
+            pair_scope=self.pair_scope,
+        )
         for strategy in progress_iter(strategies, total=len(strategies), desc="建图策略"):
             results[strategy] = build_graph_for_strategy(
                 self.nodes,
@@ -113,6 +134,8 @@ class GraphStrategyExperiment:
                     top_k_edges=self.top_k_edges,
                     threshold=self.threshold,
                 ),
+                allowed_pair_keys=allowed_pair_keys,
+                pair_scope=self.pair_scope,
             )
         return results
 
@@ -157,6 +180,7 @@ class GraphStrategyExperiment:
                 "top_k": top_k,
                 "seed_k": seed_k,
                 "hops": hops,
+                "pair_scope": self.pair_scope,
             },
             "summary": _summary(strategy_payload),
             "strategies": strategy_payload,
@@ -166,8 +190,11 @@ class GraphStrategyExperiment:
 def build_graph_for_strategy(
     nodes: list[MemoryNode],
     config: GraphStrategyConfig,
+    allowed_pair_keys: set[tuple[str, str]] | None = None,
+    pair_scope: str = "global",
 ) -> GraphBuildResult:
     start = time.perf_counter()
+    theoretical_full_pair_count = len(nodes) * max(0, len(nodes) - 1)
     if config.strategy == "no_graph" or config.top_k_edges == 0:
         return GraphBuildResult(
             strategy=config.strategy,
@@ -176,6 +203,8 @@ def build_graph_for_strategy(
             build_time_seconds=time.perf_counter() - start,
             average_edge_score=0.0,
             config=config,
+            theoretical_full_pair_count=theoretical_full_pair_count,
+            pair_scope=pair_scope,
         )
 
     edge_by_key: dict[tuple[str, str, str], MemoryEdge] = {}
@@ -184,6 +213,8 @@ def build_graph_for_strategy(
         scored: list[tuple[float, MemoryNode, dict[str, object]]] = []
         for target in nodes:
             if source.id == target.id:
+                continue
+            if allowed_pair_keys is not None and (source.id, target.id) not in allowed_pair_keys:
                 continue
             candidate_pair_count += 1
             score, breakdown = score_pair(source, target, config)
@@ -202,6 +233,8 @@ def build_graph_for_strategy(
         build_time_seconds=time.perf_counter() - start,
         average_edge_score=average_edge_score,
         config=config,
+        theoretical_full_pair_count=theoretical_full_pair_count,
+        pair_scope=pair_scope,
     )
 
 
@@ -232,6 +265,35 @@ def score_pair(
         "alpha": config.alpha,
         "formula": config.strategy,
     }
+
+
+def _allowed_pair_keys_for_scope(
+    *,
+    nodes: list[MemoryNode],
+    queries: list[EvaluationQuery],
+    pair_scope: str,
+) -> set[tuple[str, str]] | None:
+    if pair_scope == "global":
+        return None
+    if pair_scope != "query_candidates":
+        raise ValueError(f"未知建图 pair scope：{pair_scope}")
+    node_by_original_doc_id = {
+        str(node.metadata.get("original_doc_id")): node
+        for node in nodes
+        if node.metadata.get("original_doc_id")
+    }
+    allowed: set[tuple[str, str]] = set()
+    for query in queries:
+        candidate_node_ids = [
+            node_by_original_doc_id[doc_id].id
+            for doc_id in query.candidate_doc_ids
+            if doc_id in node_by_original_doc_id
+        ]
+        for source_id in candidate_node_ids:
+            for target_id in candidate_node_ids:
+                if source_id != target_id:
+                    allowed.add((source_id, target_id))
+    return allowed
 
 
 def position_proximity(left_position: int | None, right_position: int | None) -> float:
@@ -428,6 +490,7 @@ def run_alpha_sweep(
     top_k: int,
     seed_k: int,
     hops: int,
+    pair_scope: str = "global",
 ) -> dict[str, object]:
     rows: list[dict[str, object]] = []
     best_row: dict[str, object] | None = None
@@ -440,6 +503,7 @@ def run_alpha_sweep(
             alpha=alpha,
             top_k_edges=top_k_edges,
             threshold=threshold,
+            pair_scope=pair_scope,
         ).run(
             strategies=["sam_context"],
             top_k=top_k,
@@ -468,6 +532,7 @@ def run_alpha_sweep(
     return {
         "strategy": "sam_context",
         "best_alpha": best_row["alpha"] if best_row else None,
+        "pair_scope": pair_scope,
         "selection_rule": "按综合性价比分选择：Evidence Recall / (1 + 成本指数)。",
         "rows": rows,
     }
@@ -864,6 +929,28 @@ def _markdown_report(report: dict[str, object]) -> str:
                 f"{float(cost_effectiveness.get('cost_index', 0.0)):.6f} | "
                 f"{float(cost_effectiveness.get('cost_effectiveness_score', 0.0)):.6f} | "
                 f"{'是' if cost.get('uses_llm') else '否'} |"
+            )
+    lines.extend(
+        [
+            "",
+            "## 建图候选空间",
+            "",
+            "| 策略 | Pair Scope | 实际候选对数 | 理论全量候选对数 | 候选覆盖率 |",
+            "| --- | --- | ---: | ---: | ---: |",
+        ]
+    )
+    if isinstance(strategies, dict):
+        for strategy, payload in strategies.items():
+            if not isinstance(payload, dict) or not isinstance(payload.get("cost"), dict):
+                continue
+            cost = payload["cost"]
+            lines.append(
+                "| "
+                f"{strategy} | "
+                f"{cost.get('pair_scope', '')} | "
+                f"{int(cost.get('candidate_pair_count', 0))} | "
+                f"{int(cost.get('theoretical_full_pair_count', 0))} | "
+                f"{float(cost.get('candidate_pair_coverage', 0.0)):.6f} |"
             )
     lines.extend(
         [

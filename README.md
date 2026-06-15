@@ -244,7 +244,7 @@ conda run -n sam python scripts/run_end_to_end_experiment.py \
   --run-name e2e_hotpotqa300_embedding
 ```
 
-`scripts/run_reranker_profile_experiment.py`、`scripts/run_memory_reuse_experiment.py` 和 `scripts/run_graph_strategy_experiment.py` 也支持同样的在线 embedding 并发配置。建图策略实验会对文档和 query 都生成真实 embedding，并在结果中输出 Evidence Recall、Precision@k、MRR、nDCG@k、图路径命中、边规模、候选比较次数、建图耗时、检索耗时、单位边收益、单位时间收益、综合成本指数和综合性价比分。该实验默认使用 `--context-path-policy intrinsic`，显式排除 `query_id`、`hotpotqa_id` 和 `original_doc_id`，并在报告里输出 context path 泄漏审计，方便用同一套正式 embedding 配置重跑 profile 对比、连续记忆复用实验和建图策略性价比实验。对于跨论文证据检索，推荐先使用 SciFact，因为它提供 claim、科学论文摘要语料、gold evidence abstract 和 rationale sentence。
+`scripts/run_reranker_profile_experiment.py`、`scripts/run_memory_reuse_experiment.py` 和 `scripts/run_graph_strategy_experiment.py` 也支持同样的在线 embedding 并发配置。建图策略实验会对文档和 query 都生成真实 embedding，并在结果中输出 Evidence Recall、Precision@k、MRR、nDCG@k、图路径命中、边规模、实际候选比较次数、理论全量候选比较次数、候选覆盖率、建图耗时、检索耗时、单位边收益、单位时间收益、综合成本指数和综合性价比分。该实验默认使用 `--context-path-policy intrinsic`，显式排除 `query_id`、`hotpotqa_id` 和 `original_doc_id`，并在报告里输出 context path 泄漏审计，方便用同一套正式 embedding 配置重跑 profile 对比、连续记忆复用实验和建图策略性价比实验。对于跨论文证据检索，推荐先使用 SciFact，因为它提供 claim、科学论文摘要语料、gold evidence abstract 和 rationale sentence。
 
 正式发送 embedding 请求前，先用规划脚本估算唯一文本数、缓存命中数和预计 batch 数。该命令只读取本地数据集和缓存，不调用在线 API：
 
@@ -724,6 +724,29 @@ conda run -n sam python scripts/prepare_scifact.py \
 ```
 
 转换后的每篇 abstract 是一个 `DatasetDocument`，每个 claim 是一个 `EvaluationQuery`。`supporting_doc_ids` 来自官方 `evidence` 字段，因此建图策略实验可以直接计算 Evidence Recall、Precision@k、MRR 和 nDCG@k，而不需要额外人工判断。
+
+SciFact 建图策略正式实验建议使用 query 候选范围建图，避免把不同 claim 的候选空间无意义地全局两两比较：
+
+```bash
+conda run -n sam python scripts/run_graph_strategy_experiment.py \
+  --dataset-file data/processed/scifact_dev50_sam_sample.json \
+  --limit-queries 50 \
+  --embedding-provider azure_openai_sdk \
+  --embedding-concurrency 20 \
+  --embedding-input-mode single \
+  --embedding-cache \
+  --embedding-cache-path outputs/graph_strategy_experiment_scifact50/embedding_cache.sqlite \
+  --top-k 5 \
+  --seed-k 2 \
+  --hops 1 \
+  --pair-scope query_candidates \
+  --top-k-edges 6 \
+  --threshold 0.18 \
+  --alpha 0.55 \
+  --context-path-policy intrinsic \
+  --alpha-sweep 0,0.25,0.5,0.75,1 \
+  --output-dir outputs/graph_strategy_experiment_scifact50
+```
 
 ### NovelQA
 

@@ -113,6 +113,12 @@ def main() -> None:
     parser.add_argument("--top-k", type=int, default=4, help="检索返回证据数")
     parser.add_argument("--seed-k", type=int, default=1, help="初始召回种子数")
     parser.add_argument("--hops", type=int, default=1, help="图扩展跳数")
+    parser.add_argument(
+        "--pair-scope",
+        choices=["global", "query_candidates"],
+        default="global",
+        help="建图候选节点对范围；global 为当前数据文件全局两两比较，query_candidates 只比较同一 query 候选集内节点",
+    )
     parser.add_argument("--strategies", default=",".join(DEFAULT_STRATEGIES), help="逗号分隔的策略列表")
     parser.add_argument("--alpha-sweep", default="", help="可选，逗号分隔 alpha 列表，例如 0,0.25,0.5,0.75,1")
     parser.add_argument(
@@ -169,6 +175,7 @@ def main() -> None:
         alpha=args.alpha,
         top_k_edges=args.top_k_edges,
         threshold=args.threshold,
+        pair_scope=args.pair_scope,
     )
     report = experiment.run(
         strategies=[strategy.strip() for strategy in args.strategies.split(",") if strategy.strip()],
@@ -213,6 +220,7 @@ def main() -> None:
             top_k=args.top_k,
             seed_k=args.seed_k,
             hops=args.hops,
+            pair_scope=args.pair_scope,
         )
         write_alpha_sweep_report(sweep, args.output_dir)
     print("非 LLM 建图策略实验完成")
