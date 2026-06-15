@@ -317,7 +317,11 @@ def _intrinsic_context_path(node: object) -> list[str]:
             path.append(f"title:{_safe_segment(metadata.get('title'))}")
         return path
     if metadata.get("section") and metadata.get("title"):
-        return [f"section:{_safe_segment(metadata.get('section'))}", f"title:{_safe_segment(metadata.get('title'))}"]
+        section = _safe_segment(metadata.get("section"))
+        title = _safe_segment(metadata.get("title"))
+        if section in {"abstract", "title", "unknown"}:
+            return [f"title:{title}"]
+        return [f"section:{section}", f"title:{title}"]
     if metadata.get("title"):
         return [f"title:{_safe_segment(metadata.get('title'))}"]
     stable_fallback = hashlib.sha1(str(getattr(node, "id", "node")).encode("utf-8")).hexdigest()[:10]

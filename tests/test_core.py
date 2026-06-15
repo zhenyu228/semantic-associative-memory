@@ -1052,10 +1052,59 @@ class SamCoreTest(unittest.TestCase):
         audit = graph_strategy_script._attach_context_metadata([node], policy="intrinsic")
 
         path = node.metadata["context_path"]
-        self.assertEqual(path, ["section:abstract", "title:cancer_immunotherapy_response"])
+        self.assertEqual(path, ["title:cancer_immunotherapy_response"])
         self.assertTrue(audit["is_leak_safe"])
         self.assertEqual(audit["context_paths_containing_query_ids"], 0)
         self.assertNotIn("scifact_doc_1001", "/".join(path))
+
+    def test_graph_strategy_intrinsic_context_path_does_not_link_distinct_abstracts_by_section_only(self) -> None:
+        now = utc_now_iso()
+        left = MemoryNode(
+            id="mem_scifact_doc_1001",
+            text="First paper abstract",
+            summary="First paper abstract",
+            keywords=["first"],
+            tags=[],
+            source="unit",
+            created_at=now,
+            last_accessed_at=None,
+            usage_count=0,
+            confidence=0.9,
+            embedding=[1.0, 0.0],
+            metadata={
+                "dataset": "scifact",
+                "original_doc_id": "scifact_doc_1001",
+                "source_id": "scifact_doc_1001",
+                "section": "abstract",
+                "title": "First Paper",
+            },
+        )
+        right = MemoryNode(
+            id="mem_scifact_doc_2002",
+            text="Second paper abstract",
+            summary="Second paper abstract",
+            keywords=["second"],
+            tags=[],
+            source="unit",
+            created_at=now,
+            last_accessed_at=None,
+            usage_count=0,
+            confidence=0.9,
+            embedding=[0.0, 1.0],
+            metadata={
+                "dataset": "scifact",
+                "original_doc_id": "scifact_doc_2002",
+                "source_id": "scifact_doc_2002",
+                "section": "abstract",
+                "title": "Second Paper",
+            },
+        )
+
+        graph_strategy_script._attach_context_metadata([left, right], policy="intrinsic")
+        score, breakdown = score_pair(left, right, GraphStrategyConfig("context_path_only"))
+
+        self.assertEqual(score, 0.0)
+        self.assertEqual(breakdown["context_path_proximity"], 0.0)
 
     def test_graph_strategy_core_context_path_fallback_does_not_use_query_id(self) -> None:
         now = utc_now_iso()
