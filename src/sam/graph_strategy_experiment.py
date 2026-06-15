@@ -65,11 +65,15 @@ class GraphBuildResult:
         return len(self.edges) / len(node_ids) if node_ids else 0.0
 
     def cost_payload(self) -> dict[str, object]:
+        edge_keep_rate = self.edge_count / self.candidate_pair_count if self.candidate_pair_count else 0.0
+        build_pairs_per_second = self.candidate_pair_count / self.build_time_seconds if self.build_time_seconds > 0 else 0.0
         return {
             "candidate_pair_count": self.candidate_pair_count,
             "edge_count": self.edge_count,
             "average_edges_per_node": round(self.average_edges_per_node, 4),
             "average_edge_score": round(self.average_edge_score, 4),
+            "edge_keep_rate": round(edge_keep_rate, 6),
+            "build_pairs_per_second": round(build_pairs_per_second, 4),
             "build_time_seconds": round(self.build_time_seconds, 6),
             "uses_llm": False,
         }
@@ -121,6 +125,7 @@ class GraphStrategyExperiment:
         build_results = self.compare_build_strategies(strategies)
         strategy_payload: dict[str, object] = {}
         for strategy, build_result in build_results.items():
+            evaluation_start = time.perf_counter()
             metrics, cases = evaluate_strategy(
                 nodes=self.nodes,
                 edges=build_result.edges,
@@ -130,10 +135,15 @@ class GraphStrategyExperiment:
                 seed_k=seed_k,
                 hops=hops,
             )
+            retrieval_time = time.perf_counter() - evaluation_start
+            cost = build_result.cost_payload()
+            cost["retrieval_time_seconds"] = round(retrieval_time, 6)
+            cost["total_time_seconds"] = round(build_result.build_time_seconds + retrieval_time, 6)
+            cost["average_retrieval_time_ms"] = round(1000.0 * retrieval_time / len(self.queries), 4) if self.queries else 0.0
             strategy_payload[strategy] = {
                 "strategy": strategy,
                 "metrics": metrics,
-                "cost": build_result.cost_payload(),
+                "cost": cost,
                 "cost_effectiveness": _cost_effectiveness(metrics, build_result),
                 "cases": cases,
             }
@@ -582,12 +592,12 @@ def _attach_comparative_cost_effectiveness(strategy_payload: dict[str, object]) 
         return
     max_edges = max(float(payload["cost"].get("edge_count", 0.0)) for payload in payloads) or 1.0
     max_pairs = max(float(payload["cost"].get("candidate_pair_count", 0.0)) for payload in payloads) or 1.0
-    max_time = max(float(payload["cost"].get("build_time_seconds", 0.0)) for payload in payloads) or 0.000001
+    max_time = max(float(payload["cost"].get("total_time_seconds", payload["cost"].get("build_time_seconds", 0.0))) for payload in payloads) or 0.000001
     no_graph_payload = strategy_payload.get("no_graph")
     if isinstance(no_graph_payload, dict) and isinstance(no_graph_payload.get("metrics"), dict) and isinstance(no_graph_payload.get("cost"), dict):
         baseline_recall = float(no_graph_payload["metrics"].get("evidence_recall", 0.0))
         baseline_edges = float(no_graph_payload["cost"].get("edge_count", 0.0))
-        baseline_time = float(no_graph_payload["cost"].get("build_time_seconds", 0.0))
+        baseline_time = float(no_graph_payload["cost"].get("total_time_seconds", no_graph_payload["cost"].get("build_time_seconds", 0.0)))
     else:
         baseline_recall = 0.0
         baseline_edges = 0.0
@@ -599,10 +609,10 @@ def _attach_comparative_cost_effectiveness(strategy_payload: dict[str, object]) 
         recall = float(metrics.get("evidence_recall", 0.0))
         edge_count = float(cost.get("edge_count", 0.0))
         candidate_pairs = float(cost.get("candidate_pair_count", 0.0))
-        build_time = float(cost.get("build_time_seconds", 0.0))
+        total_time = float(cost.get("total_time_seconds", cost.get("build_time_seconds", 0.0)))
         normalized_edge_cost = edge_count / max_edges if max_edges else 0.0
         normalized_candidate_pair_cost = candidate_pairs / max_pairs if max_pairs else 0.0
-        normalized_build_time_cost = build_time / max_time if max_time else 0.0
+        normalized_build_time_cost = total_time / max_time if max_time else 0.0
         cost_index = (
             0.40 * normalized_edge_cost
             + 0.30 * normalized_candidate_pair_cost
@@ -610,7 +620,7 @@ def _attach_comparative_cost_effectiveness(strategy_payload: dict[str, object]) 
         )
         recall_gain = recall - baseline_recall
         extra_edges = max(0.0, edge_count - baseline_edges)
-        extra_time = max(0.0, build_time - baseline_time)
+        extra_time = max(0.0, total_time - baseline_time)
         cost_effectiveness.update(
             {
                 "normalized_edge_cost": round(normalized_edge_cost, 6),
@@ -619,6 +629,7 @@ def _attach_comparative_cost_effectiveness(strategy_payload: dict[str, object]) 
                 "cost_index": round(cost_index, 6),
                 "cost_effectiveness_score": round(recall / (1.0 + cost_index), 6),
                 "balanced_score": round(recall - 0.15 * cost_index, 6),
+                "recall_per_second": round(recall / max(0.000001, total_time), 6),
                 "recall_gain_vs_no_graph": round(recall_gain, 6),
                 "gain_per_100_extra_edges": round(recall_gain * 100.0 / extra_edges, 6) if extra_edges else 0.0,
                 "gain_per_extra_second": round(recall_gain / extra_time, 6) if extra_time > 0.0 else 0.0,
@@ -654,6 +665,7 @@ def _summary(strategy_payload: dict[str, object]) -> dict[str, object]:
     best_cost_effectiveness_score = -1.0
     best_recall = -1.0
     ranking: list[dict[str, object]] = []
+    has_no_graph_baseline = "no_graph" in strategy_payload and len(strategy_payload) > 1
     for strategy, payload in strategy_payload.items():
         if not isinstance(payload, dict):
             continue
@@ -664,6 +676,7 @@ def _summary(strategy_payload: dict[str, object]) -> dict[str, object]:
         recall = float(metrics.get("evidence_recall", 0.0))
         cost_effectiveness_score = float(cost_effectiveness.get("cost_effectiveness_score", 0.0))
         balanced_score = float(cost_effectiveness.get("balanced_score", 0.0))
+        recall_gain = float(cost_effectiveness.get("recall_gain_vs_no_graph", 0.0))
         ranking.append(
             {
                 "strategy": strategy,
@@ -676,7 +689,9 @@ def _summary(strategy_payload: dict[str, object]) -> dict[str, object]:
         if recall > best_recall:
             best_recall = recall
             best_recall_strategy = strategy
-        can_recommend = strategy != "no_graph" or len(strategy_payload) == 1
+        can_recommend = (strategy != "no_graph" or len(strategy_payload) == 1) and (
+            not has_no_graph_baseline or recall_gain > 0.0
+        )
         if can_recommend and cost_effectiveness_score > best_cost_effectiveness_score:
             best_cost_effectiveness_score = cost_effectiveness_score
             best_cost_effectiveness_strategy = strategy
@@ -684,6 +699,10 @@ def _summary(strategy_payload: dict[str, object]) -> dict[str, object]:
             best_balanced_score = balanced_score
             best_balanced_strategy = strategy
     ranking.sort(key=lambda row: (float(row["balanced_score"]), float(row["evidence_recall"])), reverse=True)
+    if not best_balanced_strategy:
+        best_balanced_strategy = "no_improving_graph_strategy"
+    if not best_cost_effectiveness_strategy:
+        best_cost_effectiveness_strategy = "no_improving_graph_strategy"
     return {
         "recommended_strategy": best_balanced_strategy,
         "best_recall_strategy": best_recall_strategy,
@@ -707,9 +726,51 @@ def _markdown_report(report: dict[str, object]) -> str:
         "",
         str(summary.get("selection_rule", "")),
         "",
-        "| 策略 | Evidence Recall | 相对 no_graph 召回增益 | 边数 | 候选对数 | 建图耗时(s) | 平均路径长度 | 平均扩展节点数 | Recall / 100 edges | Recall/s | 成本指数 | 综合性价比分 | 是否用 LLM |",
-        "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |",
     ]
+    dataset = report.get("dataset", {})
+    if isinstance(dataset, dict) and dataset:
+        lines.extend(
+            [
+                "## 数据与向量化",
+                "",
+                f"- 数据文件：`{dataset.get('dataset_file', '')}`",
+                f"- 文档数：{dataset.get('document_count', 0)}",
+                f"- Query 数：{dataset.get('query_count', 0)}",
+                "",
+            ]
+        )
+    embedding = report.get("embedding", {})
+    if isinstance(embedding, dict) and embedding:
+        lines.extend(
+            [
+                f"- Embedding provider：`{embedding.get('provider', '')}`",
+                f"- 文档 embedding 数：{embedding.get('document_embedding_count', 0)}，耗时：{float(embedding.get('document_embedding_time_seconds', 0.0)):.6f}s",
+                f"- Query embedding 数：{embedding.get('query_embedding_count', 0)}，耗时：{float(embedding.get('query_embedding_time_seconds', 0.0)):.6f}s",
+                f"- 并发数：{embedding.get('embedding_concurrency')}，输入模式：{embedding.get('embedding_input_mode')}",
+                "",
+            ]
+        )
+    context_path = report.get("context_path", {})
+    if isinstance(context_path, dict) and context_path:
+        lines.extend(
+            [
+                "## Context Path 审计",
+                "",
+                f"- 策略：`{context_path.get('policy', '')}`",
+                f"- 是否通过泄漏检查：{'是' if context_path.get('is_leak_safe') else '否'}",
+                f"- 含 query/hotpot/original doc id 的路径数：{context_path.get('context_paths_containing_query_ids', 0)}",
+                f"- position 来源：`{context_path.get('position_sources', {})}`",
+                "",
+            ]
+        )
+    lines.extend(
+        [
+        "## 策略对比",
+        "",
+        "| 策略 | Evidence Recall | 相对 no_graph 召回增益 | 边数 | 候选对数 | 保边率 | 建图耗时(s) | 检索耗时(s) | 总耗时(s) | 平均路径长度 | 平均扩展节点数 | Recall / 100 edges | Recall/s | 成本指数 | 综合性价比分 | 是否用 LLM |",
+        "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |",
+        ]
+    )
     strategies = report.get("strategies", {})
     if isinstance(strategies, dict):
         for strategy, payload in strategies.items():
@@ -727,7 +788,10 @@ def _markdown_report(report: dict[str, object]) -> str:
                 f"{float(cost_effectiveness.get('recall_gain_vs_no_graph', 0.0)):.3f} | "
                 f"{int(cost.get('edge_count', 0))} | "
                 f"{int(cost.get('candidate_pair_count', 0))} | "
+                f"{float(cost.get('edge_keep_rate', 0.0)):.6f} | "
                 f"{float(cost.get('build_time_seconds', 0.0)):.6f} | "
+                f"{float(cost.get('retrieval_time_seconds', 0.0)):.6f} | "
+                f"{float(cost.get('total_time_seconds', 0.0)):.6f} | "
                 f"{float(metrics.get('average_path_length', 0.0)):.3f} | "
                 f"{float(metrics.get('average_expanded_node_count', 0.0)):.3f} | "
                 f"{float(cost_effectiveness.get('recall_per_100_edges', 0.0)):.6f} | "

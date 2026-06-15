@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import os
+import re
 import sys
 import time
 from pathlib import Path
@@ -114,6 +116,12 @@ def main() -> None:
     parser.add_argument("--strategies", default=",".join(DEFAULT_STRATEGIES), help="逗号分隔的策略列表")
     parser.add_argument("--alpha-sweep", default="", help="可选，逗号分隔 alpha 列表，例如 0,0.25,0.5,0.75,1")
     parser.add_argument(
+        "--context-path-policy",
+        choices=["intrinsic", "metadata", "query_grouped_legacy"],
+        default="intrinsic",
+        help="context_path 构造策略；默认 intrinsic 禁止使用 query_id/hotpotqa_id/original_doc_id",
+    )
+    parser.add_argument(
         "--embedding-provider",
         choices=["local_hash", "openai", "azure_openai", "azure_openai_sdk", "sentence_transformers"],
         default="local_hash",
@@ -153,7 +161,7 @@ def main() -> None:
     nodes = documents_to_nodes(documents, embedding)
     document_embedding_time = time.perf_counter() - document_embedding_start
     query_embeddings, query_embedding_time = _embed_queries(queries, embedding)
-    _attach_context_metadata(nodes)
+    context_path_audit = _attach_context_metadata(nodes, policy=args.context_path_policy)
     experiment = GraphStrategyExperiment(
         nodes=nodes,
         queries=queries,
@@ -180,6 +188,13 @@ def main() -> None:
         "embedding_cache": args.embedding_cache,
         "embedding_cache_path": args.embedding_cache_path,
     }
+    report["context_path"] = context_path_audit
+    report["dataset"] = {
+        "dataset_file": args.dataset_file,
+        "document_count": len(documents),
+        "query_count": len(queries),
+        "limit_queries": args.limit_queries,
+    }
     json_path, markdown_path = write_graph_strategy_report(report, args.output_dir)
     if args.alpha_sweep:
         sweep = run_alpha_sweep(
@@ -200,19 +215,132 @@ def main() -> None:
     print(f"推荐策略：{report['summary']['recommended_strategy']}")
 
 
-def _attach_context_metadata(nodes: list[object]) -> None:
-    """为旧数据集节点补充通用 context_path 和 position。
+def _attach_context_metadata(nodes: list[object], *, policy: str = "intrinsic") -> dict[str, object]:
+    """为旧数据集节点补充 context_path 和 position，并返回泄漏审计。
 
-    该函数只使用已有 metadata，不引入领域专用语义边。
+    默认 `intrinsic` 只使用文档自身结构字段，显式排除 query_id、
+    hotpotqa_id 和 original_doc_id，避免在 HotpotQA 中把候选集分组信息
+    写进 context_path。
     """
 
+    if policy not in {"intrinsic", "metadata", "query_grouped_legacy"}:
+        raise ValueError(f"未知 context_path policy: {policy}")
+    query_ids = {
+        str(node.metadata.get("query_id"))
+        for node in nodes
+        if node.metadata.get("query_id")
+    }
+    hotpotqa_ids = {
+        str(node.metadata.get("hotpotqa_id"))
+        for node in nodes
+        if node.metadata.get("hotpotqa_id")
+    }
+    original_doc_ids = {
+        str(node.metadata.get("original_doc_id"))
+        for node in nodes
+        if node.metadata.get("original_doc_id")
+    }
+    leaking_paths = 0
+    position_sources: dict[str, int] = {}
+    path_examples: list[list[str]] = []
     for index, node in enumerate(nodes):
         metadata = node.metadata
-        dataset = str(metadata.get("dataset") or "dataset")
-        query_id = str(metadata.get("query_id") or metadata.get("book_id") or metadata.get("source_id") or "global")
-        title = str(metadata.get("title") or metadata.get("original_doc_id") or node.id)
-        metadata.setdefault("context_path", [dataset, query_id, title])
-        metadata.setdefault("position", index)
+        path = _context_path_for_node(node, policy=policy)
+        metadata["context_path"] = path
+        position, position_source = _position_for_node(metadata, fallback=index)
+        metadata.setdefault("position", position)
+        metadata["position_source"] = position_source
+        position_sources[position_source] = position_sources.get(position_source, 0) + 1
+        if len(path_examples) < 5:
+            path_examples.append(path)
+        if _path_contains_any(path, query_ids | hotpotqa_ids | original_doc_ids):
+            leaking_paths += 1
+    return {
+        "policy": policy,
+        "is_leak_safe": leaking_paths == 0,
+        "node_count": len(nodes),
+        "nodes_with_query_id_metadata": len(query_ids),
+        "nodes_with_hotpotqa_id_metadata": len(hotpotqa_ids),
+        "context_paths_containing_query_ids": leaking_paths,
+        "excluded_fields": ["query_id", "hotpotqa_id", "original_doc_id"],
+        "position_sources": position_sources,
+        "examples": path_examples,
+        "notes": (
+            "intrinsic 策略只使用文档自身结构字段；query_grouped_legacy 会复现旧逻辑，"
+            "仅用于对照，不建议作为正式实验结论。"
+        ),
+    }
+
+
+def _context_path_for_node(node: object, *, policy: str) -> list[str]:
+    metadata = node.metadata
+    if policy == "metadata" and metadata.get("context_path"):
+        return _coerce_path(metadata["context_path"])
+    if policy == "query_grouped_legacy":
+        dataset = _safe_segment(metadata.get("dataset") or "dataset")
+        group = _safe_segment(metadata.get("query_id") or metadata.get("book_id") or metadata.get("source_id") or "global")
+        title = _safe_segment(metadata.get("title") or "untitled")
+        return [f"dataset:{dataset}", f"group:{group}", f"title:{title}"]
+    return _intrinsic_context_path(node)
+
+
+def _intrinsic_context_path(node: object) -> list[str]:
+    metadata = node.metadata
+    if metadata.get("book_id"):
+        path = [f"book:{_safe_segment(metadata.get('book_id'))}"]
+        if metadata.get("chapter") is not None:
+            path.append(f"chapter:{_safe_segment(metadata.get('chapter'))}")
+        if metadata.get("chunk_index") is not None:
+            chunk_index = _safe_int(metadata.get("chunk_index"))
+            path.append(f"chunk_block:{chunk_index // 10}")
+            path.append(f"chunk:{chunk_index}")
+        return path
+    if metadata.get("source_id"):
+        path = [f"source:{_safe_segment(metadata.get('source_id'))}"]
+        if metadata.get("section") is not None:
+            path.append(f"section:{_safe_segment(metadata.get('section'))}")
+        if metadata.get("title"):
+            path.append(f"title:{_safe_segment(metadata.get('title'))}")
+        return path
+    if metadata.get("section") and metadata.get("title"):
+        return [f"section:{_safe_segment(metadata.get('section'))}", f"title:{_safe_segment(metadata.get('title'))}"]
+    if metadata.get("title"):
+        return [f"title:{_safe_segment(metadata.get('title'))}"]
+    stable_fallback = hashlib.sha1(str(getattr(node, "id", "node")).encode("utf-8")).hexdigest()[:10]
+    return [f"node:{stable_fallback}"]
+
+
+def _position_for_node(metadata: dict[str, object], *, fallback: int) -> tuple[int, str]:
+    for key in ["chunk_index", "paragraph_index", "position"]:
+        if metadata.get(key) is not None:
+            return _safe_int(metadata.get(key)), key
+    return fallback, "script_order_fallback"
+
+
+def _coerce_path(value: object) -> list[str]:
+    if isinstance(value, list):
+        return [str(item) for item in value if str(item)]
+    if isinstance(value, str):
+        return [part for part in value.split("/") if part]
+    return []
+
+
+def _safe_segment(value: object) -> str:
+    text = str(value or "unknown").strip().lower()
+    text = re.sub(r"[^a-z0-9]+", "_", text)
+    return text.strip("_") or "unknown"
+
+
+def _safe_int(value: object) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _path_contains_any(path: list[str], values: set[str]) -> bool:
+    path_text = "/".join(path)
+    return any(value and value in path_text for value in values)
 
 
 if __name__ == "__main__":

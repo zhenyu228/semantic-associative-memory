@@ -723,6 +723,11 @@ class SamCoreTest(unittest.TestCase):
         self.assertIn("evidence_recall", report["strategies"]["sam_context"]["metrics"])
         self.assertIn("build_time_seconds", report["strategies"]["sam_context"]["cost"])
         self.assertIn("cost_effectiveness", report["strategies"]["sam_context"])
+        self.assertIn("retrieval_time_seconds", report["strategies"]["sam_context"]["cost"])
+        self.assertIn("total_time_seconds", report["strategies"]["sam_context"]["cost"])
+        self.assertIn("average_retrieval_time_ms", report["strategies"]["sam_context"]["cost"])
+        self.assertIn("edge_keep_rate", report["strategies"]["sam_context"]["cost"])
+        self.assertIn("build_pairs_per_second", report["strategies"]["sam_context"]["cost"])
         cost_effectiveness = report["strategies"]["sam_context"]["cost_effectiveness"]
         self.assertIn("cost_index", cost_effectiveness)
         self.assertIn("cost_effectiveness_score", cost_effectiveness)
@@ -801,6 +806,70 @@ class SamCoreTest(unittest.TestCase):
         self.assertIn("相对 no_graph 召回增益", markdown)
         self.assertIn("平均路径长度", markdown)
         self.assertIn("平均扩展节点数", markdown)
+        self.assertIn("检索耗时", markdown)
+        self.assertIn("总耗时", markdown)
+        self.assertIn("保边率", markdown)
+
+    def test_graph_strategy_summary_does_not_recommend_graph_without_gain(self) -> None:
+        nodes = self._strategy_nodes()
+        queries = [
+            EvaluationQuery(
+                id="q1",
+                dataset="unit",
+                question="Which evidence explains graph retrieval for long context?",
+                answer="Graph retrieval improves long context evidence.",
+                supporting_doc_ids=["doc_b"],
+                candidate_doc_ids=["doc_a", "doc_b", "doc_c"],
+            )
+        ]
+        report = GraphStrategyExperiment(
+            nodes=nodes,
+            queries=queries,
+            query_embeddings={"q1": nodes[1].embedding},
+            alpha=0.55,
+            top_k_edges=2,
+            threshold=0.08,
+        ).run(
+            strategies=["no_graph", "semantic_only", "sam_context"],
+            top_k=1,
+            seed_k=1,
+            hops=1,
+        )
+
+        self.assertEqual(report["strategies"]["no_graph"]["metrics"]["evidence_recall"], 1.0)
+        self.assertEqual(report["summary"]["recommended_strategy"], "no_improving_graph_strategy")
+
+    def test_graph_strategy_script_intrinsic_context_path_excludes_query_id(self) -> None:
+        node = MemoryNode(
+            id="mem_hotpotqa_case_doc_1",
+            text="Alpha evidence",
+            summary="Alpha evidence",
+            keywords=["alpha"],
+            tags=[],
+            source="unit",
+            created_at=utc_now_iso(),
+            last_accessed_at=None,
+            usage_count=0,
+            confidence=0.9,
+            embedding=[1.0, 0.0],
+            metadata={
+                "dataset": "hotpotqa_real",
+                "query_id": "hotpotqa_case",
+                "hotpotqa_id": "case",
+                "original_doc_id": "hotpotqa_case_doc_1",
+                "title": "Alpha Evidence",
+                "paragraph_index": 3,
+            },
+        )
+
+        audit = graph_strategy_script._attach_context_metadata([node], policy="intrinsic")
+
+        path = node.metadata["context_path"]
+        self.assertEqual(path, ["title:alpha_evidence"])
+        self.assertTrue(audit["is_leak_safe"])
+        self.assertEqual(audit["context_paths_containing_query_ids"], 0)
+        self.assertNotIn("hotpotqa_case", path)
+        self.assertNotIn("case", path)
 
     def test_no_graph_strategy_uses_embedding_top_k_not_seed_k_only(self) -> None:
         nodes = self._strategy_nodes()
