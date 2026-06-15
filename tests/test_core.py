@@ -58,6 +58,7 @@ from sam.embedding import (
 from sam.embedding_plan import build_embedding_run_plan, warm_embedding_cache
 from sam.edge_audit import audit_edge_quality, write_edge_quality_audit
 from sam.env import apply_provider_env_aliases, load_default_env_file, load_env_file
+from sam.evidence_rescue_experiment import evaluate_evidence_rescue, run_evidence_rescue_strategies
 from sam.evaluator import Evaluator, _feedback_enabled
 from sam.experiment_audit import audit_run_directory, write_experiment_audit
 from sam.generation import (
@@ -1115,6 +1116,164 @@ class SamCoreTest(unittest.TestCase):
 
         self.assertEqual(report["strategies"]["no_graph"]["metrics"]["evidence_recall"], 1.0)
         self.assertEqual(report["summary"]["recommended_strategy"], "no_improving_graph_strategy")
+
+    def test_evidence_rescue_counts_graph_supplement_without_replacing_embedding_topk(self) -> None:
+        now = utc_now_iso()
+        seed_support = MemoryNode(
+            id="seed_support",
+            text="Seed support evidence about graph memory.",
+            summary="Seed support evidence.",
+            keywords=["graph", "memory"],
+            tags=[],
+            source="unit",
+            created_at=now,
+            last_accessed_at=None,
+            usage_count=0,
+            confidence=0.9,
+            embedding=[1.0, 0.0],
+            metadata={"original_doc_id": "doc_seed"},
+        )
+        distractor = MemoryNode(
+            id="distractor",
+            text="Distractor that is close to the query but is not gold evidence.",
+            summary="Close distractor.",
+            keywords=["graph"],
+            tags=[],
+            source="unit",
+            created_at=now,
+            last_accessed_at=None,
+            usage_count=0,
+            confidence=0.9,
+            embedding=[0.95, 0.05],
+            metadata={"original_doc_id": "doc_noise"},
+        )
+        missing_support = MemoryNode(
+            id="missing_support",
+            text="Second support evidence connected by the local evidence graph.",
+            summary="Second support evidence.",
+            keywords=["evidence", "path"],
+            tags=[],
+            source="unit",
+            created_at=now,
+            last_accessed_at=None,
+            usage_count=0,
+            confidence=0.9,
+            embedding=[0.0, 1.0],
+            metadata={"original_doc_id": "doc_missing"},
+        )
+        edge = MemoryEdge(
+            source_id="seed_support",
+            target_id="missing_support",
+            relation_type="unit_rescue",
+            weight=0.9,
+            reason="seed support links to second evidence",
+            created_at=now,
+            updated_at=now,
+            activation_count=0,
+            last_activated_at=None,
+            metadata={},
+        )
+        query = EvaluationQuery(
+            id="q_rescue",
+            dataset="unit",
+            question="Which evidence explains graph memory?",
+            answer="Seed and second support.",
+            supporting_doc_ids=["doc_seed", "doc_missing"],
+            candidate_doc_ids=["doc_seed", "doc_noise", "doc_missing"],
+        )
+
+        result = evaluate_evidence_rescue(
+            nodes=[seed_support, distractor, missing_support],
+            edges=[edge],
+            queries=[query],
+            query_embeddings={"q_rescue": [1.0, 0.0]},
+            top_k=2,
+            seed_k=1,
+            hops=1,
+        )
+
+        metrics = result["metrics"]
+        case = result["cases"][0]
+        self.assertEqual(metrics["baseline_support_hits"], 1)
+        self.assertEqual(metrics["rescued_support_count"], 1)
+        self.assertEqual(metrics["eligible_query_count"], 1)
+        self.assertEqual(metrics["rescue_success_query_count"], 1)
+        self.assertEqual(metrics["baseline_evidence_recall"], 0.5)
+        self.assertEqual(metrics["evidence_recall_with_rescue"], 1.0)
+        self.assertEqual(case["baseline_hit_node_ids"], ["seed_support", "distractor"])
+        self.assertEqual(case["rescued_support_node_ids"], ["missing_support"])
+
+    def test_evidence_rescue_strategy_report_compares_no_graph_and_context_edges(self) -> None:
+        now = utc_now_iso()
+        nodes = [
+            MemoryNode(
+                id="seed_support",
+                text="Seed support evidence about graph memory.",
+                summary="Seed support evidence.",
+                keywords=["graph", "memory"],
+                tags=[],
+                source="unit",
+                created_at=now,
+                last_accessed_at=None,
+                usage_count=0,
+                confidence=0.9,
+                embedding=[1.0, 0.0],
+                metadata={"original_doc_id": "doc_seed", "context_path": ["paper", "method"], "position": 1},
+            ),
+            MemoryNode(
+                id="distractor",
+                text="Distractor close to the query.",
+                summary="Close distractor.",
+                keywords=["graph"],
+                tags=[],
+                source="unit",
+                created_at=now,
+                last_accessed_at=None,
+                usage_count=0,
+                confidence=0.9,
+                embedding=[0.95, 0.05],
+                metadata={"original_doc_id": "doc_noise", "context_path": ["paper", "related"], "position": 9},
+            ),
+            MemoryNode(
+                id="missing_support",
+                text="Second support evidence in the same method section.",
+                summary="Second support evidence.",
+                keywords=["evidence", "path"],
+                tags=[],
+                source="unit",
+                created_at=now,
+                last_accessed_at=None,
+                usage_count=0,
+                confidence=0.9,
+                embedding=[0.0, 1.0],
+                metadata={"original_doc_id": "doc_missing", "context_path": ["paper", "method"], "position": 2},
+            ),
+        ]
+        query = EvaluationQuery(
+            id="q_rescue",
+            dataset="unit",
+            question="Which evidence explains graph memory?",
+            answer="Seed and second support.",
+            supporting_doc_ids=["doc_seed", "doc_missing"],
+            candidate_doc_ids=["doc_seed", "doc_noise", "doc_missing"],
+        )
+
+        report = run_evidence_rescue_strategies(
+            nodes=nodes,
+            queries=[query],
+            query_embeddings={"q_rescue": [1.0, 0.0]},
+            strategies=["no_graph", "context_path_only"],
+            top_k=2,
+            seed_k=1,
+            hops=1,
+            threshold=0.1,
+            top_k_edges=1,
+        )
+
+        self.assertEqual(report["strategies"]["no_graph"]["metrics"]["rescued_support_count"], 0)
+        self.assertEqual(report["strategies"]["context_path_only"]["metrics"]["rescued_support_count"], 1)
+        self.assertEqual(report["summary"]["best_rescue_strategy"], "context_path_only")
+        self.assertEqual(report["summary"]["best_recall_gain_strategy"], "context_path_only")
 
     def test_graph_strategy_script_intrinsic_context_path_excludes_query_id(self) -> None:
         node = MemoryNode(
