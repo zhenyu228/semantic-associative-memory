@@ -100,6 +100,16 @@ conda run --no-capture-output -n sam python -u scripts/run_evidence_rescue_exper
 
 ## 实验结果
 
+### 成本-效果图
+
+![SAM 按需建图成本-效果分析](figures/sam_cost_effect_figure.png)
+
+这张图回答两个问题。
+
+第一，低成本主要体现在建边候选规模上。若对全部候选文档做全量两两建图，候选边数量会随文档数按平方增长；SAM 当前采用 `query_candidates` 局部建图，只在每条查询的候选集合内比较边，因此实际比较边只占全量理论候选边的一小部分。HotpotQA 中实际比较边约占全量理论候选边的 3.0%，QASPER 中约占 11.1%，LitSearch 中约占 3.3%。同时，每个节点只保留有限数量的高分边，进一步控制图规模。
+
+第二，低成本没有让图完全失去作用。在三组实验中，SAM-context 的局部图补证据后 evidence recall 均高于 Embedding Top-k：HotpotQA 从 88.3% 提升到 91.7%，QASPER 从 57.5% 提升到 65.8%，LitSearch 从 78.6% 提升到 83.3%。这说明图结构在受控成本下仍能补回部分遗漏证据。
+
 ### HotpotQA bridge-style 30 条
 
 数据规模：30 个 query，300 个候选段落，60 个 gold evidence。

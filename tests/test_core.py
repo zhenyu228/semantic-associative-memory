@@ -1275,6 +1275,50 @@ class SamCoreTest(unittest.TestCase):
         self.assertEqual(report["summary"]["best_rescue_strategy"], "context_path_only")
         self.assertEqual(report["summary"]["best_recall_gain_strategy"], "context_path_only")
 
+    def test_cost_effect_figure_rows_extract_cost_and_recall_fields(self) -> None:
+        from sam.cost_effect_figure import build_cost_effect_rows
+
+        rows = build_cost_effect_rows(
+            {
+                "ToyData": {
+                    "dataset": {
+                        "document_count": 10,
+                        "query_count": 2,
+                    },
+                    "strategies": {
+                        "sam_context": {
+                            "cost": {
+                                "theoretical_full_pair_count": 90,
+                                "candidate_pair_count": 12,
+                                "candidate_pair_coverage": 0.133333,
+                                "edge_count": 5,
+                                "build_time_seconds": 0.25,
+                                "uses_llm": False,
+                            },
+                            "metrics": {
+                                "baseline_evidence_recall": 0.5,
+                                "evidence_recall_with_rescue": 0.7,
+                                "recall_gain": 0.2,
+                            },
+                        }
+                    },
+                }
+            },
+            method="sam_context",
+        )
+
+        self.assertEqual(rows[0]["dataset"], "ToyData")
+        self.assertEqual(rows[0]["document_count"], 10)
+        self.assertEqual(rows[0]["query_count"], 2)
+        self.assertEqual(rows[0]["full_pair_count"], 90)
+        self.assertEqual(rows[0]["candidate_pair_count"], 12)
+        self.assertEqual(rows[0]["edge_count"], 5)
+        self.assertAlmostEqual(rows[0]["candidate_pair_coverage_percent"], 13.3333, places=4)
+        self.assertEqual(rows[0]["baseline_recall_percent"], 50.0)
+        self.assertEqual(rows[0]["rescue_recall_percent"], 70.0)
+        self.assertEqual(rows[0]["recall_gain_pp"], 20.0)
+        self.assertFalse(rows[0]["uses_llm"])
+
     def test_graph_strategy_script_intrinsic_context_path_excludes_query_id(self) -> None:
         node = MemoryNode(
             id="mem_hotpotqa_case_doc_1",

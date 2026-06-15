@@ -1,0 +1,44 @@
+[
+  {
+    "dataset": "HotpotQA",
+    "document_count": 300,
+    "query_count": 30,
+    "full_pair_count": 89700,
+    "candidate_pair_count": 2700,
+    "edge_count": 966,
+    "candidate_pair_coverage_percent": 3.01,
+    "build_time_seconds": 0.151748,
+    "uses_llm": false,
+    "baseline_recall_percent": 88.3333,
+    "rescue_recall_percent": 91.6667,
+    "recall_gain_pp": 3.3333
+  },
+  {
+    "dataset": "QASPER",
+    "document_count": 523,
+    "query_count": 30,
+    "full_pair_count": 273006,
+    "candidate_pair_count": 30184,
+    "edge_count": 2092,
+    "candidate_pair_coverage_percent": 11.0562,
+    "build_time_seconds": 1.663418,
+    "uses_llm": false,
+    "baseline_recall_percent": 57.5342,
+    "rescue_recall_percent": 65.7534,
+    "recall_gain_pp": 8.2192
+  },
+  {
+    "dataset": "LitSearch",
+    "document_count": 630,
+    "query_count": 30,
+    "full_pair_count": 396270,
+    "candidate_pair_count": 13100,
+    "edge_count": 2519,
+    "candidate_pair_coverage_percent": 3.3058,
+    "build_time_seconds": 0.780321,
+    "uses_llm": false,
+    "baseline_recall_percent": 78.5714,
+    "rescue_recall_percent": 83.3333,
+    "recall_gain_pp": 4.7619
+  }
+]
