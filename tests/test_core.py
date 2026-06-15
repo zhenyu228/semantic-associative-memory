@@ -1319,6 +1319,68 @@ class SamCoreTest(unittest.TestCase):
         self.assertEqual(rows[0]["recall_gain_pp"], 20.0)
         self.assertFalse(rows[0]["uses_llm"])
 
+    def test_insertion_time_benchmark_compares_full_local_and_lazy_costs(self) -> None:
+        from sam.insertion_time_experiment import run_insertion_time_benchmark
+
+        now = utc_now_iso()
+        nodes = [
+            MemoryNode(
+                id=f"node_{index}",
+                text=f"document {index}",
+                summary=f"document {index}",
+                keywords=["graph"],
+                tags=[],
+                source="unit",
+                created_at=now,
+                last_accessed_at=None,
+                usage_count=0,
+                confidence=0.9,
+                embedding=[1.0, float(index)],
+                metadata={"original_doc_id": f"doc_{index}", "position": index},
+            )
+            for index in range(4)
+        ]
+        queries = [
+            EvaluationQuery(
+                id="q1",
+                dataset="unit",
+                question="first",
+                answer="",
+                supporting_doc_ids=["doc_0"],
+                candidate_doc_ids=["doc_0", "doc_1"],
+            ),
+            EvaluationQuery(
+                id="q2",
+                dataset="unit",
+                question="second",
+                answer="",
+                supporting_doc_ids=["doc_2"],
+                candidate_doc_ids=["doc_2", "doc_3"],
+            ),
+        ]
+
+        report = run_insertion_time_benchmark(
+            nodes=nodes,
+            queries=queries,
+            batch_sizes=[2, 4],
+            strategy="semantic_only",
+            top_k_edges=1,
+            threshold=0.0,
+            repeats=1,
+        )
+
+        rows = {
+            (row["method"], row["batch_size"]): row
+            for row in report["rows"]
+        }
+        self.assertEqual(rows[("full_rebuild", 4)]["candidate_pair_count"], 12)
+        self.assertEqual(rows[("query_activated_local", 4)]["candidate_pair_count"], 4)
+        self.assertEqual(rows[("sam_lazy_insert", 4)]["candidate_pair_count"], 0)
+        self.assertEqual(rows[("sam_lazy_insert", 4)]["edge_count"], 0)
+        self.assertGreaterEqual(rows[("full_rebuild", 4)]["time_seconds"], 0.0)
+        self.assertGreaterEqual(rows[("query_activated_local", 4)]["time_seconds"], 0.0)
+        self.assertEqual(report["summary"]["max_batch_size"], 4)
+
     def test_graph_strategy_script_intrinsic_context_path_excludes_query_id(self) -> None:
         node = MemoryNode(
             id="mem_hotpotqa_case_doc_1",

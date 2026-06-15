@@ -1,0 +1,296 @@
+[
+  {
+    "method": "full_rebuild",
+    "method_label": "全量重建图",
+    "batch_size": 25,
+    "time_seconds": 0.010523,
+    "candidate_pair_count": 600,
+    "edge_count": 8,
+    "pair_scope": "global",
+    "repeat_times_seconds": [
+      0.011018,
+      0.010523,
+      0.009937
+    ]
+  },
+  {
+    "method": "query_activated_local",
+    "method_label": "SAM 查询激活局部建图",
+    "batch_size": 25,
+    "time_seconds": 0.000559,
+    "candidate_pair_count": 28,
+    "edge_count": 2,
+    "pair_scope": "query_candidates",
+    "repeat_times_seconds": [
+      0.000578,
+      0.000559,
+      0.000545
+    ]
+  },
+  {
+    "method": "sam_lazy_insert",
+    "method_label": "SAM 懒插入",
+    "batch_size": 25,
+    "time_seconds": 0.0,
+    "candidate_pair_count": 0,
+    "edge_count": 0,
+    "pair_scope": "none",
+    "repeat_times_seconds": [
+      0.0,
+      0.0,
+      0.0
+    ]
+  },
+  {
+    "method": "full_rebuild",
+    "method_label": "全量重建图",
+    "batch_size": 50,
+    "time_seconds": 0.036721,
+    "candidate_pair_count": 2450,
+    "edge_count": 16,
+    "pair_scope": "global",
+    "repeat_times_seconds": [
+      0.037056,
+      0.036627,
+      0.036721
+    ]
+  },
+  {
+    "method": "query_activated_local",
+    "method_label": "SAM 查询激活局部建图",
+    "batch_size": 50,
+    "time_seconds": 0.002244,
+    "candidate_pair_count": 138,
+    "edge_count": 4,
+    "pair_scope": "query_candidates",
+    "repeat_times_seconds": [
+      0.002221,
+      0.002244,
+      0.002272
+    ]
+  },
+  {
+    "method": "sam_lazy_insert",
+    "method_label": "SAM 懒插入",
+    "batch_size": 50,
+    "time_seconds": 0.0,
+    "candidate_pair_count": 0,
+    "edge_count": 0,
+    "pair_scope": "none",
+    "repeat_times_seconds": [
+      0.0,
+      0.0,
+      0.0
+    ]
+  },
+  {
+    "method": "full_rebuild",
+    "method_label": "全量重建图",
+    "batch_size": 100,
+    "time_seconds": 0.148223,
+    "candidate_pair_count": 9900,
+    "edge_count": 62,
+    "pair_scope": "global",
+    "repeat_times_seconds": [
+      0.148223,
+      0.147491,
+      0.148548
+    ]
+  },
+  {
+    "method": "query_activated_local",
+    "method_label": "SAM 查询激活局部建图",
+    "batch_size": 100,
+    "time_seconds": 0.007608,
+    "candidate_pair_count": 478,
+    "edge_count": 22,
+    "pair_scope": "query_candidates",
+    "repeat_times_seconds": [
+      0.007703,
+      0.007608,
+      0.007602
+    ]
+  },
+  {
+    "method": "sam_lazy_insert",
+    "method_label": "SAM 懒插入",
+    "batch_size": 100,
+    "time_seconds": 0.0,
+    "candidate_pair_count": 0,
+    "edge_count": 0,
+    "pair_scope": "none",
+    "repeat_times_seconds": [
+      1e-06,
+      0.0,
+      0.0
+    ]
+  },
+  {
+    "method": "full_rebuild",
+    "method_label": "全量重建图",
+    "batch_size": 200,
+    "time_seconds": 0.60401,
+    "candidate_pair_count": 39800,
+    "edge_count": 233,
+    "pair_scope": "global",
+    "repeat_times_seconds": [
+      0.603822,
+      0.60401,
+      0.615601
+    ]
+  },
+  {
+    "method": "query_activated_local",
+    "method_label": "SAM 查询激活局部建图",
+    "batch_size": 200,
+    "time_seconds": 0.025591,
+    "candidate_pair_count": 1584,
+    "edge_count": 54,
+    "pair_scope": "query_candidates",
+    "repeat_times_seconds": [
+      0.025591,
+      0.025459,
+      0.026813
+    ]
+  },
+  {
+    "method": "sam_lazy_insert",
+    "method_label": "SAM 懒插入",
+    "batch_size": 200,
+    "time_seconds": 1e-06,
+    "candidate_pair_count": 0,
+    "edge_count": 0,
+    "pair_scope": "none",
+    "repeat_times_seconds": [
+      1e-06,
+      1e-06,
+      0.0
+    ]
+  },
+  {
+    "method": "full_rebuild",
+    "method_label": "全量重建图",
+    "batch_size": 300,
+    "time_seconds": 1.35804,
+    "candidate_pair_count": 89700,
+    "edge_count": 460,
+    "pair_scope": "global",
+    "repeat_times_seconds": [
+      1.357257,
+      1.363737,
+      1.35804
+    ]
+  },
+  {
+    "method": "query_activated_local",
+    "method_label": "SAM 查询激活局部建图",
+    "batch_size": 300,
+    "time_seconds": 0.059601,
+    "candidate_pair_count": 3622,
+    "edge_count": 138,
+    "pair_scope": "query_candidates",
+    "repeat_times_seconds": [
+      0.059608,
+      0.059601,
+      0.059433
+    ]
+  },
+  {
+    "method": "sam_lazy_insert",
+    "method_label": "SAM 懒插入",
+    "batch_size": 300,
+    "time_seconds": 1e-06,
+    "candidate_pair_count": 0,
+    "edge_count": 0,
+    "pair_scope": "none",
+    "repeat_times_seconds": [
+      1e-06,
+      1e-06,
+      0.0
+    ]
+  },
+  {
+    "method": "full_rebuild",
+    "method_label": "全量重建图",
+    "batch_size": 500,
+    "time_seconds": 3.794711,
+    "candidate_pair_count": 249500,
+    "edge_count": 1010,
+    "pair_scope": "global",
+    "repeat_times_seconds": [
+      3.794711,
+      3.793971,
+      3.799825
+    ]
+  },
+  {
+    "method": "query_activated_local",
+    "method_label": "SAM 查询激活局部建图",
+    "batch_size": 500,
+    "time_seconds": 0.142011,
+    "candidate_pair_count": 8588,
+    "edge_count": 336,
+    "pair_scope": "query_candidates",
+    "repeat_times_seconds": [
+      0.142887,
+      0.142011,
+      0.141291
+    ]
+  },
+  {
+    "method": "sam_lazy_insert",
+    "method_label": "SAM 懒插入",
+    "batch_size": 500,
+    "time_seconds": 1e-06,
+    "candidate_pair_count": 0,
+    "edge_count": 0,
+    "pair_scope": "none",
+    "repeat_times_seconds": [
+      1e-06,
+      1e-06,
+      1e-06
+    ]
+  },
+  {
+    "method": "full_rebuild",
+    "method_label": "全量重建图",
+    "batch_size": 630,
+    "time_seconds": 6.077115,
+    "candidate_pair_count": 396270,
+    "edge_count": 1408,
+    "pair_scope": "global",
+    "repeat_times_seconds": [
+      6.077115,
+      6.066798,
+      6.120109
+    ]
+  },
+  {
+    "method": "query_activated_local",
+    "method_label": "SAM 查询激活局部建图",
+    "batch_size": 630,
+    "time_seconds": 0.221754,
+    "candidate_pair_count": 13100,
+    "edge_count": 490,
+    "pair_scope": "query_candidates",
+    "repeat_times_seconds": [
+      0.225757,
+      0.221754,
+      0.221017
+    ]
+  },
+  {
+    "method": "sam_lazy_insert",
+    "method_label": "SAM 懒插入",
+    "batch_size": 630,
+    "time_seconds": 1e-06,
+    "candidate_pair_count": 0,
+    "edge_count": 0,
+    "pair_scope": "none",
+    "repeat_times_seconds": [
+      1e-06,
+      1e-06,
+      1e-06
+    ]
+  }
+]

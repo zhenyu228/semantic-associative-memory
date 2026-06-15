@@ -100,11 +100,37 @@ conda run --no-capture-output -n sam python -u scripts/run_evidence_rescue_exper
 
 ## 实验结果
 
-### 成本-效果图
+### 在线插入时间成本图
+
+![SAM 在线插入时间成本](figures/sam_insertion_time_figure.png)
+
+这张图对应 CAM Figure 3(a) 的问题口径：当系统在线接收一批新记忆时，插入和建图更新时间如何随 batch size 增长。
+
+实验使用 LitSearch 30 条查询中的 630 个论文摘要 memory items。为隔离建图策略本身的成本，图中不统计 embedding 生成时间，三条线使用同一批已经完成 embedding 的 memory items。对每个 batch size 重复计时 3 次并取中位数。
+
+对比三种策略：
+
+- 全量重建图：每次新 batch 到来后，对当前全部 memory items 做全局两两比较并重建图。
+- SAM 查询激活局部建图：只围绕当前查询涉及的候选 memory items 建局部边。
+- SAM 懒插入：新 memory item 先写入记忆库，不在插入时立即建边，等查询激活后再局部补边。
+
+实测结果显示，在 630 个 memory items 时，全量重建图需要 6.077 秒，需要比较 396270 个候选边对；SAM 查询激活局部建图需要 0.222 秒，只比较 13100 个候选边对，相比全量重建约快 27.4 倍；SAM 懒插入在插入阶段不建边，耗时接近 0。这个结果说明，SAM 的低成本不是来自少存文档，而是来自把“插入”和“全局建图”解耦：新知识先进入记忆系统，只有被查询激活时才围绕局部上下文补建关系。
+
+本图的实验命令如下：
+
+```bash
+conda run --no-capture-output -n sam python scripts/run_insertion_time_experiment.py \
+  --dataset-file data/processed/litsearch_query30_sam_sample.json \
+  --batch-sizes 25,50,100,200,300,500,630 \
+  --repeats 3 \
+  --output-dir outputs/insertion_time_litsearch
+```
+
+### 补充：候选边规模与效果
 
 ![SAM 按需建图成本-效果分析](figures/sam_cost_effect_figure.png)
 
-这张图回答两个问题。
+这张图补充说明低成本背后的候选边规模变化和补证据效果。
 
 第一，低成本主要体现在建边候选规模上。若对全部候选文档做全量两两建图，候选边数量会随文档数按平方增长；SAM 当前采用 `query_candidates` 局部建图，只在每条查询的候选集合内比较边，因此实际比较边只占全量理论候选边的一小部分。HotpotQA 中实际比较边约占全量理论候选边的 3.0%，QASPER 中约占 11.1%，LitSearch 中约占 3.3%。同时，每个节点只保留有限数量的高分边，进一步控制图规模。
 
