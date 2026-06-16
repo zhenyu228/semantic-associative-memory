@@ -434,26 +434,36 @@ def _comparison_markdown(payload: dict[str, Any]) -> str:
         "- 查询完整回溯率：一个问题的全部支持证据都能被高层记忆追溯到的比例。",
         "- 答案一致性：同一高层记忆中来源问题答案是否集中，越高表示聚合更稳。",
         "- 冗余率：同一证据被多个高层记忆重复覆盖的程度，越低越好。",
+        "- 检索单元减少率：高层重构后需要优先检索的记忆单元减少比例。",
+        "- Trace边减少率：高层记忆到证据的回溯边相对原始巩固记忆证据边的减少比例。",
+        "- Trace噪声率：高层记忆回溯到非标准支持证据的比例，越低越好。",
+        "- Query级Trace噪声率：单个 query 命中高层记忆后暴露的额外证据比例，越低越好。",
+        "- 有效Trace精度：高层记忆回溯证据中属于标准支持证据的比例，越高越好。",
         "- 质量成本综合分：综合证据保真、查询完整回溯、答案一致性、压缩率和构建耗时后的阶段性评分。",
         "",
         "## 结果表",
         "",
-        "| 策略 | 高层单元数 | 压缩率 | 支持证据回溯率 | 查询完整回溯率 | 答案一致性 | 冗余率 | 构建耗时ms | 质量成本综合分 |",
-        "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
+        "| 策略 | 高层单元数 | 压缩率 | 检索单元减少率 | 支持证据回溯率 | 查询完整回溯率 | 平均暴露证据数 | Query级Trace噪声率 | Trace边数 | Trace噪声率 | 有效Trace精度 | 构建耗时ms | 质量成本综合分 |",
+        "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
     ]
     for strategy, metrics in strategies.items():
         if not isinstance(metrics, dict):
             continue
         lines.append(
-            "| {strategy} | {units} | {compression:.3f} | {support:.3f} | {query_full:.3f} | "
-            "{consistency:.3f} | {redundancy:.3f} | {time_ms:.3f} | {score:.3f} |".format(
+            "| {strategy} | {units} | {compression:.3f} | {unit_reduction:.3f} | {support:.3f} | {query_full:.3f} | "
+            "{exposed:.2f} | {query_noise:.3f} | {trace_edges} | {trace_noise:.3f} | {trace_precision:.3f} | "
+            "{time_ms:.3f} | {score:.3f} |".format(
                 strategy=strategy,
                 units=metrics.get("reconstructed_unit_count", 0),
                 compression=float(metrics.get("compression_ratio", 0.0)),
+                unit_reduction=float(metrics.get("retrieval_unit_reduction_rate", 0.0)),
                 support=float(metrics.get("support_trace_rate", 0.0)),
                 query_full=float(metrics.get("query_full_trace_rate", 0.0)),
-                consistency=float(metrics.get("answer_consistency", 0.0)),
-                redundancy=float(metrics.get("evidence_redundancy_rate", 0.0)),
+                exposed=float(metrics.get("average_exposed_evidence_per_query", 0.0)),
+                query_noise=float(metrics.get("query_trace_noise_rate", 0.0)),
+                trace_edges=int(metrics.get("trace_edge_count", 0)),
+                trace_noise=float(metrics.get("trace_noise_rate", 0.0)),
+                trace_precision=float(metrics.get("effective_trace_precision", 0.0)),
                 time_ms=float(metrics.get("build_time_ms", 0.0)),
                 score=float(metrics.get("quality_cost_score", 0.0)),
             )
@@ -614,20 +624,21 @@ def _build_sam_hybrid_groups(
     threshold: float,
 ) -> tuple[list[ReconstructionGroup], dict[str, Any]]:
     pair_scores: dict[tuple[str, str], float] = {}
-    candidate_pairs = 0
+    candidate_pair_ids = _hybrid_candidate_pair_ids(consolidated_nodes)
+    candidate_pairs = len(candidate_pair_ids)
     accepted_pairs = 0
     adjacency: dict[str, set[str]] = {node.id: set() for node in consolidated_nodes}
-    for left_index, left in enumerate(consolidated_nodes):
-        for right in consolidated_nodes[left_index + 1:]:
-            candidate_pairs += 1
-            score = _hybrid_reconstruction_score(left, right)
-            pair_scores[(left.id, right.id)] = score
-            if score >= threshold:
-                adjacency[left.id].add(right.id)
-                adjacency[right.id].add(left.id)
-                accepted_pairs += 1
-
     node_by_id = {node.id: node for node in consolidated_nodes}
+    for left_id, right_id in candidate_pair_ids:
+        left = node_by_id[left_id]
+        right = node_by_id[right_id]
+        score = _hybrid_reconstruction_score(left, right)
+        pair_scores[(left.id, right.id)] = score
+        if score >= threshold:
+            adjacency[left.id].add(right.id)
+            adjacency[right.id].add(left.id)
+            accepted_pairs += 1
+
     components = _connected_components(adjacency)
     groups: list[ReconstructionGroup] = []
     for index, component in enumerate(components):
@@ -644,8 +655,27 @@ def _build_sam_hybrid_groups(
     return groups, {
         "candidate_pair_count": candidate_pairs,
         "accepted_pair_count": accepted_pairs,
-        "strategy_cost_note": "semantic_keyword_evidence_answer_graph_components",
+        "strategy_cost_note": "keyword_blocked_semantic_evidence_answer_components",
     }
+
+
+def _hybrid_candidate_pair_ids(consolidated_nodes: list[MemoryNode]) -> list[tuple[str, str]]:
+    """用关键词倒排生成候选对，避免高层重构阶段全量两两比较。"""
+
+    keyword_to_node_ids: dict[str, list[str]] = {}
+    for node in consolidated_nodes:
+        for keyword in _content_keywords(node, limit=8):
+            keyword_to_node_ids.setdefault(keyword, []).append(node.id)
+
+    candidate_pairs: set[tuple[str, str]] = set()
+    for node_ids in keyword_to_node_ids.values():
+        unique_ids = sorted(set(node_ids))
+        if len(unique_ids) < 2:
+            continue
+        for left_index, left_id in enumerate(unique_ids):
+            for right_id in unique_ids[left_index + 1:]:
+                candidate_pairs.add((left_id, right_id))
+    return sorted(candidate_pairs)
 
 
 def _make_reconstruction_group(
@@ -715,6 +745,7 @@ def _reconstruction_strategy_metrics(
         for support_ids in query_support_node_ids.values()
         if support_ids
     ]
+    query_trace_budget = _query_trace_budget(groups, query_support_node_ids)
     query_full_trace_rate = _safe_divide(
         sum(1 for value in query_trace_rates if value >= 1.0),
         len(query_trace_rates),
@@ -733,7 +764,32 @@ def _reconstruction_strategy_metrics(
     total_group_evidence_mentions = sum(len(group.evidence_node_ids) for group in groups)
     duplicate_evidence_mentions = max(0, total_group_evidence_mentions - len(grouped_evidence_ids))
     redundancy_rate = _safe_divide(duplicate_evidence_mentions, total_group_evidence_mentions)
+    raw_trace_edge_count = sum(
+        len(node.metadata.get("evidence_node_ids", []))
+        for node in consolidated_nodes
+    )
+    trace_edge_count = total_group_evidence_mentions
+    trace_noise_count = len(grouped_evidence_ids - support_node_ids)
+    trace_noise_rate = _safe_divide(trace_noise_count, len(grouped_evidence_ids))
+    effective_trace_precision = _safe_divide(
+        len(grouped_evidence_ids & support_node_ids),
+        len(grouped_evidence_ids),
+    )
     compression_ratio = _safe_divide(consolidated_count, reconstructed_units)
+    retrieval_unit_reduction_rate = 1.0 - _safe_divide(reconstructed_units, consolidated_count)
+    trace_edge_reduction_rate = 1.0 - _safe_divide(trace_edge_count, raw_trace_edge_count)
+    if strategy == "no_reconstruction":
+        retrieval_unit_reduction_rate = 0.0
+        trace_edge_reduction_rate = 0.0
+        trace_noise_rate = 0.0
+        effective_trace_precision = 0.0
+        query_trace_budget = {
+            **query_trace_budget,
+            "query_trace_noise_rate": 0.0,
+            "query_effective_trace_precision": 0.0,
+            "average_exposed_evidence_per_query": 0.0,
+            "average_noise_evidence_per_query": 0.0,
+        }
     support_trace_rate = _safe_divide(len(grouped_evidence_ids & support_node_ids), len(support_node_ids))
     evidence_coverage_rate = _safe_divide(
         len(grouped_evidence_ids & consolidated_evidence_ids),
@@ -748,7 +804,8 @@ def _reconstruction_strategy_metrics(
     )
     time_penalty = 1.0 + float(cost.get("build_time_ms", 0.0)) / 1000.0
     redundancy_penalty = 1.0 + redundancy_rate
-    quality_cost_score = quality / (time_penalty * redundancy_penalty)
+    trace_noise_penalty = 1.0 + trace_noise_rate + float(query_trace_budget["query_trace_noise_rate"])
+    quality_cost_score = quality / (time_penalty * redundancy_penalty * trace_noise_penalty)
     if strategy == "no_reconstruction":
         quality_cost_score = 0.0
     return {
@@ -775,8 +832,65 @@ def _reconstruction_strategy_metrics(
         "average_group_size": _average(len(group.source_consolidated_node_ids) for group in groups),
         "average_evidence_per_group": _average(len(group.evidence_node_ids) for group in groups),
         "evidence_redundancy_rate": redundancy_rate,
+        "raw_trace_edge_count": raw_trace_edge_count,
+        "trace_edge_count": trace_edge_count,
+        "trace_edge_reduction_rate": trace_edge_reduction_rate,
+        "retrieval_unit_reduction_rate": retrieval_unit_reduction_rate,
+        "trace_noise_count": trace_noise_count,
+        "trace_noise_rate": trace_noise_rate,
+        "effective_trace_precision": effective_trace_precision,
+        **query_trace_budget,
         "quality_cost_score": quality_cost_score,
         **cost,
+    }
+
+
+def _query_trace_budget(
+    groups: list[ReconstructionGroup],
+    query_support_node_ids: dict[str, list[str]],
+) -> dict[str, float]:
+    """按 query 统计高层记忆命中后会暴露多少额外证据。
+
+    全局 trace 噪声只能说明高层记忆是否最终仍能回到 gold evidence。
+    但如果一个高层记忆把大量 query 压在一起，单个 query 命中该高层记忆时会暴露很多额外证据。
+    这个函数用 source_query_ids 模拟压缩单元被对应 query 访问后的证据暴露规模。
+    """
+
+    groups_by_query: dict[str, list[ReconstructionGroup]] = {}
+    for group in groups:
+        for query_id in group.source_query_ids:
+            groups_by_query.setdefault(query_id, []).append(group)
+
+    exposed_counts: list[float] = []
+    noise_counts: list[float] = []
+    trace_precisions: list[float] = []
+    trace_noise_rates: list[float] = []
+    for query_id, support_ids in query_support_node_ids.items():
+        support_set = {str(item) for item in support_ids}
+        if not support_set:
+            continue
+        exposed_ids = {
+            evidence_id
+            for group in groups_by_query.get(query_id, [])
+            for evidence_id in group.evidence_node_ids
+        }
+        if not exposed_ids:
+            exposed_counts.append(0.0)
+            noise_counts.append(0.0)
+            trace_precisions.append(0.0)
+            trace_noise_rates.append(0.0)
+            continue
+        noise_count = len(exposed_ids - support_set)
+        exposed_counts.append(float(len(exposed_ids)))
+        noise_counts.append(float(noise_count))
+        trace_precisions.append(_safe_divide(len(exposed_ids & support_set), len(exposed_ids)))
+        trace_noise_rates.append(_safe_divide(noise_count, len(exposed_ids)))
+
+    return {
+        "average_exposed_evidence_per_query": _average(exposed_counts),
+        "average_noise_evidence_per_query": _average(noise_counts),
+        "query_effective_trace_precision": _average(trace_precisions),
+        "query_trace_noise_rate": _average(trace_noise_rates),
     }
 
 
@@ -988,10 +1102,7 @@ def _hybrid_reconstruction_score(left: MemoryNode, right: MemoryNode) -> float:
     semantic_score = max(0.0, _cosine(left.embedding, right.embedding))
     left_keywords = set(_content_keywords(left, limit=16))
     right_keywords = set(_content_keywords(right, limit=16))
-    keyword_score = max(
-        _jaccard(left_keywords, right_keywords),
-        1.0 if left_keywords & right_keywords else 0.0,
-    )
+    keyword_score = _jaccard(left_keywords, right_keywords)
     evidence_score = _jaccard(
         {str(item) for item in left.metadata.get("evidence_node_ids", [])},
         {str(item) for item in right.metadata.get("evidence_node_ids", [])},

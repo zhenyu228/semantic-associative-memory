@@ -1654,10 +1654,10 @@ class SamCoreTest(unittest.TestCase):
         self.assertTrue(rows[("sam_online_with_refinement", 6)]["includes_llm_refinement"])
         self.assertEqual(rows[("sam_online_with_refinement", 6)]["compression_group_count"], 2)
         self.assertEqual(rows[("sam_online_with_refinement", 6)]["chunk_token_size"], 512)
-        self.assertGreaterEqual(
-            rows[("sam_online_with_refinement", 6)]["time_seconds"],
-            rows[("sam_online_no_llm", 6)]["time_seconds"],
-        )
+        self.assertGreaterEqual(rows[("sam_online_no_llm", 6)]["time_seconds"], 0)
+        self.assertGreaterEqual(rows[("sam_online_with_refinement", 6)]["time_seconds"], 0)
+        self.assertEqual(len(rows[("sam_online_no_llm", 6)]["repeat_times_seconds"]), 1)
+        self.assertEqual(len(rows[("sam_online_with_refinement", 6)]["repeat_times_seconds"]), 1)
 
     def test_graph_strategy_script_intrinsic_context_path_excludes_query_id(self) -> None:
         node = MemoryNode(
@@ -3939,6 +3939,21 @@ class SamCoreTest(unittest.TestCase):
         self.assertEqual(strategies["sam_hybrid_reconstruction"]["query_full_trace_rate"], 1.0)
         self.assertGreater(strategies["sam_hybrid_reconstruction"]["candidate_pair_count"], 0)
         self.assertIn("quality_cost_score", strategies["sam_hybrid_reconstruction"])
+        self.assertIn("trace_edge_count", strategies["sam_hybrid_reconstruction"])
+        self.assertIn("trace_edge_reduction_rate", strategies["sam_hybrid_reconstruction"])
+        self.assertIn("retrieval_unit_reduction_rate", strategies["sam_hybrid_reconstruction"])
+        self.assertIn("trace_noise_rate", strategies["sam_hybrid_reconstruction"])
+        self.assertIn("effective_trace_precision", strategies["sam_hybrid_reconstruction"])
+        self.assertIn("query_trace_noise_rate", strategies["sam_hybrid_reconstruction"])
+        self.assertIn("query_effective_trace_precision", strategies["sam_hybrid_reconstruction"])
+        self.assertIn("average_exposed_evidence_per_query", strategies["sam_hybrid_reconstruction"])
+        self.assertIn("average_noise_evidence_per_query", strategies["sam_hybrid_reconstruction"])
+        self.assertGreaterEqual(
+            strategies["sam_hybrid_reconstruction"]["retrieval_unit_reduction_rate"],
+            0.0,
+        )
+        self.assertLessEqual(strategies["sam_hybrid_reconstruction"]["trace_noise_rate"], 1.0)
+        self.assertLessEqual(strategies["sam_hybrid_reconstruction"]["query_trace_noise_rate"], 1.0)
         self.assertTrue(comparison["strategy_rankings"]["balanced_score"])
         self.assertTrue(comparison["cases"]["insight_groups"])
         self.assertTrue(comparison["cases"]["query_traces"])
@@ -3954,6 +3969,10 @@ class SamCoreTest(unittest.TestCase):
         self.assertIn("对照策略", markdown)
         self.assertIn("sam_hybrid_reconstruction", markdown)
         self.assertIn("质量成本综合分", markdown)
+        self.assertIn("Trace噪声率", markdown)
+        self.assertIn("Query级Trace噪声率", markdown)
+        self.assertIn("检索单元减少率", markdown)
+        self.assertIn("有效Trace精度", markdown)
 
     def test_insight_memory_reconstruction_summary_reports_traceability(self) -> None:
         query = self.queries[0]

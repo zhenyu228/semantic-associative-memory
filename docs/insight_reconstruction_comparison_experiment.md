@@ -49,6 +49,12 @@
 
 `quality_cost_score` 是阶段性综合指标，综合支持证据回溯、查询完整回溯、答案一致性、证据覆盖、压缩率、构建耗时和冗余率。它不是最终论文指标，而是用于中期阶段比较不同重构策略的质量成本平衡。
 
+`query_trace_noise_rate` 表示单个 query 命中高层记忆后暴露的额外证据比例。该指标用于识别过度压缩：如果多个不相关 query 被压进同一个高层记忆，虽然全局支持证据回溯率可能不下降，但单个 query 会被迫看到大量额外证据。
+
+`average_exposed_evidence_per_query` 表示每个 query 通过高层记忆平均会暴露多少底层证据。该指标越高，说明压缩后的高层节点越容易把大范围证据一起带入检索上下文。
+
+当前 `sam_hybrid_reconstruction` 已采用关键词倒排候选生成，再进行语义相似、关键词重叠、证据重叠和答案一致性混合评分，避免在高层重构阶段进行全量两两比较。
+
 ## 运行命令
 
 小规模 smoke：
@@ -75,7 +81,7 @@
   --seed-k 1 \
   --hops 1 \
   --embedding-threshold 0.82 \
-  --hybrid-threshold 0.34 \
+  --hybrid-threshold 0.18 \
   --run-name insight_reconstruction_comparison_hotpotqa30
 ```
 
@@ -94,7 +100,7 @@
   --seed-k 1 \
   --hops 1 \
   --embedding-threshold 0.82 \
-  --hybrid-threshold 0.34 \
+  --hybrid-threshold 0.18 \
   --run-name insight_reconstruction_comparison_hotpotqa30_azure
 ```
 
