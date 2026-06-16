@@ -339,8 +339,14 @@ def draw_panel_initial(ax, ox: float) -> None:
     label_box(ax, ox + 4.0, 55.0, "Corpus", color=COLORS["navy"], fontsize=8.2, weight="bold")
     arrow(ax, (ox + 5.0, 48.0), (g0_pts["f"][0] - 0.2, g0_pts["f"][1] + 1.0), color=COLORS["navy"], lw=1.15, rad=-0.25)
 
-    for src, dst in [("b", "l1"), ("d", "l2"), ("h", "l3")]:
-        arrow(ax, (g0_pts[src][0], g0_pts[src][1] + 0.7), (g1_pts[dst][0], g1_pts[dst][1] - 0.8), color=COLORS["orange"], lw=1.0, ls=":", alpha=0.95)
+    fan_in_groups = {
+        "l1": ["b", "e"],
+        "l2": ["c", "d"],
+        "l3": ["g", "h"],
+    }
+    for dst, sources in fan_in_groups.items():
+        for src in sources:
+            arrow(ax, (g0_pts[src][0], g0_pts[src][1] + 0.65), (g1_pts[dst][0], g1_pts[dst][1] - 0.82), color=COLORS["orange"], lw=0.95, ls=":", alpha=0.9)
     for src, dst in [("l1", "t1"), ("l2", "t1"), ("l3", "t2")]:
         arrow(ax, (g1_pts[src][0], g1_pts[src][1] + 0.7), (g2_pts[dst][0], g2_pts[dst][1] - 0.8), color=COLORS["purple"], lw=1.0, ls=":", alpha=0.95)
     label_box(ax, ox + 20.6, 26.0, "bottom-up\naggregation", color=COLORS["gray"], fontsize=7.6)
@@ -354,8 +360,8 @@ def draw_panel_update(ax, ox: float) -> None:
 
     label_box(ax, ox + 26.2, 18.3, "New\nMemoryItems", color="#1e78c8", fontsize=8.0)
     arrow(ax, (ox + 25.1, 17.6), (g0_pts["new1"][0] + 0.2, g0_pts["new1"][1] + 0.4), color="#1e78c8", lw=1.0, rad=-0.20)
-    arrow(ax, (g0_pts["new1"][0], g0_pts["new1"][1] + 0.65), (g1_pts["l3"][0], g1_pts["l3"][1] - 0.9), color=COLORS["orange"], lw=1.2, ls=":")
-    arrow(ax, (g0_pts["new2"][0], g0_pts["new2"][1] + 0.75), (g1_pts["l3"][0] - 0.6, g1_pts["l3"][1] - 0.9), color=COLORS["orange"], lw=1.2, ls=":")
+    for src in ["h", "new1", "new2"]:
+        arrow(ax, (g0_pts[src][0], g0_pts[src][1] + 0.72), (g1_pts["l3"][0], g1_pts["l3"][1] - 0.88), color=COLORS["orange"], lw=1.08, ls=":")
     arrow(ax, (g1_pts["l3"][0], g1_pts["l3"][1] + 0.75), (g2_pts["t2"][0], g2_pts["t2"][1] - 0.8), color=COLORS["purple"], lw=1.2, ls=":")
     label_box(ax, ox + 12.8, 25.1, "local update\nwithout global rebuild", color=COLORS["orange"], fontsize=7.5)
 
