@@ -353,26 +353,32 @@ def draw_panel_initial(ax, ox: float) -> None:
 
 
 def draw_panel_update(ax, ox: float) -> None:
-    layout = draw_layered_memory(ax, ox, include_new=True, update_g1={"l3"}, update_g2={"t2"})
+    layout = draw_layered_memory(ax, ox, include_new=True, update_g1={"l2", "l3"}, update_g2={"t2"})
     g0_pts = layout["g0_pts"]
     g1_pts = layout["g1_pts"]
     g2_pts = layout["g2_pts"]
 
     label_box(ax, ox + 26.2, 18.3, "New\nMemoryItems", color="#1e78c8", fontsize=8.0)
     arrow(ax, (ox + 25.1, 17.6), (g0_pts["new1"][0] + 0.2, g0_pts["new1"][1] + 0.4), color="#1e78c8", lw=1.0, rad=-0.20)
-    for src in ["h", "new1", "new2"]:
-        arrow(ax, (g0_pts[src][0], g0_pts[src][1] + 0.72), (g1_pts["l3"][0], g1_pts["l3"][1] - 0.88), color=COLORS["orange"], lw=1.08, ls=":")
-    arrow(ax, (g1_pts["l3"][0], g1_pts["l3"][1] + 0.75), (g2_pts["t2"][0], g2_pts["t2"][1] - 0.8), color=COLORS["purple"], lw=1.2, ls=":")
-    label_box(ax, ox + 12.8, 25.1, "local update\nwithout global rebuild", color=COLORS["orange"], fontsize=7.5)
+    local_updates = {
+        "l3": ["h", "new1"],
+        "l2": ["g", "new2"],
+    }
+    for dst, sources in local_updates.items():
+        for src in sources:
+            arrow(ax, (g0_pts[src][0], g0_pts[src][1] + 0.72), (g1_pts[dst][0], g1_pts[dst][1] - 0.88), color=COLORS["orange"], lw=1.08, ls=":")
+    for src in ["l2", "l3"]:
+        arrow(ax, (g1_pts[src][0], g1_pts[src][1] + 0.75), (g2_pts["t2"][0], g2_pts["t2"][1] - 0.8), color=COLORS["purple"], lw=1.12, ls=":")
+    label_box(ax, ox + 12.3, 24.7, "separate local\nneighborhood updates", color=COLORS["orange"], fontsize=7.2)
 
 
 def draw_panel_retrieval(ax, ox: float) -> None:
     layout = draw_layered_memory(
         ax,
         ox,
-        include_new=True,
-        active_g0={"d", "h", "new1"},
-        active_g1={"l3"},
+        include_new=False,
+        active_g0={"d", "g", "h"},
+        active_g1={"l2", "l3"},
         active_g2={"t2"},
     )
     g0_pts = layout["g0_pts"]
@@ -381,10 +387,12 @@ def draw_panel_retrieval(ax, ox: float) -> None:
 
     label_box(ax, ox + 4.0, 52.5, "Query", color=COLORS["green"], fontsize=9.0, weight="bold")
     arrow(ax, (ox + 6.0, 51.4), (g2_pts["t2"][0] - 0.6, g2_pts["t2"][1] + 0.25), color=COLORS["green"], lw=1.5, ls="--")
-    arrow(ax, (g2_pts["t2"][0], g2_pts["t2"][1] - 0.75), (g1_pts["l3"][0], g1_pts["l3"][1] + 0.85), color=COLORS["green"], lw=1.35, ls=":")
-    arrow(ax, (g1_pts["l3"][0], g1_pts["l3"][1] - 0.75), (g0_pts["h"][0], g0_pts["h"][1] + 0.8), color=COLORS["green"], lw=1.35, ls=":")
-    arrow(ax, (g1_pts["l3"][0] - 0.4, g1_pts["l3"][1] - 0.8), (g0_pts["new1"][0], g0_pts["new1"][1] + 0.8), color=COLORS["green"], lw=1.35, ls=":")
-    for name in ["d", "h", "new1"]:
+    for dst in ["l2", "l3"]:
+        arrow(ax, (g2_pts["t2"][0], g2_pts["t2"][1] - 0.75), (g1_pts[dst][0], g1_pts[dst][1] + 0.85), color=COLORS["green"], lw=1.25, ls=":")
+    arrow(ax, (g1_pts["l2"][0], g1_pts["l2"][1] - 0.75), (g0_pts["d"][0], g0_pts["d"][1] + 0.8), color=COLORS["green"], lw=1.35, ls=":")
+    arrow(ax, (g1_pts["l3"][0] - 0.25, g1_pts["l3"][1] - 0.8), (g0_pts["g"][0], g0_pts["g"][1] + 0.8), color=COLORS["green"], lw=1.35, ls=":")
+    arrow(ax, (g1_pts["l3"][0] + 0.25, g1_pts["l3"][1] - 0.8), (g0_pts["h"][0], g0_pts["h"][1] + 0.8), color=COLORS["green"], lw=1.35, ls=":")
+    for name in ["d", "g", "h"]:
         check(ax, g0_pts[name][0] + 0.7, g0_pts[name][1] - 0.4, scale=0.47)
     label_box(ax, ox + 16.6, 25.3, "associate down\nthrough memory paths", color=COLORS["green"], fontsize=7.6)
     label_box(ax, ox + 22.5, 8.0, "bottom evidence", color=COLORS["green"], fontsize=7.4)
