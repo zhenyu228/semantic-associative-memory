@@ -82,7 +82,12 @@ from sam.graph_strategy_experiment import (
     write_graph_strategy_report,
 )
 from sam.graph_strategy_audit import audit_graph_strategy_report
-from sam.insight_experiment import summarize_insight_memory_reconstruction, write_insight_memory_reports
+from sam.insight_experiment import (
+    compare_insight_reconstruction_strategies,
+    summarize_insight_memory_reconstruction,
+    write_insight_memory_reports,
+    write_insight_reconstruction_comparison_reports,
+)
 from sam.llm import (
     AzureOpenAIChatClient,
     AzureOpenAISDKChatClient,
@@ -3751,6 +3756,106 @@ class SamCoreTest(unittest.TestCase):
         self.assertTrue(all(insight is not None for insight in insights))
         cluster_keys = {insight.metadata["cluster_key"] for insight in insights if insight is not None}
         self.assertEqual(cluster_keys, {"film", "soccer"})
+
+    def test_insight_reconstruction_comparison_reports_control_methods(self) -> None:
+        self.store.reset()
+        now = utc_now_iso()
+        query_specs = [
+            ("q_film_1", "film", ["doc_film_a", "doc_film_b"], [1.0, 0.0]),
+            ("q_film_2", "film", ["doc_film_c", "doc_film_d"], [0.95, 0.05]),
+            ("q_soccer_1", "soccer", ["doc_soccer_a", "doc_soccer_b"], [0.0, 1.0]),
+            ("q_soccer_2", "soccer", ["doc_soccer_c", "doc_soccer_d"], [0.05, 0.95]),
+        ]
+        queries: list[EvaluationQuery] = []
+        for query_id, topic, support_doc_ids, embedding in query_specs:
+            queries.append(
+                EvaluationQuery(
+                    id=query_id,
+                    dataset="unit",
+                    question=f"Which evidence supports the {topic} claim?",
+                    answer=topic,
+                    supporting_doc_ids=support_doc_ids,
+                    candidate_doc_ids=support_doc_ids,
+                    metadata={},
+                )
+            )
+            for doc_id in support_doc_ids:
+                self.store.upsert_node(
+                    MemoryNode(
+                        id=f"node_{doc_id}",
+                        text=f"{topic} evidence text for {doc_id}",
+                        summary=f"{topic} evidence",
+                        keywords=[topic, "evidence", doc_id],
+                        tags=[],
+                        source="unit-test",
+                        created_at=now,
+                        last_accessed_at=None,
+                        usage_count=0,
+                        confidence=0.8,
+                        embedding=embedding,
+                        metadata={"original_doc_id": doc_id, "title": doc_id},
+                    )
+                )
+            self.store.upsert_node(
+                MemoryNode(
+                    id=f"consolidated_{query_id}",
+                    text=f"问题：{topic} question\n答案：{topic}\n支持证据：{','.join(support_doc_ids)}",
+                    summary=f"{topic} question -> {topic}",
+                    keywords=[topic, "claim", "evidence"],
+                    tags=["consolidated_memory", "sam_full", "unit"],
+                    source="unit-test",
+                    created_at=now,
+                    last_accessed_at=None,
+                    usage_count=0,
+                    confidence=0.8,
+                    embedding=embedding,
+                    metadata={
+                        "node_type": "consolidated_memory",
+                        "query_id": query_id,
+                        "dataset": "unit",
+                        "answer": topic,
+                        "evidence_node_ids": [f"node_{doc_id}" for doc_id in support_doc_ids],
+                    },
+                )
+            )
+
+        comparison = compare_insight_reconstruction_strategies(
+            store=self.store,
+            queries=queries,
+            dataset="unit",
+        )
+
+        strategies = comparison["strategies"]
+        self.assertIn("no_reconstruction", strategies)
+        self.assertIn("flat_consolidated", strategies)
+        self.assertIn("keyword_cluster", strategies)
+        self.assertIn("embedding_cluster", strategies)
+        self.assertIn("sam_hybrid_reconstruction", strategies)
+        self.assertEqual(strategies["no_reconstruction"]["insight_count"], 0)
+        self.assertEqual(strategies["no_reconstruction"]["support_trace_rate"], 0.0)
+        self.assertEqual(strategies["flat_consolidated"]["support_trace_rate"], 1.0)
+        self.assertGreater(
+            strategies["sam_hybrid_reconstruction"]["compression_ratio"],
+            strategies["flat_consolidated"]["compression_ratio"],
+        )
+        self.assertEqual(strategies["sam_hybrid_reconstruction"]["query_full_trace_rate"], 1.0)
+        self.assertGreater(strategies["sam_hybrid_reconstruction"]["candidate_pair_count"], 0)
+        self.assertIn("quality_cost_score", strategies["sam_hybrid_reconstruction"])
+        self.assertTrue(comparison["strategy_rankings"]["balanced_score"])
+        self.assertTrue(comparison["cases"]["insight_groups"])
+        self.assertTrue(comparison["cases"]["query_traces"])
+
+        json_path, markdown_path = write_insight_reconstruction_comparison_reports(
+            output_dir=Path(self.temp_dir.name) / "insight_comparison",
+            comparison=comparison,
+            warmup_metrics={"method_metrics": {"sam_full": {"evidence_recall": 1.0}}},
+        )
+
+        self.assertTrue(json_path.exists())
+        markdown = markdown_path.read_text(encoding="utf-8")
+        self.assertIn("对照策略", markdown)
+        self.assertIn("sam_hybrid_reconstruction", markdown)
+        self.assertIn("质量成本综合分", markdown)
 
     def test_insight_memory_reconstruction_summary_reports_traceability(self) -> None:
         query = self.queries[0]
