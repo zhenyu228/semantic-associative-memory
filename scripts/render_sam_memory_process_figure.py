@@ -137,7 +137,22 @@ def draw_plane(
         alpha=alpha,
     )
     ax.add_patch(patch)
-    ax.text(x + w + skew + 0.75, y + h * 0.7, label, fontsize=10.8, fontweight="bold")
+    ax.text(
+        x + w + skew - 0.35,
+        y + h * 0.7,
+        label,
+        ha="right",
+        va="center",
+        fontsize=10.4,
+        fontweight="bold",
+        zorder=11,
+        bbox={
+            "boxstyle": "round,pad=0.08",
+            "facecolor": "white",
+            "edgecolor": "none",
+            "alpha": 0.82,
+        },
+    )
 
 
 def label_box(
@@ -242,29 +257,30 @@ def draw_base_graph(ax, x: float, y: float, *, active: bool = False, noise: bool
     pts = {name: plane_point(x, y, w, h, *uv) for name, uv in coords.items()}
     for left, right in [("a", "b"), ("b", "c"), ("c", "d"), ("b", "e"), ("e", "d"), ("f", "b"), ("f", "e"), ("c", "g")]:
         edge(ax, pts[left], pts[right], color=COLORS["navy"], lw=1.3)
+    pts["new1"] = plane_point(x, y, w, h, 0.87, 0.32)
+    pts["new2"] = plane_point(x, y, w, h, 0.78, 0.03)
+    edge(ax, pts["d"], pts["new1"], color="#7ba6d8", lw=1.2)
+    edge(ax, pts["g"], pts["new2"], color="#7ba6d8", lw=1.2)
     active_nodes = {"b", "c", "d"} if active else set()
-    for name, pt in pts.items():
+    for name in ["a", "b", "c", "d", "e", "f", "g"]:
+        pt = pts[name]
         if noise and name == "g":
             node(ax, pt, color="#f0d6d6", edge=COLORS["red"])
         elif name in active_nodes:
             node(ax, pt, color=COLORS["green_light"], edge=COLORS["green"], lw=1.7)
         else:
             node(ax, pt)
+    node(ax, pts["new1"], color=COLORS["blue_light"], edge="#6d99cc")
+    node(ax, pts["new2"], color=COLORS["blue_light"], edge="#6d99cc")
     return pts
 
 
 def draw_panel_a(ax, x: float, y: float) -> None:
     pts = draw_base_graph(ax, x, y)
-    new1 = plane_point(x, y, 15.0, 7.0, 0.87, 0.32)
-    new2 = plane_point(x, y, 15.0, 7.0, 0.78, 0.03)
-    edge(ax, pts["d"], new1, color="#7ba6d8", lw=1.2)
-    edge(ax, pts["g"], new2, color="#7ba6d8", lw=1.2)
-    node(ax, new1, color=COLORS["blue_light"], edge="#6d99cc")
-    node(ax, new2, color=COLORS["blue_light"], edge="#6d99cc")
     draw_plane(ax, x + 4.9, y + 9.0, 8.2, 4.0, r"$G_1$", alpha=0.9)
     draw_plane(ax, x + 7.2, y + 16.1, 5.8, 3.0, r"$G_2$", alpha=0.75)
-    label_box(ax, x + 13.8, y + 5.7, "New\nMemoryItems", color="#1e78c8", fontsize=8.8)
-    arrow(ax, (x + 13.9, y + 4.9), (new1[0] + 0.1, new1[1] + 0.25), color="#1e78c8", rad=-0.25, lw=1.0)
+    label_box(ax, x + 13.7, y + 5.6, "New\nMemoryItems", color="#1e78c8", fontsize=8.4)
+    arrow(ax, (x + 13.7, y + 4.9), (pts["new1"][0] + 0.1, pts["new1"][1] + 0.25), color="#1e78c8", rad=-0.22, lw=1.0)
 
 
 def draw_panel_b(ax, x: float, y: float) -> None:
