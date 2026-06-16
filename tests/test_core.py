@@ -70,6 +70,7 @@ from sam.generation import (
     write_generation_reports,
 )
 from sam.graph_cost_audit import audit_graph_build_cost, write_graph_build_cost_audit
+from sam.graph_density_experiment import run_graph_density_sweep, write_graph_density_report
 from sam.graph import GraphBuilder
 from sam.graph_strategy_experiment import (
     GraphStrategyConfig,
@@ -1285,6 +1286,103 @@ class SamCoreTest(unittest.TestCase):
         self.assertEqual(report["strategies"]["context_path_only"]["metrics"]["rescued_support_count"], 1)
         self.assertEqual(report["summary"]["best_rescue_strategy"], "context_path_only")
         self.assertEqual(report["summary"]["best_recall_gain_strategy"], "context_path_only")
+
+    def test_graph_density_sweep_reports_noise_and_best_configuration(self) -> None:
+        now = utc_now_iso()
+        nodes = [
+            MemoryNode(
+                id="seed_support",
+                text="Seed support evidence about graph memory.",
+                summary="Seed support evidence.",
+                keywords=["graph", "memory"],
+                tags=[],
+                source="unit",
+                created_at=now,
+                last_accessed_at=None,
+                usage_count=0,
+                confidence=0.9,
+                embedding=[1.0, 0.0],
+                metadata={"original_doc_id": "doc_seed", "context_path": ["paper", "method"], "position": 1},
+            ),
+            MemoryNode(
+                id="missing_support",
+                text="Second support evidence in the same method section.",
+                summary="Second support evidence.",
+                keywords=["evidence", "path"],
+                tags=[],
+                source="unit",
+                created_at=now,
+                last_accessed_at=None,
+                usage_count=0,
+                confidence=0.9,
+                embedding=[0.0, 1.0],
+                metadata={"original_doc_id": "doc_missing", "context_path": ["paper", "method"], "position": 2},
+            ),
+            MemoryNode(
+                id="noise_a",
+                text="Noise node close to the seed but not gold evidence.",
+                summary="Noise node.",
+                keywords=["graph", "noise"],
+                tags=[],
+                source="unit",
+                created_at=now,
+                last_accessed_at=None,
+                usage_count=0,
+                confidence=0.9,
+                embedding=[0.9, 0.1],
+                metadata={"original_doc_id": "doc_noise_a", "context_path": ["paper", "method"], "position": 3},
+            ),
+            MemoryNode(
+                id="noise_b",
+                text="Another noise node.",
+                summary="Noise node.",
+                keywords=["graph", "noise"],
+                tags=[],
+                source="unit",
+                created_at=now,
+                last_accessed_at=None,
+                usage_count=0,
+                confidence=0.9,
+                embedding=[0.8, 0.2],
+                metadata={"original_doc_id": "doc_noise_b", "context_path": ["paper", "method"], "position": 4},
+            ),
+        ]
+        query = EvaluationQuery(
+            id="q_density",
+            dataset="unit",
+            question="Which evidence explains graph memory?",
+            answer="Seed and second support.",
+            supporting_doc_ids=["doc_seed", "doc_missing"],
+            candidate_doc_ids=["doc_seed", "doc_missing", "doc_noise_a", "doc_noise_b"],
+        )
+
+        report = run_graph_density_sweep(
+            nodes=nodes,
+            queries=[query],
+            query_embeddings={"q_density": [1.0, 0.0]},
+            strategy="context_path_only",
+            top_k_edges_values=[1, 3],
+            threshold_values=[0.1],
+            top_k=2,
+            seed_k=1,
+            hops=1,
+        )
+
+        self.assertEqual(report["summary"]["configuration_count"], 2)
+        self.assertIn("best_balanced_configuration", report["summary"])
+        rows = report["density_rows"]
+        self.assertEqual(len(rows), 2)
+        self.assertGreater(rows[1]["edge_count"], rows[0]["edge_count"])
+        self.assertIn("noise_expansion_rate", rows[0])
+        self.assertIn("recall_gain_per_100_edges", rows[0])
+
+        _json_path, markdown_path = write_graph_density_report(
+            report,
+            Path(self.temp_dir.name) / "density_report",
+        )
+        markdown = markdown_path.read_text(encoding="utf-8")
+        self.assertIn("图密度", markdown)
+        self.assertIn("噪声扩展率", markdown)
 
     def test_cost_effect_figure_rows_extract_cost_and_recall_fields(self) -> None:
         from sam.cost_effect_figure import build_cost_effect_rows
