@@ -38,26 +38,26 @@ def main() -> None:
             "axes.unicode_minus": False,
         }
     )
-    fig, ax = plt.subplots(figsize=(16, 5.2), dpi=180)
+    fig, ax = plt.subplots(figsize=(16, 5.8), dpi=180)
     ax.set_xlim(0, 100)
-    ax.set_ylim(0, 40)
+    ax.set_ylim(0, 43.5)
     ax.axis("off")
 
     outer = FancyBboxPatch(
         (2.5, 4.2),
         95,
-        32.0,
+        35.0,
         boxstyle="round,pad=0.35,rounding_size=3.6",
         linewidth=2.3,
         edgecolor="black",
         facecolor="white",
     )
     ax.add_patch(outer)
-    ax.plot([76.5, 76.5], [4.4, 36.1], color=COLORS["navy"], lw=2.2, ls="--")
+    ax.plot([76.5, 76.5], [4.4, 39.0], color=COLORS["navy"], lw=2.2, ls="--")
 
     ax.text(
         39.0,
-        33.4,
+        36.1,
         "SAM Memory Development: Dynamic Associative Compression",
         ha="center",
         va="center",
@@ -67,7 +67,7 @@ def main() -> None:
     )
     ax.text(
         87.0,
-        33.4,
+        36.1,
         "Memory Retrieval",
         ha="center",
         va="center",
@@ -77,9 +77,9 @@ def main() -> None:
     )
 
     draw_panel_a(ax, 6.5, 10.0)
-    draw_transition(ax, (27.0, 22.7), (33.0, 22.7), "Activation")
+    draw_transition(ax, (27.0, 23.2), (33.0, 23.2), "Activation")
     draw_panel_b(ax, 32.2, 10.0)
-    draw_transition(ax, (52.6, 22.7), (58.6, 22.7), "Reconstruction")
+    draw_transition(ax, (52.6, 23.2), (58.6, 23.2), "Reconstruction")
     draw_panel_c(ax, 58.0, 10.0)
     draw_panel_d(ax, 79.2, 10.0)
 
@@ -137,7 +137,39 @@ def draw_plane(
         alpha=alpha,
     )
     ax.add_patch(patch)
-    ax.text(x + w + skew + 1.0, y + h * 0.7, label, fontsize=11.5, fontweight="bold")
+    ax.text(x + w + skew + 0.75, y + h * 0.7, label, fontsize=10.8, fontweight="bold")
+
+
+def label_box(
+    ax,
+    x: float,
+    y: float,
+    text: str,
+    *,
+    color: str,
+    fontsize: float = 9.0,
+    ha: str = "center",
+    va: str = "center",
+) -> None:
+    """给流程注释加白底，避免文字和节点、边混在一起。"""
+
+    ax.text(
+        x,
+        y,
+        text,
+        ha=ha,
+        va=va,
+        color=color,
+        fontsize=fontsize,
+        fontstyle="italic",
+        zorder=12,
+        bbox={
+            "boxstyle": "round,pad=0.16",
+            "facecolor": "white",
+            "edgecolor": "none",
+            "alpha": 0.88,
+        },
+    )
 
 
 def node(
@@ -231,8 +263,8 @@ def draw_panel_a(ax, x: float, y: float) -> None:
     node(ax, new2, color=COLORS["blue_light"], edge="#6d99cc")
     draw_plane(ax, x + 4.9, y + 9.0, 8.2, 4.0, r"$G_1$", alpha=0.9)
     draw_plane(ax, x + 7.2, y + 16.1, 5.8, 3.0, r"$G_2$", alpha=0.75)
-    ax.text(x + 13.9, y + 0.6, "New\nMemoryItems", color="#1e78c8", fontsize=9.5, fontstyle="italic")
-    arrow(ax, (x + 16.0, y + 1.3), (new1[0] + 0.2, new1[1] + 0.15), color="#1e78c8", rad=-0.35, lw=1.0)
+    label_box(ax, x + 13.8, y + 5.7, "New\nMemoryItems", color="#1e78c8", fontsize=8.8)
+    arrow(ax, (x + 13.9, y + 4.9), (new1[0] + 0.1, new1[1] + 0.25), color="#1e78c8", rad=-0.25, lw=1.0)
 
 
 def draw_panel_b(ax, x: float, y: float) -> None:
@@ -248,9 +280,9 @@ def draw_panel_b(ax, x: float, y: float) -> None:
     node(ax, c2, color=COLORS["orange_light"], edge=COLORS["orange"], radius=0.70, lw=1.7)
     for src, dst in [(pts["b"], c1), (pts["c"], c1), (pts["d"], c2)]:
         edge(ax, src, dst, color=COLORS["navy"], lw=1.0, ls=":")
-    ax.text(x + 10.9, y + 8.2, "Consolidation", color=COLORS["orange"], fontsize=10, fontstyle="italic")
-    ax.text(x + 0.7, y + 15.0, "Query", color=COLORS["green"], fontsize=10, fontstyle="italic")
-    arrow(ax, (x + 2.3, y + 14.8), (pts["b"][0], pts["b"][1] + 0.9), color=COLORS["green"], lw=1.2, ls="--")
+    label_box(ax, x + 13.1, y + 5.6, "Consolidation", color=COLORS["orange"], fontsize=8.8)
+    label_box(ax, x + 2.6, y + 17.8, "Query", color=COLORS["green"], fontsize=9.2)
+    arrow(ax, (x + 2.7, y + 16.9), (pts["b"][0], pts["b"][1] + 0.9), color=COLORS["green"], lw=1.2, ls="--")
     ax.add_patch(Circle((pts["g"][0], pts["g"][1]), 1.05, fill=False, edgecolor=COLORS["red"], lw=1.2, ls="--"))
 
 
@@ -276,9 +308,9 @@ def draw_panel_c(ax, x: float, y: float) -> None:
         edge(ax, c, insight, color=COLORS["purple"], lw=1.1, ls=":")
     for src in [pts["b"], pts["c"], pts["d"]]:
         edge(ax, src, c1, color=COLORS["navy"], lw=0.9, ls=":")
-    ax.text(x + 10.5, y + 18.1, "Compressed\nMemory", color=COLORS["purple"], fontsize=9.5, fontstyle="italic")
-    ax.text(x + 11.4, y + 2.0, "Pruned weak path", color=COLORS["red"], fontsize=8.8, fontstyle="italic")
-    arrow(ax, (pts["g"][0] + 0.8, pts["g"][1] + 0.2), (x + 13.8, y + 2.1), color=COLORS["red"], lw=1.0, ls="--")
+    label_box(ax, x + 8.6, y + 21.0, "Compressed\nMemory", color=COLORS["purple"], fontsize=8.8)
+    label_box(ax, x + 13.4, y + 6.6, "Pruned path", color=COLORS["red"], fontsize=8.2)
+    arrow(ax, (pts["g"][0] + 0.8, pts["g"][1] + 0.2), (x + 12.9, y + 5.9), color=COLORS["red"], lw=1.0, ls="--")
 
 
 def draw_panel_d(ax, x: float, y: float) -> None:
@@ -298,15 +330,15 @@ def draw_panel_d(ax, x: float, y: float) -> None:
         edge(ax, c, insight, color=COLORS["green"], lw=1.1, ls=":")
     for src in [pts["b"], pts["c"], pts["d"]]:
         edge(ax, src, c1, color=COLORS["green"], lw=1.1, ls=":")
-    ax.text(x - 1.0, y + 15.0, "Query", color=COLORS["green"], fontsize=10.5, fontstyle="italic")
-    arrow(ax, (x + 1.2, y + 14.7), (insight[0] - 0.5, insight[1] - 0.1), color=COLORS["green"], lw=1.2, ls="--")
+    label_box(ax, x + 0.7, y + 16.6, "Query", color=COLORS["green"], fontsize=9.2)
+    arrow(ax, (x + 1.6, y + 16.0), (insight[0] - 0.5, insight[1] - 0.1), color=COLORS["green"], lw=1.2, ls="--")
     for p in [insight, c1, pts["b"], pts["c"], pts["d"]]:
         check(ax, p[0] + 0.85, p[1] - 0.45, scale=0.48)
 
 
 def draw_transition(ax, p1: tuple[float, float], p2: tuple[float, float], label: str) -> None:
     arrow(ax, p1, p2, color=COLORS["navy"], lw=1.4, rad=-0.28)
-    ax.text((p1[0] + p2[0]) / 2, p1[1] + 2.2, label, ha="center", fontsize=10.5, fontstyle="italic")
+    label_box(ax, (p1[0] + p2[0]) / 2, p1[1] + 2.4, label, color=COLORS["navy"], fontsize=9.4)
 
 
 def draw_caption(ax, x: float, title: str) -> None:
